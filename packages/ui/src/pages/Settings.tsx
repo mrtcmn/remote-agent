@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell, Key, Smartphone, Loader2, Check, Send } from 'lucide-react';
+import { Bell, Key, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
+import { useNotifications } from '@/hooks/useNotifications';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -106,6 +107,7 @@ function PinSection({ hasPin }: { hasPin: boolean }) {
 
 function NotificationSection() {
   const queryClient = useQueryClient();
+  const { status, isConfigured, enableNotifications, isEnabling } = useNotifications();
 
   const { data: prefs } = useQuery({
     queryKey: ['notification-prefs'],
@@ -141,6 +143,75 @@ function NotificationSection() {
     updateMutation.mutate({ [key]: !prefs[key] });
   };
 
+  const handleEnableNotifications = async () => {
+    try {
+      await enableNotifications();
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+    } catch {
+      // Error already handled in hook
+    }
+  };
+
+  // Render status-specific UI
+  const renderNotificationStatus = () => {
+    switch (status) {
+      case 'unsupported':
+        return (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive">
+            <BellOff className="h-5 w-5" />
+            <span className="text-sm">Push notifications are not supported in this browser</span>
+          </div>
+        );
+
+      case 'unconfigured':
+        return (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">
+            <AlertCircle className="h-5 w-5" />
+            <span className="text-sm">Push notifications are not configured on the server</span>
+          </div>
+        );
+
+      case 'denied':
+        return (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive">
+            <BellOff className="h-5 w-5" />
+            <div className="text-sm">
+              <p className="font-medium">Notifications blocked</p>
+              <p className="text-muted-foreground">Please enable notifications in your browser settings</p>
+            </div>
+          </div>
+        );
+
+      case 'default':
+      case 'granted':
+        return (
+          <Button
+            onClick={handleEnableNotifications}
+            disabled={isEnabling}
+            className="w-full sm:w-auto"
+          >
+            {isEnabling ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <BellRing className="h-4 w-4 mr-2" />
+            )}
+            Enable Push Notifications
+          </Button>
+        );
+
+      case 'registered':
+        return (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-green-500/10 text-green-600 dark:text-green-400">
+            <Check className="h-5 w-5" />
+            <span className="text-sm">Push notifications enabled on this device</span>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -153,42 +224,52 @@ function NotificationSection() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Enable notifications section */}
         <div className="space-y-3">
-          <h4 className="font-medium text-sm">Notify me when:</h4>
-          <label className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              checked={prefs?.notifyOnInput ?? true}
-              onChange={() => togglePref('notifyOnInput')}
-              className="rounded"
-            />
-            <span className="text-sm">Input is required</span>
-          </label>
-          <label className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              checked={prefs?.notifyOnError ?? true}
-              onChange={() => togglePref('notifyOnError')}
-              className="rounded"
-            />
-            <span className="text-sm">An error occurs</span>
-          </label>
-          <label className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              checked={prefs?.notifyOnComplete ?? true}
-              onChange={() => togglePref('notifyOnComplete')}
-              className="rounded"
-            />
-            <span className="text-sm">Task completes</span>
-          </label>
+          <h4 className="font-medium text-sm">This Device</h4>
+          {renderNotificationStatus()}
         </div>
 
+        {/* Preferences section - only show if configured */}
+        {isConfigured && (
+          <div className="space-y-3">
+            <h4 className="font-medium text-sm">Notify me when:</h4>
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={prefs?.notifyOnInput ?? true}
+                onChange={() => togglePref('notifyOnInput')}
+                className="rounded"
+              />
+              <span className="text-sm">Input is required</span>
+            </label>
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={prefs?.notifyOnError ?? true}
+                onChange={() => togglePref('notifyOnError')}
+                className="rounded"
+              />
+              <span className="text-sm">An error occurs</span>
+            </label>
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={prefs?.notifyOnComplete ?? true}
+                onChange={() => togglePref('notifyOnComplete')}
+                className="rounded"
+              />
+              <span className="text-sm">Task completes</span>
+            </label>
+          </div>
+        )}
+
+        {/* Registered devices */}
         <div>
           <h4 className="font-medium text-sm mb-2">Registered Devices ({devices?.length || 0})</h4>
           {devices?.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No devices registered. Enable push notifications in your browser.
+              No devices registered yet.
             </p>
           ) : (
             <div className="space-y-2">
@@ -203,19 +284,22 @@ function NotificationSection() {
           )}
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => testMutation.mutate()}
-          disabled={testMutation.isPending}
-        >
-          {testMutation.isPending ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <Send className="h-4 w-4 mr-2" />
-          )}
-          Send Test Notification
-        </Button>
+        {/* Test notification button - only show if devices exist */}
+        {devices && devices.length > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => testMutation.mutate()}
+            disabled={testMutation.isPending}
+          >
+            {testMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4 mr-2" />
+            )}
+            Send Test Notification
+          </Button>
+        )}
       </CardContent>
     </Card>
   );

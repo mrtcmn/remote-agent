@@ -90,7 +90,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
         persist: body.persist,
         cwd,
         env: {
-          HOME: process.env.HOME || '/root',
+          HOME: '/home/agent',
         },
       });
 

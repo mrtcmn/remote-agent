@@ -119,9 +119,9 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
       xterm = new Terminal({
         cursorBlink: true,
         cursorStyle: 'block',
-        fontSize: 13,
-        fontFamily: '"SF Mono", "Menlo", "Monaco", "Cascadia Code", "Consolas", monospace',
-        fontWeight: '400',
+        fontSize: 11,
+        fontFamily: '"Fira Code", "SF Mono", "Menlo", "Monaco", "Cascadia Code", "Consolas", monospace',
+        fontWeight: '500',
         fontWeightBold: '600',
         lineHeight: 1.2,
         letterSpacing: 0,

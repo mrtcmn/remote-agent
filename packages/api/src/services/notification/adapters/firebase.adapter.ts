@@ -12,11 +12,35 @@ export class FirebaseAdapter extends BaseNotificationAdapter {
     if (this.initialized) return;
 
     const projectId = process.env.FIREBASE_PROJECT_ID;
-    const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    const rawPrivateKey = process.env.FIREBASE_PRIVATE_KEY;
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 
-    if (!projectId || !privateKey || !clientEmail) {
+    if (!projectId || !rawPrivateKey || !clientEmail) {
       console.warn('Firebase credentials not configured, push notifications disabled');
+      return;
+    }
+
+    // Parse and normalize the private key
+    let privateKey = rawPrivateKey.trim();
+    
+    // Remove surrounding quotes if present
+    if ((privateKey.startsWith('"') && privateKey.endsWith('"')) ||
+        (privateKey.startsWith("'") && privateKey.endsWith("'"))) {
+      privateKey = privateKey.slice(1, -1);
+    }
+
+    // Replace escaped newlines with actual newlines
+    // Handle both \n and \\n patterns
+    privateKey = privateKey.replace(/\\n/g, '\n');
+    
+    // Ensure the key has proper PEM formatting
+    if (!privateKey.includes('-----BEGIN')) {
+      console.error('Firebase private key is missing PEM header. Expected format: -----BEGIN PRIVATE KEY-----');
+      return;
+    }
+
+    if (!privateKey.includes('-----END')) {
+      console.error('Firebase private key is missing PEM footer. Expected format: -----END PRIVATE KEY-----');
       return;
     }
 
@@ -32,6 +56,12 @@ export class FirebaseAdapter extends BaseNotificationAdapter {
       console.log('Firebase Admin initialized');
     } catch (error) {
       console.error('Failed to initialize Firebase:', error);
+      if (error instanceof Error) {
+        console.error('Error details:', error.message);
+        // Log first 100 chars of private key for debugging (without exposing full key)
+        const keyPreview = privateKey.substring(0, 100).replace(/\n/g, '\\n');
+        console.error('Private key preview (first 100 chars):', keyPreview);
+      }
     }
   }
 

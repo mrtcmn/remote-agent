@@ -17,6 +17,7 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
 
   // Hook callback for notifications
   .post('/hooks/attention', async ({ body, set }) => {
+    console.log('hooks/attention', body);
     const session = await db.query.claudeSessions.findFirst({
       where: eq(claudeSessions.id, body.sessionId),
     });

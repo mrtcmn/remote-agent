@@ -26,14 +26,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
     apt-get install -y gh && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI
-RUN curl -fsSL https://claude.ai/install.sh | bash || \
-    npm install -g @anthropic-ai/claude-code || \
-    echo "Claude CLI installation skipped"
-
-# Create app user
-RUN useradd -m -s /bin/bash agent && \
-    echo "agent ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+# Create app user (no sudo access for security)
+RUN useradd -m -s /bin/bash agent
 
 # Setup app directory
 WORKDIR /app
@@ -65,13 +59,18 @@ ENV NODE_ENV=production
 ENV WORKSPACES_ROOT=/app/workspaces
 ENV SSH_KEYS_ROOT=/app/ssh-keys
 ENV CONFIG_ROOT=/app/config
-ENV PATH="/root/.local/bin:/usr/local/bin:${PATH}"
+ENV PATH="/home/agent/.local/bin:/usr/local/bin:${PATH}"
 
 # Expose port
 EXPOSE 5100
 
 # Switch to non-root user
 USER agent
+
+# Install Claude Code CLI as agent user (installs to ~/.local/bin)
+RUN curl -fsSL https://claude.ai/install.sh | bash || \
+    npm install -g @anthropic-ai/claude-code || \
+    echo "Claude CLI installation skipped"
 
 # Setup git config
 RUN git config --global user.email "agent@remote-agent.local" && \
