@@ -66,6 +66,18 @@ export const api = {
   getSSHKeys: () => request<SSHKey[]>('/workspace/ssh-keys'),
   addSSHKey: (data: { name?: string; privateKey: string; publicKey?: string }) =>
     request('/workspace/ssh-keys', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Terminals
+  getSessionTerminals: (sessionId: string) =>
+    request<TerminalInfo[]>(`/terminals/session/${sessionId}`),
+  getTerminal: (id: string) =>
+    request<TerminalInfo>(`/terminals/${id}`),
+  createTerminal: (data: CreateTerminalInput) =>
+    request<TerminalInfo>('/terminals', { method: 'POST', body: JSON.stringify(data) }),
+  resizeTerminal: (id: string, cols: number, rows: number) =>
+    request(`/terminals/${id}/resize`, { method: 'POST', body: JSON.stringify({ cols, rows }) }),
+  closeTerminal: (id: string) =>
+    request(`/terminals/${id}`, { method: 'DELETE' }),
 };
 
 // Types
@@ -154,4 +166,28 @@ export interface PairWorkspaceInput {
   skills?: { name: string; content: string }[];
   hooks?: { hooks: Record<string, { type: string; command: string }[]> };
   claudeSettings?: Record<string, unknown>;
+}
+
+export interface TerminalInfo {
+  id: string;
+  sessionId: string;
+  name: string;
+  command: string[];
+  cols: number;
+  rows: number;
+  persist: boolean;
+  status: 'running' | 'exited';
+  liveStatus?: string;
+  exitCode?: number;
+  scrollback?: string;
+  createdAt: string;
+}
+
+export interface CreateTerminalInput {
+  sessionId: string;
+  name?: string;
+  command?: string[];
+  cols?: number;
+  rows?: number;
+  persist?: boolean;
 }
