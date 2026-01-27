@@ -1,12 +1,13 @@
 import { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Send, Loader2, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { ArrowLeft, Send, Loader2, AlertCircle, CheckCircle, XCircle, TerminalSquare, MessageSquare } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent } from '@/components/ui/Card';
+import { TerminalTabs } from '@/components/TerminalTabs';
 import { cn } from '@/lib/utils';
 
 interface OutputMessage {
@@ -25,6 +26,7 @@ export function SessionPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [input, setInput] = useState('');
+  const [viewMode, setViewMode] = useState<'claude' | 'terminal'>('claude');
   const outputRef = useRef<HTMLDivElement>(null);
 
   const { data: session } = useQuery({
@@ -87,72 +89,96 @@ export function SessionPage() {
             {isConnected ? 'Connected' : 'Disconnected'}
           </div>
         </div>
+        <div className="flex gap-1">
+          <Button
+            variant={viewMode === 'claude' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setViewMode('claude')}
+          >
+            <MessageSquare className="h-4 w-4 mr-1" />
+            Claude
+          </Button>
+          <Button
+            variant={viewMode === 'terminal' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setViewMode('terminal')}
+          >
+            <TerminalSquare className="h-4 w-4 mr-1" />
+            Terminal
+          </Button>
+        </div>
       </div>
 
-      {/* Output */}
-      <div
-        ref={outputRef}
-        className="flex-1 overflow-y-auto rounded-lg border bg-black/50 p-4 terminal-output"
-      >
-        {messages.length === 0 ? (
-          <div className="text-muted-foreground text-center py-8">
-            Waiting for output...
-          </div>
-        ) : (
-          messages.map((msg, i) => <OutputLine key={i} message={msg as OutputMessage} />)
-        )}
-      </div>
-
-      {/* Permission Request */}
-      {isWaitingPermission && (
-        <Card className="mt-4 border-yellow-500/50 bg-yellow-500/10">
-          <CardContent className="py-4">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5" />
-              <div className="flex-1">
-                <p className="font-medium text-yellow-500">Permission Required</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {lastMessage?.data?.permission || lastMessage?.data?.prompt}
-                </p>
-                <div className="flex gap-2 mt-3">
-                  <Button
-                    size="sm"
-                    onClick={() => respondPermission(true)}
-                    className="gap-2"
-                  >
-                    <CheckCircle className="h-4 w-4" />
-                    Allow
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => respondPermission(false)}
-                    className="gap-2"
-                  >
-                    <XCircle className="h-4 w-4" />
-                    Deny
-                  </Button>
-                </div>
+      {viewMode === 'terminal' ? (
+        <TerminalTabs sessionId={id!} className="flex-1" />
+      ) : (
+        <>
+          {/* Output */}
+          <div
+            ref={outputRef}
+            className="flex-1 overflow-y-auto rounded-lg border bg-black/50 p-4 terminal-output"
+          >
+            {messages.length === 0 ? (
+              <div className="text-muted-foreground text-center py-8">
+                Waiting for output...
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            ) : (
+              messages.map((msg, i) => <OutputLine key={i} message={msg as OutputMessage} />)
+            )}
+          </div>
 
-      {/* Input */}
-      <div className="mt-4 flex gap-2">
-        <Input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={isWaitingInput ? 'Enter your response...' : 'Send a message...'}
-          className="flex-1"
-          disabled={!isConnected}
-        />
-        <Button onClick={handleSend} disabled={!isConnected || !input.trim()}>
-          {isConnected ? <Send className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin" />}
-        </Button>
-      </div>
+          {/* Permission Request */}
+          {isWaitingPermission && (
+            <Card className="mt-4 border-yellow-500/50 bg-yellow-500/10">
+              <CardContent className="py-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-medium text-yellow-500">Permission Required</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {lastMessage?.data?.permission || lastMessage?.data?.prompt}
+                    </p>
+                    <div className="flex gap-2 mt-3">
+                      <Button
+                        size="sm"
+                        onClick={() => respondPermission(true)}
+                        className="gap-2"
+                      >
+                        <CheckCircle className="h-4 w-4" />
+                        Allow
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => respondPermission(false)}
+                        className="gap-2"
+                      >
+                        <XCircle className="h-4 w-4" />
+                        Deny
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Input */}
+          <div className="mt-4 flex gap-2">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={isWaitingInput ? 'Enter your response...' : 'Send a message...'}
+              className="flex-1"
+              disabled={!isConnected}
+            />
+            <Button onClick={handleSend} disabled={!isConnected || !input.trim()}>
+              {isConnected ? <Send className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin" />}
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
