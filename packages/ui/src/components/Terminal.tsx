@@ -9,7 +9,7 @@ interface TerminalProps {
 }
 
 export function Terminal({ terminalId, className, onExit }: TerminalProps) {
-  const { terminalRef, isConnected, status, fit } = useTerminal({
+  const { terminalRef, status, fit } = useTerminal({
     terminalId,
     onExit,
   });
