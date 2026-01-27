@@ -4,6 +4,7 @@ import { eq, and } from 'drizzle-orm';
 import { db, claudeSessions, projects } from '../db';
 import { claudeService } from '../services/claude';
 import { workspaceService } from '../services/workspace';
+import { terminalService } from '../services/terminal';
 import { requireAuth } from '../auth/middleware';
 
 export const sessionRoutes = new Elysia({ prefix: '/sessions' })
@@ -207,6 +208,9 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       set.status = 404;
       return { error: 'Session not found' };
     }
+
+    // Close all terminals for this session first
+    await terminalService.closeSessionTerminals(params.id);
 
     await claudeService.terminateSession(params.id);
 
