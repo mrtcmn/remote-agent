@@ -84,8 +84,16 @@ export const terminalWebsocketRoutes = new Elysia()
         },
       }));
 
-      // If terminal has persisted scrollback, send it
-      if (terminal.scrollback) {
+      // Try to get in-memory scrollback first (for active sessions)
+      const rawScrollback = terminalService.getRawScrollback(terminalId);
+      if (rawScrollback && rawScrollback.length > 0) {
+        const base64 = Buffer.from(rawScrollback).toString('base64');
+        ws.send(JSON.stringify({
+          type: 'scrollback',
+          data: base64,
+        }));
+      } else if (terminal.scrollback) {
+        // Fall back to persisted scrollback from database
         const base64 = Buffer.from(terminal.scrollback).toString('base64');
         ws.send(JSON.stringify({
           type: 'scrollback',

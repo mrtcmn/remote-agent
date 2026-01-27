@@ -1,19 +1,15 @@
-import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
-import { drizzle } from 'drizzle-orm/bun-sqlite';
-import { Database } from 'bun:sqlite';
-import { mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
 
-const dbPath = process.env.DATABASE_URL || './data/sqlite.db';
+const connectionString = process.env.DATABASE_URL || 'postgres://agent:agent@localhost:5432/remote_agent';
 
-// Ensure data directory exists
-await mkdir(dirname(dbPath), { recursive: true });
-
-const sqlite = new Database(dbPath);
-const db = drizzle(sqlite);
+// Use max 1 connection for migrations
+const client = postgres(connectionString, { max: 1 });
+const db = drizzle(client);
 
 console.log('Running migrations...');
-migrate(db, { migrationsFolder: './drizzle' });
+await migrate(db, { migrationsFolder: './drizzle' });
 console.log('Migrations complete!');
 
-sqlite.close();
+await client.end();

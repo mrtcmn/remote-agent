@@ -1,6 +1,23 @@
 # Development docker-compose with hot-reloading and debugging
 
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: remote-agent-db-dev
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-agent}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-agent}
+      - POSTGRES_DB=${POSTGRES_DB:-remote_agent}
+    volumes:
+      - dev-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent} -d ${POSTGRES_DB:-remote_agent}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: ..
@@ -9,6 +26,9 @@ services:
     ports:
       - "${PORT:-5100}:5100"
       - "${DEBUG_PORT:-6499}:6499"  # Bun inspector port
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
       # Mount source code for hot-reloading
       - ../packages:/app/packages:cached
@@ -21,12 +41,14 @@ services:
       - /app/packages/ui/node_modules
 
       # Persistent data (survives container restarts)
-      - dev-data:/app/data
       - dev-workspaces:/app/workspaces
 
       # SSH keys (optional)
       - ${SSH_KEYS_PATH:-./ssh-keys}:/app/ssh-keys:ro
     environment:
+      # Database
+      - DATABASE_URL=postgres://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent}@db:5432/${POSTGRES_DB:-remote_agent}
+
       # Required
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 
@@ -59,7 +81,7 @@ services:
       start_period: 30s
 
 volumes:
-  dev-data:
-    name: remote-agent-dev-data
+  dev-postgres:
+    name: remote-agent-dev-postgres
   dev-workspaces:
     name: remote-agent-dev-workspaces

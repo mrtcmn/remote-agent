@@ -19,6 +19,7 @@ export class TerminalService extends EventEmitter {
       terminalId,
       sessionId,
       name = 'Terminal',
+      type = 'shell',
       command,
       cols = 80,
       rows = 24,
@@ -52,6 +53,7 @@ export class TerminalService extends EventEmitter {
       id: terminalId,
       sessionId,
       name,
+      type,
       command,
       cols,
       rows,
@@ -71,9 +73,10 @@ export class TerminalService extends EventEmitter {
       id: terminalId,
       sessionId,
       name,
+      type,
       command: JSON.stringify(command),
-      cols,
-      rows,
+      cols: String(cols),
+      rows: String(rows),
       persist,
       status: 'running',
     });
@@ -104,7 +107,7 @@ export class TerminalService extends EventEmitter {
 
     // Update database
     await db.update(terminals)
-      .set({ cols, rows })
+      .set({ cols: String(cols), rows: String(rows) })
       .where(eq(terminals.id, terminalId));
 
     this.emit('resized', terminalId, { cols, rows });
@@ -148,11 +151,45 @@ export class TerminalService extends EventEmitter {
       .filter(t => t.sessionId === sessionId);
   }
 
+  getRawScrollback(terminalId: string): Uint8Array | null {
+    const instance = this.instances.get(terminalId);
+    if (!instance?.rawScrollback || instance.rawScrollback.length === 0) {
+      return null;
+    }
+
+    // Concatenate all raw chunks into a single buffer
+    const totalLength = instance.rawScrollback.reduce((sum, chunk) => sum + chunk.length, 0);
+    const combined = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of instance.rawScrollback) {
+      combined.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return combined;
+  }
+
   private handleOutput(terminalId: string, data: Uint8Array): void {
     const instance = this.instances.get(terminalId);
     if (!instance) return;
 
-    // Store in scrollback if persistence enabled
+    // Always store raw output in scrollback for session restore
+    // Store as raw bytes to preserve ANSI sequences
+    if (!instance.rawScrollback) {
+      instance.rawScrollback = [];
+    }
+    instance.rawScrollback.push(data);
+
+    // Trim raw scrollback to limit memory usage (keep last ~1MB)
+    let totalSize = 0;
+    for (const chunk of instance.rawScrollback) {
+      totalSize += chunk.length;
+    }
+    while (totalSize > 1024 * 1024 && instance.rawScrollback.length > 1) {
+      const removed = instance.rawScrollback.shift();
+      if (removed) totalSize -= removed.length;
+    }
+
+    // Also maintain text scrollback for persistence
     if (instance.persist) {
       const text = new TextDecoder().decode(data);
       const lines = text.split('\n');

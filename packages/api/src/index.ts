@@ -14,9 +14,13 @@ await notificationService.initialize();
 // Seed test user
 await seedTestUser();
 
+const corsOrigin = process.env.CORS_ORIGIN === '*'
+  ? true
+  : (process.env.CORS_ORIGIN?.split(',') || ['http://localhost:5173', 'http://localhost:5100']);
+
 const app = new Elysia()
   .use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:5100'],
+    origin: corsOrigin,
     credentials: true,
   }))
 

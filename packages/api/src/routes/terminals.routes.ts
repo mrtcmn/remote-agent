@@ -35,6 +35,8 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
       return {
         ...t,
         command: JSON.parse(t.command),
+        cols: parseInt(t.cols, 10),
+        rows: parseInt(t.rows, 10),
         liveStatus: live?.status || t.status,
       };
     });
@@ -62,13 +64,27 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
 
     const terminalId = nanoid();
     const cwd = session.project?.localPath || `/app/workspaces/${user!.id}`;
+    const type = body.type || 'shell';
+
+    // Build command based on type
+    let command: string[];
+    let name: string;
+
+    if (type === 'claude') {
+      command = ['claude', '--dangerously-skip-permissions'];
+      name = body.name || 'Claude';
+    } else {
+      command = body.command || ['bash'];
+      name = body.name || 'Terminal';
+    }
 
     try {
       const terminal = await terminalService.createTerminal({
         terminalId,
         sessionId: body.sessionId,
-        name: body.name,
-        command: body.command || ['bash'],
+        name,
+        type,
+        command,
         cols: body.cols,
         rows: body.rows,
         persist: body.persist,
@@ -82,6 +98,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
         id: terminal.id,
         sessionId: terminal.sessionId,
         name: terminal.name,
+        type: terminal.type,
         command: terminal.command,
         cols: terminal.cols,
         rows: terminal.rows,
@@ -96,6 +113,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     body: t.Object({
       sessionId: t.String(),
       name: t.Optional(t.String()),
+      type: t.Optional(t.Union([t.Literal('shell'), t.Literal('claude')])),
       command: t.Optional(t.Array(t.String())),
       cols: t.Optional(t.Number()),
       rows: t.Optional(t.Number()),
@@ -126,6 +144,8 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     return {
       ...terminal,
       command: JSON.parse(terminal.command),
+      cols: parseInt(terminal.cols, 10),
+      rows: parseInt(terminal.rows, 10),
       liveStatus: live?.status || terminal.status,
     };
   }, {

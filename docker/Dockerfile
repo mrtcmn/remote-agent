@@ -53,7 +53,7 @@ COPY . .
 RUN bun run build:ui || echo "UI build skipped"
 
 # Create required directories
-RUN mkdir -p /app/workspaces /app/data /app/ssh-keys /app/config/hooks /app/config/skills && \
+RUN mkdir -p /app/workspaces /app/ssh-keys /app/config/hooks /app/config/skills && \
     chown -R agent:agent /app
 
 # Copy hook scripts
@@ -62,10 +62,10 @@ RUN chmod +x /app/hooks/*.sh
 
 # Environment
 ENV NODE_ENV=production
-ENV DATABASE_URL=/app/data/sqlite.db
 ENV WORKSPACES_ROOT=/app/workspaces
 ENV SSH_KEYS_ROOT=/app/ssh-keys
 ENV CONFIG_ROOT=/app/config
+ENV PATH="/root/.local/bin:/usr/local/bin:${PATH}"
 
 # Expose port
 EXPOSE 5100

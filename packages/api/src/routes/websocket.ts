@@ -1,4 +1,4 @@
-import { Elysia, t } from 'elysia';
+import { Elysia } from 'elysia';
 import { claudeService } from '../services/claude';
 import type { ClaudeOutput } from '../services/claude/types';
 
@@ -48,13 +48,12 @@ claudeService.on('terminated', (sessionId: string, code: number) => {
 
 export const websocketRoutes = new Elysia()
   .ws('/ws/session/:sessionId', {
-    body: t.Object({
-      type: t.String(),
-      payload: t.Optional(t.Unknown()),
-    }),
+    idleTimeout: 960, // 16 minutes
+    perMessageDeflate: false,
 
     open(ws) {
       const sessionId = ws.data.params.sessionId;
+      console.log(`[WebSocket] Connection opened for session: ${sessionId}`);
 
       // Add to session connections
       if (!sessionConnections.has(sessionId)) {
@@ -62,35 +61,65 @@ export const websocketRoutes = new Elysia()
       }
       sessionConnections.get(sessionId)!.add(ws);
 
-      // Send current session status
-      const session = claudeService.getSession(sessionId);
-      if (session) {
-        ws.send(JSON.stringify({
-          type: 'connected',
-          data: { status: session.status },
-        }));
-      } else {
-        ws.send(JSON.stringify({
-          type: 'error',
-          data: { message: 'Session not found' },
-        }));
-      }
+      // Defer sending to avoid issues with Bun WebSocket
+      setTimeout(() => {
+        try {
+          const session = claudeService.getSession(sessionId);
+          console.log(`[WebSocket] Session lookup result:`, session ? `found (status: ${session.status})` : 'not found');
+
+          if (session) {
+            // Get output history and send it
+            const history = claudeService.getOutputHistory(sessionId);
+            ws.send(JSON.stringify({
+              type: 'connected',
+              data: {
+                status: session.status,
+                history: history,
+              },
+            }));
+          } else {
+            ws.send(JSON.stringify({
+              type: 'error',
+              data: { message: 'Session not found or not running' },
+            }));
+          }
+        } catch (error) {
+          console.error('[WebSocket] Error sending initial message:', error);
+        }
+      }, 10);
     },
 
-    message(ws, message) {
+    message(ws, rawMessage) {
       const sessionId = ws.data.params.sessionId;
-      const { type, payload } = message as { type: string; payload?: unknown };
+      console.log(`[WebSocket] Raw message received:`, rawMessage);
+
+      let message: { type: string; payload?: unknown };
+      try {
+        message = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : rawMessage;
+      } catch {
+        ws.send(JSON.stringify({ type: 'error', data: { message: 'Invalid message format' } }));
+        return;
+      }
+
+      const { type, payload } = message;
+      console.log(`[WebSocket] Parsed message - type: ${type}, payload:`, payload);
 
       switch (type) {
         case 'input':
           // Send user input to Claude
           const inputPayload = payload as { text: string };
-          claudeService.sendMessage(sessionId, inputPayload.text).catch(err => {
-            ws.send(JSON.stringify({
-              type: 'error',
-              data: { message: err.message },
-            }));
-          });
+          console.log(`[WebSocket] Sending input to Claude session ${sessionId}: "${inputPayload.text}"`);
+          claudeService.sendMessage(sessionId, inputPayload.text)
+            .then(() => {
+              console.log(`[WebSocket] Input sent successfully to session ${sessionId}`);
+            })
+            .catch(err => {
+              console.error(`[WebSocket] Error sending input to session ${sessionId}:`, err);
+              ws.send(JSON.stringify({
+                type: 'error',
+                data: { message: err.message },
+              }));
+            });
           break;
 
         case 'respond_permission':
@@ -121,8 +150,10 @@ export const websocketRoutes = new Elysia()
       }
     },
 
-    close(ws) {
+    close(ws, code, reason) {
       const sessionId = ws.data.params.sessionId;
+      console.log(`[WebSocket] Connection closed for session: ${sessionId}, code: ${code}, reason: ${reason}`);
+
       const connections = sessionConnections.get(sessionId);
       if (connections) {
         connections.delete(ws);

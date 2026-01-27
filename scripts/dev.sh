@@ -74,6 +74,11 @@ case "${1:-up}" in
         docker compose -f "$COMPOSE_FILE" exec api bun install
         ;;
 
+    db:generate)
+        echo -e "${GREEN}Generating database migrations...${NC}"
+        docker compose -f "$COMPOSE_FILE" exec api bun run --cwd packages/api db:generate
+        ;;
+
     db:migrate)
         echo -e "${GREEN}Running database migrations...${NC}"
         docker compose -f "$COMPOSE_FILE" exec api bun run --cwd packages/api db:migrate
@@ -101,7 +106,7 @@ case "${1:-up}" in
         ;;
 
     *)
-        echo "Usage: $0 {up|down|restart|logs|shell|build|build:clean|install|db:migrate|db:studio|clean|debug|status}"
+        echo "Usage: $0 {up|down|restart|logs|shell|build|build:clean|install|db:generate|db:migrate|db:studio|clean|debug|status}"
         echo ""
         echo "Commands:"
         echo "  up, start    - Start the development environment"
@@ -112,6 +117,7 @@ case "${1:-up}" in
         echo "  build        - Build image (uses cache)"
         echo "  build:clean  - Rebuild image from scratch (no cache)"
         echo "  install      - Run bun install in container"
+        echo "  db:generate  - Generate database migrations from schema"
         echo "  db:migrate   - Run database migrations"
         echo "  db:studio    - Open Drizzle Studio"
         echo "  clean        - Remove containers and volumes"

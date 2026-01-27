@@ -168,10 +168,13 @@ export interface PairWorkspaceInput {
   claudeSettings?: Record<string, unknown>;
 }
 
+export type TerminalType = 'shell' | 'claude';
+
 export interface TerminalInfo {
   id: string;
   sessionId: string;
   name: string;
+  type: TerminalType;
   command: string[];
   cols: number;
   rows: number;
@@ -186,6 +189,7 @@ export interface TerminalInfo {
 export interface CreateTerminalInput {
   sessionId: string;
   name?: string;
+  type?: TerminalType;
   command?: string[];
   cols?: number;
   rows?: number;

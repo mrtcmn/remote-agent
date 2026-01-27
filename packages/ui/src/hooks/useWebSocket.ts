@@ -21,11 +21,11 @@ export function useWebSocket(sessionId: string | null, options: UseWebSocketOpti
   const reconnectCount = useRef(0);
   const reconnectTimeout = useRef<number>();
 
+  // Use refs for callbacks to avoid reconnection on callback changes
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
   const {
-    onMessage,
-    onConnect,
-    onDisconnect,
-    onError,
     reconnectInterval = 3000,
     maxReconnectAttempts = 5,
   } = options;
@@ -33,54 +33,67 @@ export function useWebSocket(sessionId: string | null, options: UseWebSocketOpti
   const connect = useCallback(() => {
     if (!sessionId) return;
 
+    // Prevent multiple connections
+    if (wsRef.current?.readyState === WebSocket.OPEN ||
+        wsRef.current?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/session/${sessionId}`;
 
+    console.log('[WebSocket] Connecting to:', wsUrl);
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
+      console.log('[WebSocket] Connected');
       setIsConnected(true);
       reconnectCount.current = 0;
-      onConnect?.();
+      optionsRef.current.onConnect?.();
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      console.log('[WebSocket] Closed:', event.code, event.reason);
       setIsConnected(false);
-      onDisconnect?.();
+      optionsRef.current.onDisconnect?.();
 
       // Auto reconnect
       if (reconnectCount.current < maxReconnectAttempts) {
-        reconnectTimeout.current = setTimeout(() => {
+        reconnectTimeout.current = window.setTimeout(() => {
           reconnectCount.current++;
+          console.log('[WebSocket] Reconnecting, attempt:', reconnectCount.current);
           connect();
         }, reconnectInterval);
       }
     };
 
     ws.onerror = (event) => {
-      onError?.(event);
+      console.error('[WebSocket] Error:', event);
+      optionsRef.current.onError?.(event);
     };
 
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data) as WebSocketMessage;
         setMessages((prev) => [...prev, message]);
-        onMessage?.(message);
+        optionsRef.current.onMessage?.(message);
       } catch {
         console.error('Failed to parse WebSocket message:', event.data);
       }
     };
 
     wsRef.current = ws;
-  }, [sessionId, onConnect, onDisconnect, onError, onMessage, reconnectInterval, maxReconnectAttempts]);
+  }, [sessionId, reconnectInterval, maxReconnectAttempts]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeout.current) {
       clearTimeout(reconnectTimeout.current);
     }
     reconnectCount.current = maxReconnectAttempts; // Prevent reconnection
-    wsRef.current?.close();
-    wsRef.current = null;
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
   }, [maxReconnectAttempts]);
 
   const send = useCallback((type: string, payload?: unknown) => {

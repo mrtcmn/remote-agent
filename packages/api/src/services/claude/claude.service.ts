@@ -8,8 +8,13 @@ import type { ClaudeSession, CreateSessionOptions, ClaudeOutput, SessionStatus, 
 export class ClaudeService extends EventEmitter {
   private sessions = new Map<string, ClaudeSession>();
   private outputBuffers = new Map<string, string>();
+  private outputHistory = new Map<string, ClaudeOutput[]>();
+  private static MAX_HISTORY_SIZE = 1000; // Limit history to prevent memory issues
 
   async createSession(opts: CreateSessionOptions): Promise<ClaudeSession> {
+    console.log(`[Claude] Creating session ${opts.sessionId} for user ${opts.userId}`);
+    console.log(`[Claude] Project path: ${opts.projectPath}`);
+
     const args = [
       'claude',
       '--dangerously-skip-permissions',
@@ -24,6 +29,8 @@ export class ClaudeService extends EventEmitter {
       args.push('--model', opts.model);
     }
 
+    console.log(`[Claude] Spawning with args:`, args);
+
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,
       CLAUDE_SESSION_ID: opts.sessionId,
@@ -34,6 +41,9 @@ export class ClaudeService extends EventEmitter {
       env.CLAUDE_CONFIG_DIR = opts.hooks;
     }
 
+    console.log(`[Claude] ANTHROPIC_API_KEY present: ${!!env.ANTHROPIC_API_KEY}`);
+    console.log(`[Claude] Working directory: ${opts.projectPath}`);
+
     const proc = spawn(args, {
       cwd: opts.projectPath,
       stdin: 'pipe',
@@ -41,6 +51,17 @@ export class ClaudeService extends EventEmitter {
       stderr: 'pipe',
       env,
     });
+
+    console.log(`[Claude] Process spawned, PID: ${proc.pid}`);
+
+    // Check if process is still alive after a short delay
+    setTimeout(() => {
+      if (proc.exitCode !== null) {
+        console.error(`[Claude] Process ${proc.pid} exited immediately with code ${proc.exitCode}`);
+      } else {
+        console.log(`[Claude] Process ${proc.pid} still running`);
+      }
+    }, 500);
 
     const session: ClaudeSession = {
       id: opts.sessionId,
@@ -54,6 +75,7 @@ export class ClaudeService extends EventEmitter {
 
     this.sessions.set(opts.sessionId, session);
     this.outputBuffers.set(opts.sessionId, '');
+    this.outputHistory.set(opts.sessionId, []);
 
     // Start reading output
     this.pipeOutput(session);
@@ -78,36 +100,49 @@ export class ClaudeService extends EventEmitter {
   }
 
   async sendMessage(sessionId: string, message: string): Promise<void> {
+    console.log(`[Claude] sendMessage called for session ${sessionId}: "${message}"`);
+
     const session = this.sessions.get(sessionId);
     if (!session || !session.process) {
+      console.error(`[Claude] Session ${sessionId} not found or no process`);
       throw new Error('Session not found or not running');
     }
 
+    console.log(`[Claude] Session ${sessionId} status: ${session.status}, process exists: ${!!session.process}`);
+
     if (session.status === 'terminated') {
+      console.error(`[Claude] Session ${sessionId} is terminated`);
       throw new Error('Session is terminated');
     }
 
     const stdin = session.process.stdin;
     if (!stdin) {
+      console.error(`[Claude] Session ${sessionId} stdin not available`);
       throw new Error('Session stdin not available');
     }
 
     // Check if stdin is a WritableStream (not a file descriptor number)
     if (typeof stdin === 'number') {
+      console.error(`[Claude] Session ${sessionId} stdin is a file descriptor`);
       throw new Error('Session stdin is a file descriptor, cannot write');
     }
 
     // Handle both WritableStream and FileSink
     const message_bytes = new TextEncoder().encode(message + '\n');
+    console.log(`[Claude] Writing ${message_bytes.length} bytes to session ${sessionId} stdin`);
+
     if ('getWriter' in stdin) {
       // WritableStream
       const writer = stdin.getWriter();
       await writer.write(message_bytes);
       writer.releaseLock();
+      console.log(`[Claude] Written to WritableStream for session ${sessionId}`);
     } else if ('write' in stdin) {
       // FileSink
       await stdin.write(message_bytes);
+      console.log(`[Claude] Written to FileSink for session ${sessionId}`);
     } else {
+      console.error(`[Claude] Unknown stdin type for session ${sessionId}`);
       throw new Error('Unknown stdin type');
     }
 
@@ -130,6 +165,7 @@ export class ClaudeService extends EventEmitter {
     this.updateStatus(sessionId, 'terminated');
     this.sessions.delete(sessionId);
     this.outputBuffers.delete(sessionId);
+    this.outputHistory.delete(sessionId);
 
     await db.update(claudeSessions)
       .set({ status: 'terminated' })
@@ -142,6 +178,10 @@ export class ClaudeService extends EventEmitter {
 
   getUserSessions(userId: string): ClaudeSession[] {
     return Array.from(this.sessions.values()).filter(s => s.userId === userId);
+  }
+
+  getOutputHistory(sessionId: string): ClaudeOutput[] {
+    return this.outputHistory.get(sessionId) || [];
   }
 
   private async pipeOutput(session: ClaudeSession): Promise<void> {
@@ -189,6 +229,7 @@ export class ClaudeService extends EventEmitter {
         if (done) break;
 
         const text = decoder.decode(value, { stream: true });
+        console.error(`[Claude] STDERR from session ${session.id}:`, text);
         this.emitOutput(session.id, {
           type: 'error',
           content: text,
@@ -201,6 +242,8 @@ export class ClaudeService extends EventEmitter {
   }
 
   private processOutput(session: ClaudeSession, text: string): void {
+    console.log(`[Claude] Raw stdout from session ${session.id}:`, text.substring(0, 200));
+
     const buffer = (this.outputBuffers.get(session.id) || '') + text;
     const lines = buffer.split('\n');
 
@@ -212,9 +255,11 @@ export class ClaudeService extends EventEmitter {
 
       try {
         const data = JSON.parse(line);
+        console.log(`[Claude] Parsed JSON from session ${session.id}:`, data.type || 'unknown type');
         this.handleParsedOutput(session, data);
       } catch {
         // Plain text output
+        console.log(`[Claude] Plain text from session ${session.id}:`, line.substring(0, 100));
         this.emitOutput(session.id, {
           type: 'text',
           content: line,
@@ -346,9 +391,14 @@ export class ClaudeService extends EventEmitter {
   }
 
   private handleProcessExit(session: ClaudeSession, code: number): void {
-    console.log(`Session ${session.id} exited with code ${code}`);
+    console.log(`[Claude] Session ${session.id} process exited with code ${code}`);
     this.updateStatus(session.id, 'terminated');
     this.emit('terminated', session.id, code);
+
+    // Clean up
+    this.sessions.delete(session.id);
+    this.outputBuffers.delete(session.id);
+    this.outputHistory.delete(session.id);
 
     // Update database
     db.update(claudeSessions)
@@ -365,6 +415,15 @@ export class ClaudeService extends EventEmitter {
   }
 
   private emitOutput(sessionId: string, output: ClaudeOutput): void {
+    // Store in history
+    const history = this.outputHistory.get(sessionId);
+    if (history) {
+      history.push(output);
+      // Trim history if it exceeds max size
+      if (history.length > ClaudeService.MAX_HISTORY_SIZE) {
+        history.splice(0, history.length - ClaudeService.MAX_HISTORY_SIZE);
+      }
+    }
     this.emit('output', sessionId, output);
   }
 

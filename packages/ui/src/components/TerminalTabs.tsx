@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, X, TerminalSquare, RefreshCw } from 'lucide-react';
-import { api } from '@/lib/api';
+import { Plus, X, TerminalSquare, RefreshCw, Bot } from 'lucide-react';
+import { api, type TerminalType } from '@/lib/api';
 import { Terminal } from './Terminal';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
@@ -22,7 +22,7 @@ export function TerminalTabs({ sessionId, className }: TerminalTabsProps) {
   });
 
   const createMutation = useMutation({
-    mutationFn: () => api.createTerminal({ sessionId }),
+    mutationFn: (type: TerminalType = 'shell') => api.createTerminal({ sessionId, type }),
     onSuccess: (terminal) => {
       queryClient.invalidateQueries({ queryKey: ['terminals', sessionId] });
       setActiveTerminalId(terminal.id);
@@ -51,12 +51,26 @@ export function TerminalTabs({ sessionId, className }: TerminalTabsProps) {
     <div className={cn('flex h-full', className)}>
       {/* Vertical tabs sidebar */}
       <div className="w-48 border-r bg-muted/30 flex flex-col">
-        <div className="p-2 border-b">
+        <div className="p-2 border-b space-y-2">
           <Button
             variant="outline"
             size="sm"
             className="w-full gap-2"
-            onClick={() => createMutation.mutate()}
+            onClick={() => createMutation.mutate('claude')}
+            disabled={createMutation.isPending}
+          >
+            {createMutation.isPending ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <Bot className="h-4 w-4" />
+            )}
+            New Claude
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full gap-2"
+            onClick={() => createMutation.mutate('shell')}
             disabled={createMutation.isPending}
           >
             {createMutation.isPending ? (
@@ -64,46 +78,52 @@ export function TerminalTabs({ sessionId, className }: TerminalTabsProps) {
             ) : (
               <Plus className="h-4 w-4" />
             )}
-            New Terminal
+            New Shell
           </Button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {terminals.map((terminal) => (
-            <div
-              key={terminal.id}
-              className={cn(
-                'group flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer transition-colors',
-                activeTerminalId === terminal.id
-                  ? 'bg-primary text-primary-foreground'
-                  : 'hover:bg-muted'
-              )}
-              onClick={() => setActiveTerminalId(terminal.id)}
-            >
-              <TerminalSquare className="h-4 w-4 shrink-0" />
-              <span className="flex-1 truncate text-sm">{terminal.name}</span>
+          {terminals.map((terminal) => {
+            const Icon = terminal.type === 'claude' ? Bot : TerminalSquare;
+            return (
               <div
+                key={terminal.id}
                 className={cn(
-                  'h-2 w-2 rounded-full shrink-0',
-                  terminal.liveStatus === 'running' ? 'bg-green-500' : 'bg-gray-500'
+                  'group flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer transition-colors',
+                  activeTerminalId === terminal.id
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted'
                 )}
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  'h-5 w-5 opacity-0 group-hover:opacity-100',
-                  activeTerminalId === terminal.id && 'text-primary-foreground hover:text-primary-foreground'
-                )}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeMutation.mutate(terminal.id);
-                }}
+                onClick={() => setActiveTerminalId(terminal.id)}
               >
-                <X className="h-3 w-3" />
-              </Button>
-            </div>
-          ))}
+                <Icon className={cn(
+                  'h-4 w-4 shrink-0',
+                  terminal.type === 'claude' && activeTerminalId !== terminal.id && 'text-orange-500'
+                )} />
+                <span className="flex-1 truncate text-sm">{terminal.name}</span>
+                <div
+                  className={cn(
+                    'h-2 w-2 rounded-full shrink-0',
+                    terminal.liveStatus === 'running' ? 'bg-green-500' : 'bg-gray-500'
+                  )}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    'h-5 w-5 opacity-0 group-hover:opacity-100',
+                    activeTerminalId === terminal.id && 'text-primary-foreground hover:text-primary-foreground'
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeMutation.mutate(terminal.id);
+                  }}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            );
+          })}
 
           {terminals.length === 0 && !isLoading && (
             <div className="text-center text-muted-foreground text-sm py-8">

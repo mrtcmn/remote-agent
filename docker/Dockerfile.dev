@@ -6,6 +6,7 @@ FROM oven/bun:latest
 # ---- CACHED: System dependencies (rarely changes) ----
 RUN apt-get update && apt-get install -y \
     bash git curl ca-certificates gnupg sudo vim \
+    nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
 # ---- CACHED: GitHub CLI (rarely changes) ----
@@ -17,11 +18,13 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
     apt-get update && apt-get install -y gh && rm -rf /var/lib/apt/lists/*
 
 # ---- CACHED: Claude CLI (rarely changes) ----
-RUN curl -fsSL https://claude.ai/install.sh | bash || echo "Claude CLI skipped"
+RUN curl -fsSL https://claude.ai/install.sh | bash || \
+    npm install -g @anthropic-ai/claude-code || \
+    echo "Claude CLI installation skipped"
 
 # ---- CACHED: App setup ----
 WORKDIR /app
-RUN mkdir -p /app/workspaces /app/data /app/ssh-keys /app/config
+RUN mkdir -p /app/workspaces /app/ssh-keys /app/config
 
 # ---- CACHED: Dependencies (only rebuilds if package.json changes) ----
 COPY package.json ./
@@ -32,7 +35,7 @@ RUN bun install && cd packages/api && bun install
 
 # ---- Runtime config ----
 ENV NODE_ENV=development
-ENV DATABASE_URL=/app/data/sqlite.db
+ENV PATH="/root/.local/bin:/usr/local/bin:${PATH}"
 
 EXPOSE 5100
 

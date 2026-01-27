@@ -1,4 +1,20 @@
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: remote-agent-db
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-agent}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - POSTGRES_DB=${POSTGRES_DB:-remote_agent}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent} -d ${POSTGRES_DB:-remote_agent}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   remote-agent:
     build:
       context: ..
@@ -6,14 +22,19 @@ services:
     container_name: remote-agent
     ports:
       - "${PORT:-5100}:5100"
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
       # Persistent data
       - workspaces:/app/workspaces
-      - data:/app/data
       - ssh-keys:/app/ssh-keys
       # Custom config (read-only)
       - ./config:/app/config:ro
     environment:
+      # Database
+      - DATABASE_URL=postgres://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-remote_agent}
+
       # Required
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 
@@ -42,9 +63,9 @@ services:
       start_period: 10s
 
 volumes:
+  postgres:
+    name: remote-agent-postgres
   workspaces:
     name: remote-agent-workspaces
-  data:
-    name: remote-agent-data
   ssh-keys:
     name: remote-agent-ssh-keys

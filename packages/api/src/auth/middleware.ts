@@ -22,16 +22,11 @@ export const authMiddleware = new Elysia({ name: 'auth' })
   .derive({ as: 'global' }, async ({ request }) => {
     // Debug: Log cookies
     const cookies = request.headers.get('cookie');
-    console.log('[Auth Middleware] Cookies:', cookies);
+    // console.log('[Auth Middleware] Cookies:', cookies);
 
     const session = await auth.api.getSession({
       headers: request.headers,
     });
-
-    console.log('[Auth Middleware] Session:', session ? 'Found' : 'Not found');
-    if (session) {
-      console.log('[Auth Middleware] User:', session.user?.email);
-    }
 
     if (!session) {
       return { user: null, session: null };
