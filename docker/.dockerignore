@@ -1,0 +1,25 @@
+# Docker ignore file - goes in root when building
+node_modules
+**/node_modules
+.git
+.gitignore
+*.md
+!README.md
+.env
+.env.*
+!.env.example
+dist
+**/dist
+*.log
+.DS_Store
+coverage
+.nyc_output
+*.test.ts
+*.spec.ts
+__tests__
+.vscode
+.idea
+*.tsbuildinfo
+data/
+workspaces/
+ssh-keys/

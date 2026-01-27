@@ -1,0 +1,39 @@
+# Development Dockerfile for Bun API
+# Layers ordered for optimal caching
+
+FROM oven/bun:latest
+
+# ---- CACHED: System dependencies (rarely changes) ----
+RUN apt-get update && apt-get install -y \
+    bash git curl ca-certificates gnupg sudo vim \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- CACHED: GitHub CLI (rarely changes) ----
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
+    dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | \
+    tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+    apt-get update && apt-get install -y gh && rm -rf /var/lib/apt/lists/*
+
+# ---- CACHED: Claude CLI (rarely changes) ----
+RUN curl -fsSL https://claude.ai/install.sh | bash || echo "Claude CLI skipped"
+
+# ---- CACHED: App setup ----
+WORKDIR /app
+RUN mkdir -p /app/workspaces /app/data /app/ssh-keys /app/config
+
+# ---- CACHED: Dependencies (only rebuilds if package.json changes) ----
+COPY package.json ./
+COPY packages/api/package.json ./packages/api/
+COPY packages/ui/package.json ./packages/ui/
+
+RUN bun install && cd packages/api && bun install
+
+# ---- Runtime config ----
+ENV NODE_ENV=development
+ENV DATABASE_URL=/app/data/sqlite.db
+
+EXPOSE 5100
+
+CMD ["bun", "run", "--watch", "--cwd", "packages/api", "src/index.ts"]

@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.bun/
+
+# Build outputs
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.db-journal
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# SSH keys (never commit)
+ssh-keys/
+*.pem
+id_rsa
+id_rsa.pub
+
+# Workspaces data
+workspaces/
+
+# Data directory
+data/

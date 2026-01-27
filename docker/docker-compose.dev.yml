@@ -1,0 +1,65 @@
+# Development docker-compose with hot-reloading and debugging
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dev
+    container_name: remote-agent-dev
+    ports:
+      - "${PORT:-5100}:5100"
+      - "${DEBUG_PORT:-6499}:6499"  # Bun inspector port
+    volumes:
+      # Mount source code for hot-reloading
+      - ../packages:/app/packages:cached
+      - ../package.json:/app/package.json:ro
+      - ../tsconfig.json:/app/tsconfig.json:ro
+
+      # Preserve node_modules from image (don't override with host mount)
+      - /app/node_modules
+      - /app/packages/api/node_modules
+      - /app/packages/ui/node_modules
+
+      # Persistent data (survives container restarts)
+      - dev-data:/app/data
+      - dev-workspaces:/app/workspaces
+
+      # SSH keys (optional)
+      - ${SSH_KEYS_PATH:-./ssh-keys}:/app/ssh-keys:ro
+    environment:
+      # Required
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+
+      # Auth
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production}
+
+      # Firebase (optional)
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:-}
+      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY:-}
+      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL:-}
+
+      # Development settings
+      - NODE_ENV=development
+      - APP_URL=http://localhost:${PORT:-5100}
+      - CORS_ORIGIN=*
+      - PORT=5100
+
+      # Debug settings
+      - BUN_DEBUG_QUIET_LOGS=0
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5100/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  dev-data:
+    name: remote-agent-dev-data
+  dev-workspaces:
+    name: remote-agent-dev-workspaces

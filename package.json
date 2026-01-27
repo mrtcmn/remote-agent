@@ -1,0 +1,26 @@
+{
+  "name": "remote-agent",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --cwd packages/api dev",
+    "dev:ui": "bun run --cwd packages/ui dev",
+    "dev:all": "concurrently \"bun run dev\" \"bun run dev:ui\"",
+    "build": "bun run build:api && bun run build:ui",
+    "build:api": "bun run --cwd packages/api build",
+    "build:ui": "bun run --cwd packages/ui build",
+    "start": "bun run --cwd packages/api start",
+    "db:generate": "bun run --cwd packages/api db:generate",
+    "db:migrate": "bun run --cwd packages/api db:migrate",
+    "db:studio": "bun run --cwd packages/api db:studio"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.0",
+    "concurrently": "^8.2.2",
+    "playwright": "^1.58.0",
+    "typescript": "^5.4.0"
+  }
+}
