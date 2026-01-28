@@ -6,7 +6,6 @@ import { notificationRoutes } from './notifications.routes';
 import { workspaceRoutes } from './workspace.routes';
 import { terminalRoutes } from './terminals.routes';
 import { internalRoutes } from './internal.routes';
-import { websocketRoutes } from './websocket';
 
 export const api = new Elysia({ prefix: '/api' })
   .use(authRoutes)
@@ -16,5 +15,5 @@ export const api = new Elysia({ prefix: '/api' })
   .use(workspaceRoutes)
   .use(terminalRoutes);
 
-export { websocketRoutes, internalRoutes };
+export { internalRoutes };
 export { terminalRoutes } from './terminals.routes';

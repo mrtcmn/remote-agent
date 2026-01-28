@@ -1,7 +1,7 @@
 import { Elysia } from 'elysia';
 import { cors } from '@elysiajs/cors';
 import { staticPlugin } from '@elysiajs/static';
-import { api, websocketRoutes, internalRoutes } from './routes';
+import { api, internalRoutes } from './routes';
 import { terminalWebsocketRoutes } from './routes/terminal-websocket';
 import { notificationService } from './services/notification';
 import { seedTestUser } from './auth/seed';
@@ -29,9 +29,6 @@ const app = new Elysia()
 
   // Internal routes (for hooks)
   .use(internalRoutes)
-
-  // WebSocket routes
-  .use(websocketRoutes)
 
   // Terminal WebSocket routes
   .use(terminalWebsocketRoutes)
@@ -82,7 +79,6 @@ console.log(`
 
 Endpoints:
   - API:        http://localhost:${PORT}/api
-  - WebSocket:  ws://localhost:${PORT}/ws/session/:sessionId
   - Terminal:   ws://localhost:${PORT}/ws/terminal/:terminalId
   - Health:     http://localhost:${PORT}/health
   - UI:         http://localhost:${PORT}

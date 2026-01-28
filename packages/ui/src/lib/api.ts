@@ -31,12 +31,10 @@ export const api = {
   setPin: (pin: string) => request('/auth/pin/set', { method: 'POST', body: JSON.stringify({ pin }) }),
   verifyPin: (pin: string) => request<{ valid: boolean }>('/auth/pin/verify', { method: 'POST', body: JSON.stringify({ pin }) }),
 
-  // Sessions
+  // Sessions (container for terminals)
   getSessions: () => request<Session[]>('/sessions'),
   getSession: (id: string) => request<Session>(`/sessions/${id}`),
-  createSession: (data: CreateSessionInput) => request<Session>('/sessions', { method: 'POST', body: JSON.stringify(data) }),
-  sendMessage: (sessionId: string, message: string) =>
-    request(`/sessions/${sessionId}/message`, { method: 'POST', body: JSON.stringify({ message }) }),
+  createSession: (projectId?: string) => request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ projectId }) }),
   terminateSession: (id: string) => request(`/sessions/${id}`, { method: 'DELETE' }),
 
   // Projects
@@ -145,12 +143,6 @@ export interface SSHKey {
   createdAt: string;
 }
 
-export interface CreateSessionInput {
-  projectId?: string;
-  skills?: string[];
-  resumeSessionId?: string;
-  model?: string;
-}
 
 export interface CreateProjectInput {
   name: string;
@@ -164,7 +156,12 @@ export interface PairWorkspaceInput {
   sshPrivateKey?: string;
   sshPublicKey?: string;
   skills?: { name: string; content: string }[];
-  hooks?: { hooks: Record<string, { type: string; command: string }[]> };
+  hooks?: {
+    hooks: Record<string, Array<{
+      matcher?: string;
+      hooks: Array<{ type: 'command'; command: string; timeout?: number }>;
+    }>>;
+  };
   claudeSettings?: Record<string, unknown>;
 }
 
