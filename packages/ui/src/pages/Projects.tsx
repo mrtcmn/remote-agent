@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, FolderGit2, GitBranch, RefreshCw, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, FolderGit2, GitBranch, RefreshCw, Loader2, Terminal } from 'lucide-react';
 import { api, type Project } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -149,7 +150,19 @@ function CreateProjectForm({
 }
 
 function ProjectCard({ project }: { project: Project }) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  const openSessionMutation = useMutation({
+    mutationFn: () => api.createSession(project.id),
+    onSuccess: (session) => {
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      navigate(`/sessions/${session.id}`);
+    },
+    onError: (error) => {
+      toast({ title: 'Error', description: (error as Error).message, variant: 'destructive' });
+    },
+  });
 
   const fetchMutation = useMutation({
     mutationFn: () => api.gitFetch(project.id),
@@ -205,6 +218,19 @@ function ProjectCard({ project }: { project: Project }) {
           </div>
         )}
         <div className="flex gap-2">
+          <Button
+            size="sm"
+            onClick={() => openSessionMutation.mutate()}
+            disabled={openSessionMutation.isPending}
+            className="gap-1"
+          >
+            {openSessionMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Terminal className="h-4 w-4" />
+            )}
+            Open
+          </Button>
           <Button
             size="sm"
             variant="outline"
