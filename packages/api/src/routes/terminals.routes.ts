@@ -63,16 +63,29 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     }
 
     const terminalId = nanoid();
-    const cwd = session.project?.localPath || `/app/workspaces/${user!.id}`;
+    const userWorkspace = `/app/workspaces/${user!.id}`;
+    const cwd = session.project?.localPath || userWorkspace;
     const type = body.type || 'shell';
 
     // Build command based on type
     let command: string[];
     let name: string;
+    let env: Record<string, string> = {
+      HOME: '/home/agent',
+    };
 
     if (type === 'claude') {
       command = ['claude', '--dangerously-skip-permissions'];
       name = body.name || 'Claude';
+
+      // Ensure user workspace and .claude directory exist with default hooks
+      await workspaceService.createUserWorkspace(user!.id);
+      await workspaceService.storeHooks(user!.id);
+
+      // Set session ID for hook callbacks to identify the session
+      env.REMOTE_AGENT_SESSION_ID = body.sessionId;
+      // Set HOME to user workspace so Claude finds ~/.claude/settings.json
+      env.HOME = userWorkspace;
     } else {
       command = body.command || ['bash'];
       name = body.name || 'Terminal';
@@ -89,9 +102,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
         rows: body.rows,
         persist: body.persist,
         cwd,
-        env: {
-          HOME: '/home/agent',
-        },
+        env,
       });
 
       return {

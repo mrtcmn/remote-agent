@@ -34,8 +34,12 @@ export const workspaceRoutes = new Elysia({ prefix: '/workspace' })
       }))),
       hooks: t.Optional(t.Object({
         hooks: t.Record(t.String(), t.Array(t.Object({
-          type: t.String(),
-          command: t.String(),
+          matcher: t.Optional(t.String()),
+          hooks: t.Array(t.Object({
+            type: t.Literal('command'),
+            command: t.String(),
+            timeout: t.Optional(t.Number()),
+          })),
         }))),
       })),
       claudeSettings: t.Optional(t.Record(t.String(), t.Unknown())),

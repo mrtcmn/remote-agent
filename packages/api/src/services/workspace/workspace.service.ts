@@ -10,8 +10,19 @@ export interface SkillConfig {
   content: string;
 }
 
+export interface HookHandler {
+  type: 'command';
+  command: string;
+  timeout?: number;
+}
+
+export interface HookMatcher {
+  matcher?: string;
+  hooks: HookHandler[];
+}
+
 export interface HookConfig {
-  hooks: Record<string, Array<{ type: string; command: string }>>;
+  hooks: Record<string, HookMatcher[]>;
 }
 
 export interface PairWorkspaceOptions {
@@ -110,34 +121,69 @@ export class WorkspaceService {
   }
 
   async storeHooks(userId: string, customHooks?: HookConfig): Promise<void> {
-    const hooksPath = join(this.workspacesRoot, userId, '.claude', 'hooks.json');
+    const settingsPath = join(this.workspacesRoot, userId, '.claude', 'settings.json');
 
-    // Default notification hooks
+    // Default notification hooks in Claude Code format
     const defaultHooks: HookConfig = {
       hooks: {
-        UserInputRequest: [{
-          type: 'command',
-          command: '/app/hooks/notify-attention.sh',
+        // Notification hook for user input and permission requests
+        Notification: [{
+          matcher: 'idle_prompt|permission_prompt',
+          hooks: [{
+            type: 'command',
+            command: '/app/hooks/notify-attention.sh',
+          }],
         }],
-        PermissionRequest: [{
-          type: 'command',
-          command: '/app/hooks/notify-permission.sh',
-        }],
+        // Stop hook for task completion
         Stop: [{
-          type: 'command',
-          command: '/app/hooks/notify-complete.sh',
+          hooks: [{
+            type: 'command',
+            command: '/app/hooks/notify-complete.sh',
+          }],
         }],
       },
     };
 
     // Merge custom hooks
     const mergedHooks = this.mergeHooks(defaultHooks, customHooks);
-    await writeFile(hooksPath, JSON.stringify(mergedHooks, null, 2));
+
+    // Read existing settings if any
+    let existingSettings: Record<string, unknown> = {};
+    try {
+      const content = await readFile(settingsPath, 'utf-8');
+      existingSettings = JSON.parse(content);
+    } catch {
+      // File doesn't exist or invalid JSON, start fresh
+    }
+
+    // Merge hooks into settings
+    const finalSettings = {
+      ...existingSettings,
+      hooks: mergedHooks.hooks,
+    };
+
+    await writeFile(settingsPath, JSON.stringify(finalSettings, null, 2));
   }
 
   async storeSettings(userId: string, settings: Record<string, unknown>): Promise<void> {
     const settingsPath = join(this.workspacesRoot, userId, '.claude', 'settings.json');
-    await writeFile(settingsPath, JSON.stringify(settings, null, 2));
+
+    // Read existing settings if any
+    let existingSettings: Record<string, unknown> = {};
+    try {
+      const content = await readFile(settingsPath, 'utf-8');
+      existingSettings = JSON.parse(content);
+    } catch {
+      // File doesn't exist or invalid JSON, start fresh
+    }
+
+    // Merge new settings (preserving hooks)
+    const finalSettings = {
+      ...existingSettings,
+      ...settings,
+    };
+
+    await writeFile(settingsPath, JSON.stringify(finalSettings, null, 2));
   }
 
   async getProjectPath(userId: string, projectId: string): Promise<string | null> {
@@ -177,13 +223,19 @@ export class WorkspaceService {
   private mergeHooks(base: HookConfig, custom?: HookConfig): HookConfig {
     if (!custom) return base;
 
-    const merged: HookConfig = { hooks: { ...base.hooks } };
+    const merged: HookConfig = { hooks: {} };
 
-    for (const [event, handlers] of Object.entries(custom.hooks)) {
+    // Copy base hooks
+    for (const [event, matchers] of Object.entries(base.hooks)) {
+      merged.hooks[event] = [...matchers];
+    }
+
+    // Merge custom hooks
+    for (const [event, matchers] of Object.entries(custom.hooks)) {
       if (merged.hooks[event]) {
-        merged.hooks[event] = [...merged.hooks[event], ...handlers];
+        merged.hooks[event] = [...merged.hooks[event], ...matchers];
       } else {
-        merged.hooks[event] = handlers;
+        merged.hooks[event] = matchers;
       }
     }
 
