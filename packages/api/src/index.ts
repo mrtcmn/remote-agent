@@ -4,12 +4,14 @@ import { staticPlugin } from '@elysiajs/static';
 import { api, internalRoutes } from './routes';
 import { terminalWebsocketRoutes } from './routes/terminal-websocket';
 import { notificationService } from './services/notification';
+import { terminalService } from './services/terminal';
 import { seedTestUser } from './auth/seed';
 
 const PORT = process.env.PORT || 5100;
 
 // Initialize services
 await notificationService.initialize();
+await terminalService.initialize();
 
 // Seed test user
 await seedTestUser();

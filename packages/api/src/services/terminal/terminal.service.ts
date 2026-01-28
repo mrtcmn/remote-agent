@@ -1,7 +1,7 @@
 import { spawn } from 'bun';
 import { EventEmitter } from 'events';
 import { eq } from 'drizzle-orm';
-import { db, terminals } from '../../db';
+import { db, terminals, claudeSessions } from '../../db';
 import type {
   TerminalInstance,
   CreateTerminalOptions,
@@ -13,6 +13,32 @@ const MAX_SCROLLBACK_LINES = 10000;
 
 export class TerminalService extends EventEmitter {
   private instances = new Map<string, TerminalInstance>();
+
+  /**
+   * Initialize service and reconcile DB state on startup.
+   * All terminals in DB are marked as exited since processes don't survive restart.
+   * Sessions with no running terminals are marked as paused.
+   */
+  async initialize(): Promise<void> {
+    console.log('[TerminalService] Reconciling orphaned terminals and sessions...');
+
+    // Mark all "running" terminals as "exited" (they can't be running after restart)
+    const result = await db.update(terminals)
+      .set({ status: 'exited' })
+      .where(eq(terminals.status, 'running'));
+
+    // Mark all "active" or "waiting_input" sessions as "paused"
+    // They need to be reactivated by creating new terminals
+    await db.update(claudeSessions)
+      .set({ status: 'paused' })
+      .where(eq(claudeSessions.status, 'active'));
+
+    await db.update(claudeSessions)
+      .set({ status: 'paused' })
+      .where(eq(claudeSessions.status, 'waiting_input'));
+
+    console.log('[TerminalService] Orphan reconciliation complete');
+  }
 
   async createTerminal(opts: CreateTerminalOptions): Promise<TerminalInstance> {
     const {
@@ -224,7 +250,7 @@ export class TerminalService extends EventEmitter {
     // Save scrollback if persistence enabled
     const updateData: Partial<typeof terminals.$inferInsert> = {
       status: 'exited',
-      exitCode,
+      exitCode: String(exitCode),
     };
 
     if (instance.persist && instance.scrollback.length > 0) {
