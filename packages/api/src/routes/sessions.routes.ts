@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { eq, and } from 'drizzle-orm';
 import { db, claudeSessions, projects } from '../db';
 import { terminalService } from '../services/terminal';
+import { gitService } from '../services/git';
 import { requireAuth } from '../auth/middleware';
 
 export const sessionRoutes = new Elysia({ prefix: '/sessions' })
@@ -97,6 +98,109 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   }, {
     body: t.Object({
       projectId: t.Optional(t.String()),
+    }),
+  })
+
+  // Get git status for session's project
+  .get('/:id/git/status', async ({ user, params, set }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(
+        eq(claudeSessions.id, params.id),
+        eq(claudeSessions.userId, user!.id)
+      ),
+      with: { project: true },
+    });
+
+    if (!session) {
+      set.status = 404;
+      return { error: 'Session not found' };
+    }
+
+    if (!session.project) {
+      return { branch: '', ahead: 0, behind: 0, staged: [], modified: [], untracked: [] };
+    }
+
+    try {
+      const status = await gitService.status(session.project.localPath);
+      return status;
+    } catch (error) {
+      set.status = 500;
+      return { error: (error as Error).message };
+    }
+  }, {
+    params: t.Object({
+      id: t.String(),
+    }),
+  })
+
+  // Get git diff for session's project
+  .get('/:id/git/diff', async ({ user, params, query, set }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(
+        eq(claudeSessions.id, params.id),
+        eq(claudeSessions.userId, user!.id)
+      ),
+      with: { project: true },
+    });
+
+    if (!session) {
+      set.status = 404;
+      return { error: 'Session not found' };
+    }
+
+    if (!session.project) {
+      return { diff: '' };
+    }
+
+    try {
+      const diff = await gitService.diff(session.project.localPath, query.cached === 'true');
+      return { diff };
+    } catch (error) {
+      set.status = 500;
+      return { error: (error as Error).message };
+    }
+  }, {
+    params: t.Object({
+      id: t.String(),
+    }),
+    query: t.Object({
+      cached: t.Optional(t.String()),
+    }),
+  })
+
+  // Get diff for a specific file
+  .get('/:id/git/diff/:file', async ({ user, params, set }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(
+        eq(claudeSessions.id, params.id),
+        eq(claudeSessions.userId, user!.id)
+      ),
+      with: { project: true },
+    });
+
+    if (!session) {
+      set.status = 404;
+      return { error: 'Session not found' };
+    }
+
+    if (!session.project) {
+      return { diff: '' };
+    }
+
+    try {
+      // Use git diff for specific file
+      const { $ } = await import('bun');
+      const filePath = decodeURIComponent(params.file);
+      const result = await $`git diff -- ${filePath}`.cwd(session.project.localPath).quiet();
+      return { diff: result.stdout.toString(), file: filePath };
+    } catch (error) {
+      set.status = 500;
+      return { error: (error as Error).message };
+    }
+  }, {
+    params: t.Object({
+      id: t.String(),
+      file: t.String(),
     }),
   })
 

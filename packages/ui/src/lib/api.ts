@@ -36,6 +36,11 @@ export const api = {
   getSession: (id: string) => request<Session>(`/sessions/${id}`),
   createSession: (projectId?: string) => request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ projectId }) }),
   terminateSession: (id: string) => request(`/sessions/${id}`, { method: 'DELETE' }),
+  getSessionGitStatus: (sessionId: string) => request<GitStatus>(`/sessions/${sessionId}/git/status`),
+  getSessionGitDiff: (sessionId: string, cached = false) =>
+    request<{ diff: string }>(`/sessions/${sessionId}/git/diff${cached ? '?cached=true' : ''}`),
+  getSessionFileDiff: (sessionId: string, file: string) =>
+    request<{ diff: string; file: string }>(`/sessions/${sessionId}/git/diff/${encodeURIComponent(file)}`),
 
   // Projects
   getProjects: () => request<Project[]>('/projects'),

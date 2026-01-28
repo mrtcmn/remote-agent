@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { TerminalTabs } from '@/components/TerminalTabs';
+import { GitDiffPanel } from '@/components/GitDiffPanel';
 
 export function SessionPage() {
   const { id } = useParams<{ id: string }>();
@@ -27,8 +28,16 @@ export function SessionPage() {
         </div>
       </div>
 
-      {/* Terminal tabs with Claude and Shell support */}
-      <TerminalTabs sessionId={id!} className="flex-1" />
+      {/* Main content with terminal and git panel */}
+      <div className="flex flex-1 min-h-0">
+        {/* Terminal tabs with Claude and Shell support */}
+        <TerminalTabs sessionId={id!} className="flex-1" />
+
+        {/* Git diff panel (only show if session has a project) */}
+        {session?.project && (
+          <GitDiffPanel sessionId={id!} className="flex-shrink-0" />
+        )}
+      </div>
     </div>
   );
 }

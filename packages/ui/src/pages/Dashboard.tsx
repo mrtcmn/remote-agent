@@ -56,7 +56,7 @@ export function DashboardPage() {
           <p className="text-muted-foreground">Manage your Claude Code sessions</p>
         </div>
         <Button
-          onClick={() => createSessionMutation.mutate({})}
+          onClick={() => createSessionMutation.mutate(undefined)}
           disabled={createSessionMutation.isPending}
           className="gap-2"
         >
@@ -101,7 +101,7 @@ export function DashboardPage() {
                 <p className="text-muted-foreground text-center mb-4">
                   Start a new session to begin coding with Claude
                 </p>
-                <Button onClick={() => createSessionMutation.mutate({})}>
+                <Button onClick={() => createSessionMutation.mutate(undefined)}>
                   <Plus className="h-4 w-4 mr-2" />
                   New Session
                 </Button>
