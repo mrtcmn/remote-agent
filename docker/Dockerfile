@@ -3,6 +3,17 @@
 
 FROM oven/bun:latest AS base
 
+# Version information (set at build time)
+ARG VERSION=dev
+ENV APP_VERSION=$VERSION
+
+# OCI Labels for container registry
+LABEL org.opencontainers.image.title="Remote Agent"
+LABEL org.opencontainers.image.description="Remote Claude Code sessions with web UI"
+LABEL org.opencontainers.image.version=$VERSION
+LABEL org.opencontainers.image.source="https://github.com/yourorg/remote-agent"
+LABEL org.opencontainers.image.licenses="MIT"
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     bash \
@@ -80,6 +91,10 @@ RUN git config --global user.email "agent@remote-agent.local" && \
 # Entrypoint
 COPY --chown=agent:agent docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:5100/health || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bun", "run", "--cwd", "packages/api", "start"]

@@ -1,3 +1,7 @@
+# Remote Agent Production Docker Compose
+# Uses pre-built image from ghcr.io with host-mounted volumes
+# For development, use docker-compose.yml or docker-compose.dev.yml instead
+
 services:
   db:
     image: postgres:16-alpine
@@ -16,13 +20,7 @@ services:
     restart: unless-stopped
 
   remote-agent:
-    # Use pre-built image if IMAGE_TAG is set, otherwise build locally
-    image: ${IMAGE_TAG:+ghcr.io/yourorg/remote-agent:}${IMAGE_TAG:-}
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-      args:
-        - VERSION=${IMAGE_TAG:-dev}
+    image: ghcr.io/yourorg/remote-agent:${IMAGE_TAG:-latest}
     container_name: remote-agent
     ports:
       - "${PORT:-5100}:5100"
@@ -30,47 +28,43 @@ services:
       db:
         condition: service_healthy
     volumes:
-      # Persistent data
-      - workspaces:/app/workspaces
-      - ssh-keys:/app/ssh-keys
+      # User data - host mounted for easy backup and visibility
+      - ${INSTALL_DIR:-/opt/remote-agent}/workspaces:/app/workspaces
+      - ${INSTALL_DIR:-/opt/remote-agent}/ssh-keys:/app/ssh-keys
       # Custom config (read-only)
-      - ./config:/app/config:ro
+      - ${INSTALL_DIR:-/opt/remote-agent}/config:/app/config:ro
     environment:
       # Database
       - DATABASE_URL=postgres://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-remote_agent}
 
       # Required
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required}
 
       # GitHub OAuth
-      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
-      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:?GITHUB_CLIENT_ID is required}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:?GITHUB_CLIENT_SECRET is required}
 
-      # Firebase Push Notifications
+      # Firebase Push Notifications (optional)
       - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:-}
       - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY:-}
       - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL:-}
 
       # Security
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
 
       # App
       - APP_URL=${APP_URL:-http://localhost:5100}
-      - APP_VERSION=${IMAGE_TAG:-dev}
+      - APP_VERSION=${IMAGE_TAG:-latest}
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
-      - NODE_ENV=${NODE_ENV:-production}
+      - NODE_ENV=production
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5100/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 30s
 
 volumes:
   postgres:
     name: remote-agent-postgres
-  workspaces:
-    name: remote-agent-workspaces
-  ssh-keys:
-    name: remote-agent-ssh-keys

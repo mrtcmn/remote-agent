@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
+import { UpdateBanner } from '@/components/UpdateBanner';
 
 const navItems = [
   { path: '/', label: 'Sessions', icon: Home },
@@ -97,6 +98,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </nav>
         )}
       </header>
+
+      {/* Update Banner */}
+      <UpdateBanner />
 
       {/* Main Content */}
       <main className="flex-1 p-4 md:p-6 safe-area-bottom">

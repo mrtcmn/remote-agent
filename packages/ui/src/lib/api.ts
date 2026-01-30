@@ -63,6 +63,10 @@ export const api = {
     request('/notifications/preferences', { method: 'PUT', body: JSON.stringify(prefs) }),
   testNotification: () => request<{ success: boolean }>('/notifications/test', { method: 'POST' }),
 
+  // Version
+  getVersion: (force = false) =>
+    request<VersionInfo>(`/version${force ? '?force=true' : ''}`),
+
   // Workspace
   pairWorkspace: (data: PairWorkspaceInput) =>
     request('/workspace/pair', { method: 'POST', body: JSON.stringify(data) }),
@@ -196,4 +200,15 @@ export interface CreateTerminalInput {
   cols?: number;
   rows?: number;
   persist?: boolean;
+}
+
+export interface VersionInfo {
+  current: string;
+  latest: string | null;
+  updateAvailable: boolean;
+  releaseUrl?: string;
+  releaseNotes?: string;
+  publishedAt?: string;
+  lastChecked: string | null;
+  error?: string;
 }

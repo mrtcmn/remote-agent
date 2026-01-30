@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell, Key, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw } from 'lucide-react';
+import { Bell, Key, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw, RefreshCw, ExternalLink, Package } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useVersion } from '@/hooks/useVersion';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -19,11 +20,124 @@ export function SettingsPage() {
         <p className="text-muted-foreground">Manage your account and preferences</p>
       </div>
 
+      <VersionSection />
       <PinSection hasPin={user?.hasPin || false} />
       <NotificationSection />
       <SSHKeysSection />
       <TroubleshootSection />
     </div>
+  );
+}
+
+function VersionSection() {
+  const { version, isLoading, forceCheck } = useVersion();
+  const [isChecking, setIsChecking] = useState(false);
+
+  const handleCheckNow = async () => {
+    setIsChecking(true);
+    try {
+      await forceCheck();
+      toast({ title: 'Version check complete' });
+    } catch {
+      toast({ title: 'Failed to check for updates', variant: 'destructive' });
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  const formatLastChecked = (isoString: string | null) => {
+    if (!isoString) return 'Never';
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+    return date.toLocaleDateString();
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Package className="h-5 w-5" />
+          <CardTitle>Version</CardTitle>
+        </div>
+        <CardDescription>
+          Application version and update information
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Checking version...</span>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Current version</span>
+                <span className="font-mono text-sm">{version?.current || 'Unknown'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Latest version</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm">{version?.latest || 'Unknown'}</span>
+                  {version?.updateAvailable && (
+                    <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
+                      Update available
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Last checked</span>
+                <span className="text-sm">{formatLastChecked(version?.lastChecked || null)}</span>
+              </div>
+            </div>
+
+            {version?.updateAvailable && (
+              <div className="p-3 rounded-lg bg-primary/10 border border-primary/20">
+                <p className="text-sm mb-2">
+                  To upgrade, run the following command on your server:
+                </p>
+                <code className="block bg-muted p-2 rounded text-xs font-mono">
+                  ./upgrade.sh
+                </code>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCheckNow}
+                disabled={isChecking}
+              >
+                {isChecking ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Check Now
+              </Button>
+              {version?.releaseUrl && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={version.releaseUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    View Changelog
+                  </a>
+                </Button>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
