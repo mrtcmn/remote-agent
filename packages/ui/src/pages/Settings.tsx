@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell, Key, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle } from 'lucide-react';
+import { Bell, Key, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -22,6 +22,7 @@ export function SettingsPage() {
       <PinSection hasPin={user?.hasPin || false} />
       <NotificationSection />
       <SSHKeysSection />
+      <TroubleshootSection />
     </div>
   );
 }
@@ -393,6 +394,52 @@ function SSHKeysSection() {
             Add SSH Key
           </Button>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TroubleshootSection() {
+  const pairMutation = useMutation({
+    mutationFn: () => api.pairWorkspace({}),
+    onSuccess: () => {
+      toast({ title: 'Workspace paired', description: 'Your workspace has been prepared successfully' });
+    },
+    onError: (error) => {
+      toast({ title: 'Error', description: (error as Error).message, variant: 'destructive' });
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <RotateCcw className="h-5 w-5" />
+          <CardTitle>Troubleshoot</CardTitle>
+        </div>
+        <CardDescription>
+          Tools to help fix issues with your workspace
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            If you're experiencing issues with hooks, settings, or workspace configuration,
+            pairing will reset your workspace to a clean state.
+          </p>
+          <Button
+            variant="outline"
+            onClick={() => pairMutation.mutate()}
+            disabled={pairMutation.isPending}
+          >
+            {pairMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RotateCcw className="h-4 w-4 mr-2" />
+            )}
+            Pair Workspace
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

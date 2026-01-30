@@ -88,6 +88,7 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
 
       return project;
     } catch (error) {
+      console.error('Error creating project:', error);
       set.status = 500;
       return { error: (error as Error).message };
     }
