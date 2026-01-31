@@ -12,7 +12,6 @@ import {
   Circle,
   Plus,
   Pencil,
-  MessageSquarePlus,
   History,
   Send,
 } from 'lucide-react';
@@ -119,36 +118,18 @@ export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProp
     );
   }, [comments, deleteComment]);
 
-  const createRenderHoverUtility = useCallback((filePath: string) => {
-    return (getHoveredLine: () => { lineNumber: number; side: 'additions' | 'deletions' } | undefined) => {
-      const hovered = getHoveredLine();
-      if (!hovered) return null;
-
-      return (
-        <button
-          type="button"
-          onClick={(e) => {
-            const rect = (e.target as HTMLElement).getBoundingClientRect();
-            setCommentPopover({
-              lineNumber: hovered.lineNumber,
-              side: hovered.side,
-              lineContent: '',
-              filePath: filePath,
-              position: { x: rect.right + 10, y: rect.top },
-            });
-          }}
-          className="p-1 rounded hover:bg-accent"
-          title="Add comment"
-        >
-          <MessageSquarePlus className="h-4 w-4 text-muted-foreground" />
-        </button>
-      );
+  const createOnLineNumberClick = useCallback((filePath: string) => {
+    return (props: { lineNumber: number; annotationSide: 'additions' | 'deletions'; lineElement: HTMLElement }) => {
+      const rect = props.lineElement.getBoundingClientRect();
+      setCommentPopover({
+        lineNumber: props.lineNumber,
+        side: props.annotationSide,
+        lineContent: '',
+        filePath: filePath,
+        position: { x: rect.right + 10, y: rect.top },
+      });
     };
   }, []);
-
-  const renderHoverUtility = useMemo(() => {
-    return createRenderHoverUtility(selectedFile || '');
-  }, [selectedFile, createRenderHoverUtility]);
 
   const handleAddComment = useCallback((comment: string) => {
     if (!commentPopover) return;
@@ -323,11 +304,10 @@ export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProp
                   theme: { dark: 'github-dark', light: 'github-light' },
                   diffStyle: 'unified',
                   enableLineSelection: true,
-                  enableHoverUtility: true,
+                  onLineNumberClick: createOnLineNumberClick(selectedFile),
                 }}
                 lineAnnotations={lineAnnotations}
                 renderAnnotation={renderAnnotation}
-                renderHoverUtility={renderHoverUtility}
               />
             </div>
           ) : fullDiff?.diff ? (
@@ -336,7 +316,7 @@ export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProp
                 diff={fullDiff.diff}
                 getLineAnnotationsForFile={getLineAnnotationsForFile}
                 renderAnnotation={renderAnnotation}
-                createRenderHoverUtility={createRenderHoverUtility}
+                createOnLineNumberClick={createOnLineNumberClick}
               />
             </div>
           ) : hasChanges ? (
@@ -459,10 +439,10 @@ interface MultiFileDiffViewProps {
   diff: string;
   getLineAnnotationsForFile: (filePath: string) => DiffLineAnnotation<string>[];
   renderAnnotation: (annotation: DiffLineAnnotation<string>) => React.ReactNode;
-  createRenderHoverUtility: (filePath: string) => (getHoveredLine: () => { lineNumber: number; side: 'additions' | 'deletions' } | undefined) => React.ReactNode;
+  createOnLineNumberClick: (filePath: string) => (props: { lineNumber: number; annotationSide: 'additions' | 'deletions'; lineElement: HTMLElement }) => void;
 }
 
-function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, createRenderHoverUtility }: MultiFileDiffViewProps) {
+function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, createOnLineNumberClick }: MultiFileDiffViewProps) {
   const parsedFiles = useMemo(() => {
     try {
       const patches = parsePatchFiles(diff);
@@ -499,11 +479,10 @@ function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, 
               theme: { dark: 'github-dark', light: 'github-light' },
               diffStyle: 'unified',
               enableLineSelection: true,
-              enableHoverUtility: true,
+              onLineNumberClick: createOnLineNumberClick(fileDiff.name),
             }}
             lineAnnotations={getLineAnnotationsForFile(fileDiff.name)}
             renderAnnotation={renderAnnotation}
-            renderHoverUtility={createRenderHoverUtility(fileDiff.name)}
           />
         </div>
       ))}
