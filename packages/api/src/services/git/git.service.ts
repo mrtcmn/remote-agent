@@ -173,6 +173,16 @@ export class GitService {
     return result.stdout.toString();
   }
 
+  async getFileSha(projectPath: string, filePath: string): Promise<string | null> {
+    try {
+      const result = await $`git hash-object ${filePath}`.cwd(projectPath).quiet();
+      if (result.exitCode !== 0) return null;
+      return result.stdout.toString().trim();
+    } catch {
+      return null;
+    }
+  }
+
   // GitHub CLI operations
   async createPR(projectPath: string, opts: PROptions): Promise<string> {
     const args = [
