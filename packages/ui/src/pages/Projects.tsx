@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Plus, FolderGit2, GitBranch, RefreshCw, Loader2, Terminal } from 'lucide-react';
-import { api, type Project } from '@/lib/api';
+import { Plus, FolderGit2, GitBranch, RefreshCw, Loader2, Terminal, Key } from 'lucide-react';
+import { api, type Project, type SSHKey } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -80,6 +80,12 @@ function CreateProjectForm({
   const [name, setName] = useState('');
   const [repoUrl, setRepoUrl] = useState('');
   const [branch, setBranch] = useState('');
+  const [sshKeyId, setSshKeyId] = useState('');
+
+  const { data: sshKeys } = useQuery({
+    queryKey: ['ssh-keys'],
+    queryFn: api.getSSHKeys,
+  });
 
   const createMutation = useMutation({
     mutationFn: api.createProject,
@@ -98,8 +104,12 @@ function CreateProjectForm({
       name,
       repoUrl: repoUrl || undefined,
       branch: branch || undefined,
+      sshKeyId: sshKeyId || undefined,
     });
   };
+
+  // Show SSH key selector when URL looks like an SSH URL
+  const isSSHUrl = repoUrl.startsWith('git@') || repoUrl.includes('ssh://');
 
   return (
     <Card>
@@ -126,6 +136,32 @@ function CreateProjectForm({
               placeholder="git@github.com:user/repo.git"
             />
           </div>
+          {isSSHUrl && (
+            <div>
+              <label className="text-sm font-medium flex items-center gap-1">
+                <Key className="h-3 w-3" />
+                SSH Key
+              </label>
+              {sshKeys && sshKeys.length > 0 ? (
+                <select
+                  value={sshKeyId}
+                  onChange={(e) => setSshKeyId(e.target.value)}
+                  className="w-full h-10 rounded-md border bg-transparent px-3 py-2 text-sm"
+                >
+                  <option value="">Default (first available)</option>
+                  {sshKeys.map((key: SSHKey) => (
+                    <option key={key.id} value={key.id}>
+                      {key.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-sm text-muted-foreground py-2">
+                  No SSH keys configured. Add one in Settings.
+                </p>
+              )}
+            </div>
+          )}
           <div>
             <label className="text-sm font-medium">Branch (optional)</label>
             <Input

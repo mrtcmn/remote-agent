@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell, Key, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw, RefreshCw, ExternalLink, Package } from 'lucide-react';
+import { Bell, Key, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw, RefreshCw, ExternalLink, Package, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -424,6 +424,8 @@ function SSHKeysSection() {
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState('');
   const [privateKey, setPrivateKey] = useState('');
+  const [deletingKeyId, setDeletingKeyId] = useState<string | null>(null);
+  const [deletePin, setDeletePin] = useState('');
 
   const queryClient = useQueryClient();
 
@@ -446,6 +448,33 @@ function SSHKeysSection() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: ({ id, pin }: { id: string; pin: string }) => api.deleteSSHKey(id, pin),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ssh-keys'] });
+      setDeletingKeyId(null);
+      setDeletePin('');
+      toast({ title: 'SSH key removed' });
+    },
+    onError: (error) => {
+      toast({ title: 'Error', description: (error as Error).message, variant: 'destructive' });
+    },
+  });
+
+  const handleDelete = (keyId: string) => {
+    if (deletingKeyId === keyId && deletePin) {
+      deleteMutation.mutate({ id: keyId, pin: deletePin });
+    } else {
+      setDeletingKeyId(keyId);
+      setDeletePin('');
+    }
+  };
+
+  const cancelDelete = () => {
+    setDeletingKeyId(null);
+    setDeletePin('');
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -465,12 +494,58 @@ function SSHKeysSection() {
         ) : (
           <div className="space-y-2">
             {keys?.map((key) => (
-              <div key={key.id} className="flex items-center gap-2 text-sm p-2 rounded bg-secondary">
-                <Key className="h-4 w-4 text-muted-foreground" />
-                <span className="flex-1">{key.name}</span>
-                <span className="text-muted-foreground text-xs">
-                  {key.publicKey.substring(0, 20)}...
-                </span>
+              <div key={key.id} className="space-y-2">
+                <div className="flex items-center gap-2 text-sm p-2 rounded bg-secondary">
+                  <Key className="h-4 w-4 text-muted-foreground" />
+                  <span className="flex-1">{key.name}</span>
+                  <span className="text-muted-foreground text-xs">
+                    {key.publicKey.substring(0, 20)}...
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => handleDelete(key.id)}
+                    disabled={deleteMutation.isPending}
+                  >
+                    {deleteMutation.isPending && deletingKeyId === key.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                {deletingKeyId === key.id && (
+                  <div className="flex items-center gap-2 pl-2">
+                    <Input
+                      type="password"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={deletePin}
+                      onChange={(e) => setDeletePin(e.target.value.replace(/\D/g, ''))}
+                      placeholder="Enter PIN to confirm"
+                      className="h-8 w-40 text-sm"
+                      maxLength={8}
+                    />
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-8"
+                      onClick={() => handleDelete(key.id)}
+                      disabled={!deletePin || deleteMutation.isPending}
+                    >
+                      Remove
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8"
+                      onClick={cancelDelete}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

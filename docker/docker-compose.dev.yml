@@ -43,8 +43,8 @@ services:
       # Persistent data (survives container restarts)
       - dev-workspaces:/app/workspaces
 
-      # SSH keys (optional)
-      - ${SSH_KEYS_PATH:-./ssh-keys}:/app/ssh-keys:ro
+      # SSH keys
+      - dev-ssh-keys:/app/ssh-keys
     environment:
       # Database
       - DATABASE_URL=postgres://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent}@db:5432/${POSTGRES_DB:-remote_agent}
@@ -85,3 +85,5 @@ volumes:
     name: remote-agent-dev-postgres
   dev-workspaces:
     name: remote-agent-dev-workspaces
+  dev-ssh-keys:
+    name: remote-agent-dev-ssh-keys

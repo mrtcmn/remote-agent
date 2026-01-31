@@ -73,6 +73,8 @@ export const api = {
   getSSHKeys: () => request<SSHKey[]>('/workspace/ssh-keys'),
   addSSHKey: (data: { name?: string; privateKey: string; publicKey?: string }) =>
     request('/workspace/ssh-keys', { method: 'POST', body: JSON.stringify(data) }),
+  deleteSSHKey: (id: string, pin: string) =>
+    request(`/workspace/ssh-keys/${id}`, { method: 'DELETE', headers: { 'X-Pin': pin } }),
 
   // Terminals
   getSessionTerminals: (sessionId: string) =>

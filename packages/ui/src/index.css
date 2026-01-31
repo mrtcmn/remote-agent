@@ -61,6 +61,24 @@
   line-height: 1.5;
 }
 
+/* Smooth transitions for layout changes */
+.transition-layout {
+  transition: width 150ms ease-out, opacity 150ms ease-out;
+}
+
+/* Terminal container styling */
+.terminal-container {
+  background: linear-gradient(180deg, hsl(var(--card)) 0%, hsl(var(--background)) 100%);
+}
+
+/* Git diff view enhancements */
+.diff-view-container {
+  --diff-add-bg: rgba(46, 160, 67, 0.15);
+  --diff-remove-bg: rgba(248, 81, 73, 0.15);
+  --diff-add-color: #3fb950;
+  --diff-remove-color: #f85149;
+}
+
 /* Safe area for mobile */
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0);

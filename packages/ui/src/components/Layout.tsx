@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { UpdateBanner } from '@/components/UpdateBanner';
+import { cn } from '@/lib/utils';
 
 const navItems = [
   { path: '/', label: 'Sessions', icon: Home },
@@ -17,8 +18,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const { user, logout } = useAuth();
 
+  const isSessionPage = location.pathname.startsWith('/sessions/');
+
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className={cn('flex flex-col', isSessionPage ? 'h-screen' : 'min-h-screen')}>
       {/* Header */}
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur safe-area-top">
         <div className="flex h-14 items-center px-4">
@@ -103,9 +106,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <UpdateBanner />
 
       {/* Main Content */}
-      <main className="flex-1 p-4 md:p-6 safe-area-bottom">
-        <div className="max-w-6xl mx-auto">{children}</div>
-      </main>
+      {isSessionPage ? (
+        <main className="flex-1 flex flex-col overflow-hidden min-h-0">{children}</main>
+      ) : (
+        <main className="flex-1 p-4 md:p-6 safe-area-bottom">
+          <div className="max-w-6xl mx-auto">{children}</div>
+        </main>
+      )}
     </div>
   );
 }
