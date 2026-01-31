@@ -23,7 +23,7 @@ services:
     image: ghcr.io/yourorg/remote-agent:${IMAGE_TAG:-latest}
     container_name: remote-agent
     ports:
-      - "${PORT:-5100}:5100"
+      - "127.0.0.1:${PORT:-5100}:5100"
     depends_on:
       db:
         condition: service_healthy
