@@ -7,6 +7,7 @@ import { workspaceRoutes } from './workspace.routes';
 import { terminalRoutes } from './terminals.routes';
 import { internalRoutes } from './internal.routes';
 import { versionRoutes } from './version.routes';
+import { reviewCommentsRoutes } from './review-comments.routes';
 
 export const api = new Elysia({ prefix: '/api' })
   .use(authRoutes)
@@ -15,6 +16,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(notificationRoutes)
   .use(workspaceRoutes)
   .use(terminalRoutes)
+  .use(reviewCommentsRoutes)
   .use(versionRoutes);
 
 export { internalRoutes };
