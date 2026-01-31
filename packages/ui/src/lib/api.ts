@@ -87,6 +87,43 @@ export const api = {
     request(`/terminals/${id}/resize`, { method: 'POST', body: JSON.stringify({ cols, rows }) }),
   closeTerminal: (id: string) =>
     request(`/terminals/${id}`, { method: 'DELETE' }),
+
+  // Review Comments
+  getReviewComments: (sessionId: string, status?: ReviewCommentStatus, batchId?: string) => {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (batchId) params.set('batchId', batchId);
+    const query = params.toString();
+    return request<ReviewComment[]>(`/sessions/${sessionId}/review-comments${query ? '?' + query : ''}`);
+  },
+  createReviewComment: (sessionId: string, data: CreateReviewCommentInput) =>
+    request<ReviewComment>(`/sessions/${sessionId}/review-comments`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateReviewComment: (sessionId: string, id: string, comment: string) =>
+    request<ReviewComment>(`/sessions/${sessionId}/review-comments/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ comment }),
+    }),
+  deleteReviewComment: (sessionId: string, id: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/review-comments/${id}`, {
+      method: 'DELETE',
+    }),
+  proceedReviewComments: (sessionId: string) =>
+    request<ProceedResponse>(`/sessions/${sessionId}/review-comments/proceed`, {
+      method: 'POST',
+    }),
+  getReviewBatches: (sessionId: string) =>
+    request<ReviewBatch[]>(`/sessions/${sessionId}/review-comments/batches`),
+  resolveReviewBatch: (sessionId: string, batchId: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/review-comments/batches/${batchId}/resolve`, {
+      method: 'POST',
+    }),
+  rerunReviewBatch: (sessionId: string, batchId: string) =>
+    request<{ success: boolean; count: number }>(`/sessions/${sessionId}/review-comments/batches/${batchId}/rerun`, {
+      method: 'POST',
+    }),
 };
 
 // Types
@@ -213,4 +250,45 @@ export interface VersionInfo {
   publishedAt?: string;
   lastChecked: string | null;
   error?: string;
+}
+
+export type LineSide = 'additions' | 'deletions';
+export type ReviewCommentStatus = 'pending' | 'running' | 'resolved';
+
+export interface ReviewComment {
+  id: string;
+  sessionId: string;
+  batchId: string | null;
+  filePath: string;
+  lineNumber: number;
+  lineSide: LineSide;
+  lineContent: string;
+  fileSha: string | null;
+  comment: string;
+  status: ReviewCommentStatus;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+export interface CreateReviewCommentInput {
+  filePath: string;
+  lineNumber: number;
+  lineSide: LineSide;
+  lineContent: string;
+  fileSha?: string;
+  comment: string;
+}
+
+export interface ReviewBatch {
+  batchId: string;
+  status: ReviewCommentStatus;
+  count: number;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+export interface ProceedResponse {
+  batchId: string;
+  message: string;
+  commentCount: number;
 }
