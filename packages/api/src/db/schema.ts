@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, text, boolean, timestamp, pgEnum, integer } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Enums
@@ -7,6 +7,8 @@ export const platformEnum = pgEnum('platform', ['web', 'android', 'ios']);
 export const messageRoleEnum = pgEnum('message_role', ['user', 'assistant', 'system']);
 export const terminalStatusEnum = pgEnum('terminal_status', ['running', 'exited']);
 export const terminalTypeEnum = pgEnum('terminal_type', ['shell', 'claude']);
+export const reviewCommentStatusEnum = pgEnum('review_comment_status', ['pending', 'running', 'resolved']);
+export const lineSideEnum = pgEnum('line_side', ['additions', 'deletions']);
 
 // Better Auth tables
 export const user = pgTable('user', {
@@ -146,6 +148,22 @@ export const terminals = pgTable('terminals', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
+// Review comments for code annotations
+export const reviewComments = pgTable('review_comments', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').references(() => claudeSessions.id, { onDelete: 'cascade' }).notNull(),
+  batchId: text('batch_id'),
+  filePath: text('file_path').notNull(),
+  lineNumber: integer('line_number').notNull(),
+  lineSide: lineSideEnum('line_side').notNull(),
+  lineContent: text('line_content').notNull(),
+  fileSha: text('file_sha'),
+  comment: text('comment').notNull(),
+  status: reviewCommentStatusEnum('status').notNull().default('pending'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  resolvedAt: timestamp('resolved_at'),
+});
+
 // Relations
 export const userRelations = relations(user, ({ many, one }) => ({
   sessions: many(session),
@@ -208,6 +226,7 @@ export const claudeSessionsRelations = relations(claudeSessions, ({ one, many })
   }),
   messages: many(messages),
   terminals: many(terminals),
+  reviewComments: many(reviewComments),
 }));
 
 export const fcmTokensRelations = relations(fcmTokens, ({ one }) => ({
@@ -246,6 +265,13 @@ export const terminalsRelations = relations(terminals, ({ one }) => ({
   }),
 }));
 
+export const reviewCommentsRelations = relations(reviewComments, ({ one }) => ({
+  session: one(claudeSessions, {
+    fields: [reviewComments.sessionId],
+    references: [claudeSessions.id],
+  }),
+}));
+
 // Type exports
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
@@ -259,3 +285,5 @@ export type SSHKey = typeof sshKeys.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type Terminal = typeof terminals.$inferSelect;
 export type NewTerminal = typeof terminals.$inferInsert;
+export type ReviewComment = typeof reviewComments.$inferSelect;
+export type NewReviewComment = typeof reviewComments.$inferInsert;
