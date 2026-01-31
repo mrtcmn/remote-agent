@@ -41,14 +41,14 @@ function formatClaudeMessage(comments: typeof reviewComments.$inferSelect[]): st
 	return message;
 }
 
-export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/review-comments' })
+export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:id/review-comments' })
 	.use(requireAuth)
 
 	// List comments (with optional filtering)
 	.get('/', async ({ user, params, query, set }) => {
 		const session = await db.query.claudeSessions.findFirst({
 			where: and(
-				eq(claudeSessions.id, params.sessionId),
+				eq(claudeSessions.id, params.id),
 				eq(claudeSessions.userId, user!.id)
 			),
 		});
@@ -58,7 +58,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 			return { error: 'Session not found' };
 		}
 
-		let whereConditions = [eq(reviewComments.sessionId, params.sessionId)];
+		let whereConditions = [eq(reviewComments.sessionId, params.id)];
 
 		if (query.status) {
 			whereConditions.push(eq(reviewComments.status, query.status as 'pending' | 'running' | 'resolved'));
@@ -76,7 +76,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 		return comments;
 	}, {
 		params: t.Object({
-			sessionId: t.String(),
+			id: t.String(),
 		}),
 		query: t.Object({
 			status: t.Optional(t.Union([
@@ -92,7 +92,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 	.post('/', async ({ user, params, body, set }) => {
 		const session = await db.query.claudeSessions.findFirst({
 			where: and(
-				eq(claudeSessions.id, params.sessionId),
+				eq(claudeSessions.id, params.id),
 				eq(claudeSessions.userId, user!.id)
 			),
 		});
@@ -106,7 +106,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 
 		await db.insert(reviewComments).values({
 			id: commentId,
-			sessionId: params.sessionId,
+			sessionId: params.id,
 			batchId: null,
 			filePath: body.filePath,
 			lineNumber: body.lineNumber,
@@ -126,7 +126,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 		return comment;
 	}, {
 		params: t.Object({
-			sessionId: t.String(),
+			id: t.String(),
 		}),
 		body: t.Object({
 			filePath: t.String(),
@@ -139,10 +139,10 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 	})
 
 	// Update comment text (only pending comments)
-	.patch('/:id', async ({ user, params, body, set }) => {
+	.patch('/:commentId', async ({ user, params, body, set }) => {
 		const session = await db.query.claudeSessions.findFirst({
 			where: and(
-				eq(claudeSessions.id, params.sessionId),
+				eq(claudeSessions.id, params.id),
 				eq(claudeSessions.userId, user!.id)
 			),
 		});
@@ -154,8 +154,8 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 
 		const comment = await db.query.reviewComments.findFirst({
 			where: and(
-				eq(reviewComments.id, params.id),
-				eq(reviewComments.sessionId, params.sessionId)
+				eq(reviewComments.id, params.commentId),
+				eq(reviewComments.sessionId, params.id)
 			),
 		});
 
@@ -171,17 +171,17 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 
 		await db.update(reviewComments)
 			.set({ comment: body.comment })
-			.where(eq(reviewComments.id, params.id));
+			.where(eq(reviewComments.id, params.commentId));
 
 		const updated = await db.query.reviewComments.findFirst({
-			where: eq(reviewComments.id, params.id),
+			where: eq(reviewComments.id, params.commentId),
 		});
 
 		return updated;
 	}, {
 		params: t.Object({
-			sessionId: t.String(),
 			id: t.String(),
+			commentId: t.String(),
 		}),
 		body: t.Object({
 			comment: t.String(),
@@ -189,10 +189,10 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 	})
 
 	// Delete comment (only pending comments)
-	.delete('/:id', async ({ user, params, set }) => {
+	.delete('/:commentId', async ({ user, params, set }) => {
 		const session = await db.query.claudeSessions.findFirst({
 			where: and(
-				eq(claudeSessions.id, params.sessionId),
+				eq(claudeSessions.id, params.id),
 				eq(claudeSessions.userId, user!.id)
 			),
 		});
@@ -204,8 +204,8 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 
 		const comment = await db.query.reviewComments.findFirst({
 			where: and(
-				eq(reviewComments.id, params.id),
-				eq(reviewComments.sessionId, params.sessionId)
+				eq(reviewComments.id, params.commentId),
+				eq(reviewComments.sessionId, params.id)
 			),
 		});
 
@@ -220,13 +220,13 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 		}
 
 		await db.delete(reviewComments)
-			.where(eq(reviewComments.id, params.id));
+			.where(eq(reviewComments.id, params.commentId));
 
 		return { success: true };
 	}, {
 		params: t.Object({
-			sessionId: t.String(),
 			id: t.String(),
+			commentId: t.String(),
 		}),
 	})
 
@@ -234,7 +234,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 	.post('/proceed', async ({ user, params, set }) => {
 		const session = await db.query.claudeSessions.findFirst({
 			where: and(
-				eq(claudeSessions.id, params.sessionId),
+				eq(claudeSessions.id, params.id),
 				eq(claudeSessions.userId, user!.id)
 			),
 		});
@@ -247,7 +247,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 		// Get all pending comments without a batch ID
 		const pendingComments = await db.query.reviewComments.findMany({
 			where: and(
-				eq(reviewComments.sessionId, params.sessionId),
+				eq(reviewComments.sessionId, params.id),
 				eq(reviewComments.status, 'pending'),
 				isNull(reviewComments.batchId)
 			),
@@ -267,7 +267,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 			.set({ batchId, status: 'running' })
 			.where(
 				and(
-					eq(reviewComments.sessionId, params.sessionId),
+					eq(reviewComments.sessionId, params.id),
 					eq(reviewComments.status, 'pending'),
 					isNull(reviewComments.batchId)
 				)
@@ -288,7 +288,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 		};
 	}, {
 		params: t.Object({
-			sessionId: t.String(),
+			id: t.String(),
 		}),
 	})
 
@@ -296,7 +296,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 	.get('/batches', async ({ user, params, set }) => {
 		const session = await db.query.claudeSessions.findFirst({
 			where: and(
-				eq(claudeSessions.id, params.sessionId),
+				eq(claudeSessions.id, params.id),
 				eq(claudeSessions.userId, user!.id)
 			),
 		});
@@ -308,7 +308,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 
 		// Get all comments for this session
 		const allComments = await db.query.reviewComments.findMany({
-			where: eq(reviewComments.sessionId, params.sessionId),
+			where: eq(reviewComments.sessionId, params.id),
 			orderBy: (c, { desc }) => [desc(c.createdAt)],
 		});
 
@@ -345,7 +345,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 		);
 	}, {
 		params: t.Object({
-			sessionId: t.String(),
+			id: t.String(),
 		}),
 	})
 
@@ -353,7 +353,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 	.post('/batches/:batchId/resolve', async ({ user, params, set }) => {
 		const session = await db.query.claudeSessions.findFirst({
 			where: and(
-				eq(claudeSessions.id, params.sessionId),
+				eq(claudeSessions.id, params.id),
 				eq(claudeSessions.userId, user!.id)
 			),
 		});
@@ -366,7 +366,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 		// Check if batch exists
 		const batchComments = await db.query.reviewComments.findMany({
 			where: and(
-				eq(reviewComments.sessionId, params.sessionId),
+				eq(reviewComments.sessionId, params.id),
 				eq(reviewComments.batchId, params.batchId)
 			),
 		});
@@ -381,7 +381,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 			.set({ status: 'resolved', resolvedAt: new Date() })
 			.where(
 				and(
-					eq(reviewComments.sessionId, params.sessionId),
+					eq(reviewComments.sessionId, params.id),
 					eq(reviewComments.batchId, params.batchId)
 				)
 			);
@@ -389,7 +389,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 		return { success: true };
 	}, {
 		params: t.Object({
-			sessionId: t.String(),
+			id: t.String(),
 			batchId: t.String(),
 		}),
 	})
@@ -398,7 +398,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 	.post('/batches/:batchId/rerun', async ({ user, params, set }) => {
 		const session = await db.query.claudeSessions.findFirst({
 			where: and(
-				eq(claudeSessions.id, params.sessionId),
+				eq(claudeSessions.id, params.id),
 				eq(claudeSessions.userId, user!.id)
 			),
 		});
@@ -411,7 +411,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 		// Get all comments from the batch
 		const batchComments = await db.query.reviewComments.findMany({
 			where: and(
-				eq(reviewComments.sessionId, params.sessionId),
+				eq(reviewComments.sessionId, params.id),
 				eq(reviewComments.batchId, params.batchId)
 			),
 		});
@@ -424,7 +424,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 		// Create new pending comments with same content
 		const newComments = batchComments.map(comment => ({
 			id: nanoid(),
-			sessionId: params.sessionId,
+			sessionId: params.id,
 			batchId: null,
 			filePath: comment.filePath,
 			lineNumber: comment.lineNumber,
@@ -445,7 +445,7 @@ export const reviewCommentsRoutes = new Elysia({ prefix: '/sessions/:sessionId/r
 		};
 	}, {
 		params: t.Object({
-			sessionId: t.String(),
+			id: t.String(),
 			batchId: t.String(),
 		}),
 	});

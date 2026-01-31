@@ -93,16 +93,20 @@ export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProp
     ];
   }, [gitStatus]);
 
-  const lineAnnotations: DiffLineAnnotation<string>[] = useMemo(() => {
-    if (!selectedFile) return [];
+  const getLineAnnotationsForFile = useCallback((filePath: string): DiffLineAnnotation<string>[] => {
     return comments
-      .filter(c => c.filePath === selectedFile)
+      .filter(c => c.filePath === filePath)
       .map(c => ({
         lineNumber: c.lineNumber,
         side: c.lineSide,
         metadata: c.id,
       }));
-  }, [comments, selectedFile]);
+  }, [comments]);
+
+  const lineAnnotations: DiffLineAnnotation<string>[] = useMemo(() => {
+    if (!selectedFile) return [];
+    return getLineAnnotationsForFile(selectedFile);
+  }, [selectedFile, getLineAnnotationsForFile]);
 
   const renderAnnotation = useCallback((annotation: DiffLineAnnotation<string>) => {
     const comment = comments.find(c => c.id === annotation.metadata);
@@ -115,30 +119,36 @@ export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProp
     );
   }, [comments, deleteComment]);
 
-  const renderHoverUtility = useCallback((getHoveredLine: () => { lineNumber: number; side: 'additions' | 'deletions' } | undefined) => {
-    const hovered = getHoveredLine();
-    if (!hovered) return null;
+  const createRenderHoverUtility = useCallback((filePath: string) => {
+    return (getHoveredLine: () => { lineNumber: number; side: 'additions' | 'deletions' } | undefined) => {
+      const hovered = getHoveredLine();
+      if (!hovered) return null;
 
-    return (
-      <button
-        type="button"
-        onClick={(e) => {
-          const rect = (e.target as HTMLElement).getBoundingClientRect();
-          setCommentPopover({
-            lineNumber: hovered.lineNumber,
-            side: hovered.side,
-            lineContent: '',
-            filePath: selectedFile || '',
-            position: { x: rect.right + 10, y: rect.top },
-          });
-        }}
-        className="p-1 rounded hover:bg-accent"
-        title="Add comment"
-      >
-        <MessageSquarePlus className="h-4 w-4 text-muted-foreground" />
-      </button>
-    );
-  }, [selectedFile]);
+      return (
+        <button
+          type="button"
+          onClick={(e) => {
+            const rect = (e.target as HTMLElement).getBoundingClientRect();
+            setCommentPopover({
+              lineNumber: hovered.lineNumber,
+              side: hovered.side,
+              lineContent: '',
+              filePath: filePath,
+              position: { x: rect.right + 10, y: rect.top },
+            });
+          }}
+          className="p-1 rounded hover:bg-accent"
+          title="Add comment"
+        >
+          <MessageSquarePlus className="h-4 w-4 text-muted-foreground" />
+        </button>
+      );
+    };
+  }, []);
+
+  const renderHoverUtility = useMemo(() => {
+    return createRenderHoverUtility(selectedFile || '');
+  }, [selectedFile, createRenderHoverUtility]);
 
   const handleAddComment = useCallback((comment: string) => {
     if (!commentPopover) return;
@@ -322,7 +332,12 @@ export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProp
             </div>
           ) : fullDiff?.diff ? (
             <div className="p-2">
-              <MultiFileDiffView diff={fullDiff.diff} />
+              <MultiFileDiffView
+                diff={fullDiff.diff}
+                getLineAnnotationsForFile={getLineAnnotationsForFile}
+                renderAnnotation={renderAnnotation}
+                createRenderHoverUtility={createRenderHoverUtility}
+              />
             </div>
           ) : hasChanges ? (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
@@ -440,7 +455,14 @@ function FileItem({
   );
 }
 
-function MultiFileDiffView({ diff }: { diff: string }) {
+interface MultiFileDiffViewProps {
+  diff: string;
+  getLineAnnotationsForFile: (filePath: string) => DiffLineAnnotation<string>[];
+  renderAnnotation: (annotation: DiffLineAnnotation<string>) => React.ReactNode;
+  createRenderHoverUtility: (filePath: string) => (getHoveredLine: () => { lineNumber: number; side: 'additions' | 'deletions' } | undefined) => React.ReactNode;
+}
+
+function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, createRenderHoverUtility }: MultiFileDiffViewProps) {
   const parsedFiles = useMemo(() => {
     try {
       const patches = parsePatchFiles(diff);
@@ -476,7 +498,12 @@ function MultiFileDiffView({ diff }: { diff: string }) {
             options={{
               theme: { dark: 'github-dark', light: 'github-light' },
               diffStyle: 'unified',
+              enableLineSelection: true,
+              enableHoverUtility: true,
             }}
+            lineAnnotations={getLineAnnotationsForFile(fileDiff.name)}
+            renderAnnotation={renderAnnotation}
+            renderHoverUtility={createRenderHoverUtility(fileDiff.name)}
           />
         </div>
       ))}
