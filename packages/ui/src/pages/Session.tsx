@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/Button';
 import { Terminal } from '@/components/Terminal';
 import { GitDiffView } from '@/components/GitDiffView';
 import { cn } from '@/lib/utils';
+import { toast } from '@/components/ui/Toaster';
 
 type ViewMode = 'terminal' | 'git';
 
@@ -297,7 +298,26 @@ export function SessionPage() {
                 <EmptyState isLoading={isLoading} onCreateClaude={() => createMutation.mutate('claude')} />
               )
             ) : (
-              <GitDiffView sessionId={id!} />
+              <GitDiffView
+                sessionId={id!}
+                onProceed={(message) => {
+                  navigator.clipboard.writeText(message).then(
+                    () => {
+                      toast({
+                        title: 'Review message copied',
+                        description: 'Paste into Claude terminal to proceed',
+                      });
+                    },
+                    () => {
+                      toast({
+                        title: 'Failed to copy',
+                        description: 'Please try again',
+                        variant: 'destructive',
+                      });
+                    }
+                  );
+                }}
+              />
             )}
           </div>
         </div>

@@ -27,9 +27,10 @@ import { ReviewBatchPanel } from './ReviewBatchPanel';
 interface GitDiffViewProps {
   sessionId: string;
   className?: string;
+  onProceed?: (message: string) => void;
 }
 
-export function GitDiffView({ sessionId, className }: GitDiffViewProps) {
+export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProps) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   // Show file list by default on desktop, hide on mobile
   const [showFileList, setShowFileList] = useState(window.innerWidth >= 768);
@@ -153,9 +154,10 @@ export function GitDiffView({ sessionId, className }: GitDiffViewProps) {
 
   const handleProceed = useCallback(async () => {
     const result = await proceed();
-    console.log('Proceed result:', result);
-    // TODO: Insert result.message into Claude terminal input
-  }, [proceed]);
+    if (onProceed) {
+      onProceed(result.message);
+    }
+  }, [proceed, onProceed]);
 
   return (
     <div className={cn('flex flex-col h-full bg-background', className)}>
