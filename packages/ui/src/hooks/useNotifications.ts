@@ -86,20 +86,33 @@ export function useNotifications(): UseNotificationsReturn {
 
   // Set up foreground message handler
   useEffect(() => {
-    if (status !== 'registered') return;
+    if (status !== 'registered') {
+      console.log('[useNotifications] Skipping foreground handler setup, status:', status);
+      return;
+    }
 
+    console.log('[useNotifications] Setting up foreground message handler');
     const unsubscribe = onForegroundMessage((payload) => {
+      console.log('[useNotifications] Received foreground message:', payload);
       // Show toast for foreground notifications
-      const notification = payload as { notification?: { title?: string; body?: string } };
+      const notification = payload as { notification?: { title?: string; body?: string }; data?: Record<string, string> };
+      console.log('[useNotifications] Notification payload:', notification.notification);
+      console.log('[useNotifications] Data payload:', notification.data);
       if (notification.notification) {
+        console.log('[useNotifications] Showing toast for notification');
         toast({
           title: notification.notification.title || 'Notification',
           description: notification.notification.body,
         });
+      } else {
+        console.log('[useNotifications] No notification field in payload, skipping toast');
       }
     });
 
-    return unsubscribe;
+    return () => {
+      console.log('[useNotifications] Cleaning up foreground message handler');
+      unsubscribe();
+    };
   }, [status]);
 
   const enableNotifications = useCallback(async () => {

@@ -136,8 +136,28 @@ export class FirebaseAdapter extends BaseNotificationAdapter {
       },
     };
 
+    console.log('[Firebase] Sending notification:', {
+      userId,
+      tokenCount: tokens.length,
+      title: message.notification?.title,
+      body: message.notification?.body,
+      data: message.data,
+      type: payload.type,
+    });
+
     try {
       const response = await admin.messaging().sendEachForMulticast(message);
+
+      console.log('[Firebase] Send response:', {
+        successCount: response.successCount,
+        failureCount: response.failureCount,
+        responses: response.responses.map((r, i) => ({
+          index: i,
+          success: r.success,
+          messageId: r.messageId,
+          error: r.error ? { code: r.error.code, message: r.error.message } : null,
+        })),
+      });
 
       // Remove invalid tokens
       if (response.failureCount > 0) {
@@ -145,6 +165,10 @@ export class FirebaseAdapter extends BaseNotificationAdapter {
         response.responses.forEach((resp, idx) => {
           if (!resp.success) {
             const errorCode = resp.error?.code;
+            console.log(`[Firebase] Token ${idx} failed:`, {
+              code: errorCode,
+              message: resp.error?.message,
+            });
             if (
               errorCode === 'messaging/invalid-registration-token' ||
               errorCode === 'messaging/registration-token-not-registered'
@@ -156,6 +180,7 @@ export class FirebaseAdapter extends BaseNotificationAdapter {
 
         // Clean up invalid tokens
         if (invalidTokens.length > 0) {
+          console.log(`[Firebase] Removing ${invalidTokens.length} invalid tokens`);
           for (const token of invalidTokens) {
             await db.delete(fcmTokens).where(eq(fcmTokens.token, token));
           }
@@ -164,7 +189,7 @@ export class FirebaseAdapter extends BaseNotificationAdapter {
 
       return response.successCount > 0;
     } catch (error) {
-      console.error('Failed to send Firebase notification:', error);
+      console.error('[Firebase] Failed to send notification:', error);
       return false;
     }
   }

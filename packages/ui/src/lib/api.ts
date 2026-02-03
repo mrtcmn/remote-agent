@@ -239,6 +239,7 @@ export interface CreateTerminalInput {
   cols?: number;
   rows?: number;
   persist?: boolean;
+  initialPrompt?: string;
 }
 
 export interface VersionInfo {

@@ -46,6 +46,8 @@ export class NotificationService {
     const prefs = await this.getUserPreferences(userId);
     const enabledAdapters = this.parseEnabledAdapters(prefs?.enabledAdapters);
 
+
+    console.log(`Sending notification for ${userId} via ${enabledAdapters.join(', ')}`, prefs);
     // Check quiet hours
     if (prefs && this.isQuietHours(prefs.quietHoursStart, prefs.quietHoursEnd)) {
       if (payload.priority !== 'high') {

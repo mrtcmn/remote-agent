@@ -76,14 +76,19 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
 
     if (type === 'claude') {
       command = ['claude', '--dangerously-skip-permissions'];
+      // Append initial prompt if provided (starts REPL with query)
+      if (body.initialPrompt) {
+        command.push(body.initialPrompt);
+      }
       name = body.name || 'Claude';
 
       // Ensure user workspace and .claude directory exist with default hooks
       await workspaceService.createUserWorkspace(user!.id);
-      await workspaceService.storeHooks(user!.id);
+      await workspaceService.storeHooks(user!.id, body.sessionId, terminalId);
 
-      // Set session ID for hook callbacks to identify the session
+      // Set session and terminal IDs for hook callbacks
       env.REMOTE_AGENT_SESSION_ID = body.sessionId;
+      env.REMOTE_AGENT_TERMINAL_ID = terminalId;
       // Set HOME to user workspace so Claude finds ~/.claude/settings.json
       env.HOME = userWorkspace;
     } else {
@@ -129,6 +134,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
       cols: t.Optional(t.Number()),
       rows: t.Optional(t.Number()),
       persist: t.Optional(t.Boolean()),
+      initialPrompt: t.Optional(t.String()),
     }),
   })
 

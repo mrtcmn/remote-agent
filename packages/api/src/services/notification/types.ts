@@ -14,6 +14,7 @@ export interface NotificationAction {
 
 export interface NotificationPayload {
   sessionId: string;
+  terminalId?: string;
   projectName?: string;
   type: NotificationType;
   title: string;

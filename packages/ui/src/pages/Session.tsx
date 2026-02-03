@@ -53,7 +53,13 @@ export function SessionPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (type: TerminalType = 'shell') => api.createTerminal({ sessionId: id!, type }),
+    mutationFn: (opts: { type?: TerminalType; name?: string; initialPrompt?: string } = {}) =>
+      api.createTerminal({
+        sessionId: id!,
+        type: opts.type || 'shell',
+        name: opts.name,
+        initialPrompt: opts.initialPrompt,
+      }),
     onSuccess: (terminal) => {
       queryClient.invalidateQueries({ queryKey: ['terminals', id] });
       setActiveTerminalId(terminal.id);
@@ -110,7 +116,7 @@ export function SessionPage() {
             variant="ghost"
             size="sm"
             className="gap-1.5 h-8 px-2.5 font-mono text-xs"
-            onClick={() => createMutation.mutate('claude')}
+            onClick={() => createMutation.mutate({ type: 'claude' })}
             disabled={createMutation.isPending}
           >
             {createMutation.isPending ? (
@@ -124,7 +130,7 @@ export function SessionPage() {
             variant="ghost"
             size="sm"
             className="gap-1.5 h-8 px-2.5 font-mono text-xs"
-            onClick={() => createMutation.mutate('shell')}
+            onClick={() => createMutation.mutate({ type: 'shell' })}
             disabled={createMutation.isPending}
           >
             {createMutation.isPending ? (
@@ -295,25 +301,32 @@ export function SessionPage() {
                   }}
                 />
               ) : (
-                <EmptyState isLoading={isLoading} onCreateClaude={() => createMutation.mutate('claude')} />
+                <EmptyState isLoading={isLoading} onCreateClaude={() => createMutation.mutate({ type: 'claude' })} />
               )
             ) : (
               <GitDiffView
                 sessionId={id!}
                 onProceed={(message) => {
-                  navigator.clipboard.writeText(message).then(
-                    () => {
-                      toast({
-                        title: 'Review message copied',
-                        description: 'Paste into Claude terminal to proceed',
-                      });
+                  createMutation.mutate(
+                    {
+                      type: 'claude',
+                      name: 'Review',
+                      initialPrompt: message,
                     },
-                    () => {
-                      toast({
-                        title: 'Failed to copy',
-                        description: 'Please try again',
-                        variant: 'destructive',
-                      });
+                    {
+                      onSuccess: () => {
+                        toast({
+                          title: 'Claude terminal started',
+                          description: 'Review comments are being processed',
+                        });
+                      },
+                      onError: () => {
+                        toast({
+                          title: 'Failed to create terminal',
+                          description: 'Please try again',
+                          variant: 'destructive',
+                        });
+                      },
                     }
                   );
                 }}

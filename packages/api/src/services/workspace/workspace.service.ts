@@ -65,7 +65,7 @@ export class WorkspaceService {
     }
 
     // 3. Store custom hooks (merged with notification hooks)
-    await this.storeHooks(userId, opts.hooks);
+    await this.storeHooks(userId, undefined, undefined, opts.hooks);
 
     // 4. Store Claude settings
     if (opts.claudeSettings) {
@@ -120,10 +120,26 @@ export class WorkspaceService {
     }
   }
 
-  async storeHooks(userId: string, customHooks?: HookConfig): Promise<void> {
+  async storeHooks(userId: string, sessionId?: string, terminalId?: string, customHooks?: HookConfig): Promise<void> {
     const settingsPath = join(this.workspacesRoot, userId, '.claude', 'settings.json');
 
-    // Default notification hooks in Claude Code format
+    // Build curl commands for hook callbacks
+    const baseUrl = 'http://localhost:5100/internal/hooks';
+    const attentionPayload = JSON.stringify({
+      sessionId: sessionId || '',
+      terminalId: terminalId || '',
+      type: 'user_input_required',
+      prompt: 'Attention required',
+    }).replace(/"/g, '\\"');
+
+    const completePayload = JSON.stringify({
+      sessionId: sessionId || '',
+      terminalId: terminalId || '',
+      type: 'task_complete',
+      prompt: 'Task completed',
+    }).replace(/"/g, '\\"');
+
+    // Default notification hooks using curl commands directly
     const defaultHooks: HookConfig = {
       hooks: {
         // Notification hook for user input and permission requests
@@ -131,14 +147,14 @@ export class WorkspaceService {
           matcher: 'idle_prompt|permission_prompt',
           hooks: [{
             type: 'command',
-            command: '/app/hooks/notify-attention.sh',
+            command: `curl -s -X POST "${baseUrl}/attention" -H "Content-Type: application/json" -d "${attentionPayload}" || true`,
           }],
         }],
         // Stop hook for task completion
         Stop: [{
           hooks: [{
             type: 'command',
-            command: '/app/hooks/notify-complete.sh',
+            command: `curl -s -X POST "${baseUrl}/complete" -H "Content-Type: application/json" -d "${completePayload}" || true`,
           }],
         }],
       },

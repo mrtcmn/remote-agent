@@ -97,13 +97,34 @@ export async function requestNotificationPermission(): Promise<string | null> {
 export function onForegroundMessage(callback: (payload: unknown) => void): () => void {
   let unsubscribe: (() => void) | null = null;
 
-  getFirebaseMessaging().then((messaging) => {
-    if (messaging) {
-      unsubscribe = onMessage(messaging, callback);
-    }
-  });
+  console.log('[Firebase] Setting up foreground message listener...');
+
+  getFirebaseMessaging()
+    .then((messaging) => {
+      if (messaging) {
+        console.log('[Firebase] Messaging instance ready, registering onMessage handler');
+        unsubscribe = onMessage(messaging, (payload) => {
+          console.log('[Firebase] Foreground message received:', {
+            messageId: payload.messageId,
+            from: payload.from,
+            collapseKey: payload.collapseKey,
+            notification: payload.notification,
+            data: payload.data,
+            fcmOptions: payload.fcmOptions,
+          });
+          callback(payload);
+        });
+        console.log('[Firebase] onMessage handler registered successfully');
+      } else {
+        console.warn('[Firebase] Messaging instance is null, cannot register onMessage handler');
+      }
+    })
+    .catch((error) => {
+      console.error('[Firebase] Failed to setup foreground message listener:', error);
+    });
 
   return () => {
+    console.log('[Firebase] Cleaning up foreground message listener');
     unsubscribe?.();
   };
 }

@@ -16,6 +16,7 @@ import {
   Send,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { DIFF_THEME } from '@/lib/constants';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
 import { useReviewComments } from '@/hooks/useReviewComments';
@@ -118,16 +119,32 @@ export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProp
     );
   }, [comments, deleteComment]);
 
-  const createOnLineNumberClick = useCallback((filePath: string) => {
-    return (props: { lineNumber: number; annotationSide: 'additions' | 'deletions'; lineElement: HTMLElement }) => {
-      const rect = props.lineElement.getBoundingClientRect();
-      setCommentPopover({
-        lineNumber: props.lineNumber,
-        side: props.annotationSide,
-        lineContent: '',
-        filePath: filePath,
-        position: { x: rect.right + 10, y: rect.top },
-      });
+  const createRenderHoverUtility = useCallback((filePath: string) => {
+    return (getHoveredLine: () => { lineNumber: number; side: 'additions' | 'deletions' } | undefined) => {
+      const handleClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        const hoveredLine = getHoveredLine();
+        if (!hoveredLine) return;
+
+        const rect = (e.target as HTMLElement).getBoundingClientRect();
+        setCommentPopover({
+          lineNumber: hoveredLine.lineNumber,
+          side: hoveredLine.side,
+          lineContent: '',
+          filePath: filePath,
+          position: { x: rect.right + 10, y: rect.top },
+        });
+      };
+
+      return (
+        <button
+          onClick={handleClick}
+          className="flex items-center justify-center w-5 h-5 rounded hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 transition-colors"
+          title="Add comment"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      );
     };
   }, []);
 
@@ -301,13 +318,13 @@ export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProp
               <PatchDiff
                 patch={diffData.diff}
                 options={{
-                  theme: { dark: 'github-dark', light: 'github-light' },
+                  theme: DIFF_THEME,
                   diffStyle: 'unified',
-                  enableLineSelection: true,
-                  onLineNumberClick: createOnLineNumberClick(selectedFile),
+                  enableHoverUtility: true,
                 }}
                 lineAnnotations={lineAnnotations}
                 renderAnnotation={renderAnnotation}
+                renderHoverUtility={createRenderHoverUtility(selectedFile)}
               />
             </div>
           ) : fullDiff?.diff ? (
@@ -316,7 +333,7 @@ export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProp
                 diff={fullDiff.diff}
                 getLineAnnotationsForFile={getLineAnnotationsForFile}
                 renderAnnotation={renderAnnotation}
-                createOnLineNumberClick={createOnLineNumberClick}
+                createRenderHoverUtility={createRenderHoverUtility}
               />
             </div>
           ) : hasChanges ? (
@@ -439,10 +456,10 @@ interface MultiFileDiffViewProps {
   diff: string;
   getLineAnnotationsForFile: (filePath: string) => DiffLineAnnotation<string>[];
   renderAnnotation: (annotation: DiffLineAnnotation<string>) => React.ReactNode;
-  createOnLineNumberClick: (filePath: string) => (props: { lineNumber: number; annotationSide: 'additions' | 'deletions'; lineElement: HTMLElement }) => void;
+  createRenderHoverUtility: (filePath: string) => (getHoveredLine: () => { lineNumber: number; side: 'additions' | 'deletions' } | undefined) => React.ReactNode;
 }
 
-function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, createOnLineNumberClick }: MultiFileDiffViewProps) {
+function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, createRenderHoverUtility }: MultiFileDiffViewProps) {
   const parsedFiles = useMemo(() => {
     try {
       const patches = parsePatchFiles(diff);
@@ -476,13 +493,13 @@ function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, 
           <FileDiff
             fileDiff={fileDiff}
             options={{
-              theme: { dark: 'github-dark', light: 'github-light' },
+              theme: DIFF_THEME,
               diffStyle: 'unified',
-              enableLineSelection: true,
-              onLineNumberClick: createOnLineNumberClick(fileDiff.name),
+              enableHoverUtility: true,
             }}
             lineAnnotations={getLineAnnotationsForFile(fileDiff.name)}
             renderAnnotation={renderAnnotation}
+            renderHoverUtility={createRenderHoverUtility(fileDiff.name)}
           />
         </div>
       ))}

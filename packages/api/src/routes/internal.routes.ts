@@ -15,7 +15,7 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
     }
   })
 
-  // Hook callback for notifications
+  // Hook callback for attention notifications (idle_prompt, permission_prompt)
   .post('/hooks/attention', async ({ body, set }) => {
     console.log('hooks/attention', body);
     const session = await db.query.claudeSessions.findFirst({
@@ -35,16 +35,55 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
     // Send notification
     const result = await notificationService.notify(session.userId, {
       sessionId: body.sessionId,
+      terminalId: body.terminalId,
       type: body.type as NotificationType,
-      title: body.type === 'task_complete' ? 'Task Complete' : 'Attention Required',
+      title: 'Attention Required',
       body: body.prompt,
-      priority: body.type === 'task_complete' ? 'normal' : 'high',
+      priority: 'high',
     });
 
     return { success: true, notification: result };
   }, {
     body: t.Object({
       sessionId: t.String(),
+      terminalId: t.Optional(t.String()),
+      type: t.String(),
+      prompt: t.String(),
+    }),
+  })
+
+  // Hook callback for task completion (Stop event)
+  .post('/hooks/complete', async ({ body, set }) => {
+    console.log('hooks/complete', body);
+    const session = await db.query.claudeSessions.findFirst({
+      where: eq(claudeSessions.id, body.sessionId),
+    });
+
+    if (!session) {
+      set.status = 404;
+      return { error: 'Session not found' };
+    }
+
+    // Update session status to terminated (task complete)
+    await db.update(claudeSessions)
+      .set({ status: 'terminated' })
+      .where(eq(claudeSessions.id, body.sessionId));
+
+    // Send notification
+    const result = await notificationService.notify(session.userId, {
+      sessionId: body.sessionId,
+      terminalId: body.terminalId,
+      type: 'task_complete' as NotificationType,
+      title: 'Task Complete',
+      body: body.prompt,
+      priority: 'normal',
+    });
+
+    return { success: true, notification: result };
+  }, {
+    body: t.Object({
+      sessionId: t.String(),
+      terminalId: t.Optional(t.String()),
       type: t.String(),
       prompt: t.String(),
     }),

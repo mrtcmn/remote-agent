@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import { Layout } from './components/Layout';
+import { NotificationListener } from './components/NotificationListener';
 import { LoginPage } from './pages/Login';
 import { DashboardPage } from './pages/Dashboard';
 import { SessionPage } from './pages/Session';
@@ -35,6 +36,7 @@ export default function App() {
           path="/*"
           element={
             <ProtectedRoute>
+              <NotificationListener />
               <Layout>
                 <Routes>
                   <Route path="/" element={<DashboardPage />} />
