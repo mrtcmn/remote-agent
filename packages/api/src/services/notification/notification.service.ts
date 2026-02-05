@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm';
 import { db, notificationPrefs } from '../../db';
-import type { NotificationAdapter, NotificationPayload } from './types';
+import type { NotificationAdapter, NotificationPayload, CreateNotificationInput, NotificationRecord } from './types';
 import { FirebaseAdapter, WebhookAdapter } from './adapters';
+import { notificationRepository } from './notification.repository';
 
 export class NotificationService {
   private adapters = new Map<string, NotificationAdapter>();
@@ -98,6 +99,53 @@ export class NotificationService {
     }
 
     return { success: anySuccess, results };
+  }
+
+  async createAndSend(input: CreateNotificationInput): Promise<{
+    notification: NotificationRecord;
+    sendResult: { success: boolean; results: Record<string, boolean> };
+  }> {
+    // Create notification record
+    const notification = await notificationRepository.create(input);
+
+    // Supersede previous notifications for same terminal if applicable
+    if (input.terminalId && (input.type === 'user_input_required' || input.type === 'permission_request')) {
+      await notificationRepository.supersedePreviousForTerminal(
+        input.terminalId,
+        input.type,
+        notification.id
+      );
+    }
+
+    // Send via adapters
+    const sendResult = await this.notify(input.userId, {
+      sessionId: input.sessionId,
+      terminalId: input.terminalId,
+      type: input.type,
+      title: input.title,
+      body: input.body,
+      actions: input.actions,
+      metadata: {
+        ...input.metadata,
+        notificationId: notification.id, // Include for mobile response handling
+      },
+      priority: input.priority,
+    });
+
+    // Update status to sent if successful
+    if (sendResult.success) {
+      await notificationRepository.updateStatus(notification.id, 'sent');
+    }
+
+    return { notification, sendResult };
+  }
+
+  async dismissBySession(sessionId: string): Promise<number> {
+    return notificationRepository.dismissBySession(sessionId);
+  }
+
+  async dismissByTerminal(terminalId: string): Promise<number> {
+    return notificationRepository.dismissByTerminal(terminalId);
   }
 
   private async getUserPreferences(userId: string) {
