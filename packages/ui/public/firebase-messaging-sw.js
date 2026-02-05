@@ -35,30 +35,48 @@ messaging.onBackgroundMessage((payload) => {
 
 // Handle notification click
 self.addEventListener('notificationclick', (event) => {
-  console.log('[SW] Notification clicked:', event);
-  event.notification.close();
+  const { action, notification } = event;
+  const data = notification.data || {};
+  const { sessionId, notificationId } = data;
 
-  const data = event.notification.data || {};
-  let targetUrl = '/';
+  notification.close();
 
-  // Navigate to session if sessionId provided
-  if (data.sessionId) {
-    targetUrl = `/sessions/${data.sessionId}`;
+  // Handle action button clicks
+  if (action && action !== 'default' && notificationId) {
+    event.waitUntil(
+      fetch(`/api/notifications/${notificationId}/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action }),
+      }).catch(err => console.error('Failed to send action response:', err))
+    );
   }
 
+  // Open or focus the app
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Check if there's already a window open
+      // Try to find an existing window with the session
       for (const client of clientList) {
-        if (client.url.includes(self.location.origin) && 'focus' in client) {
-          client.navigate(targetUrl);
+        if (client.url.includes(`/sessions/${sessionId}`) && 'focus' in client) {
           return client.focus();
         }
       }
-      // Open new window if none exists
-      if (clients.openWindow) {
-        return clients.openWindow(targetUrl);
+      // Try to find any app window
+      for (const client of clientList) {
+        if ('focus' in client) {
+          client.focus();
+          if ('navigate' in client && sessionId) {
+            return client.navigate(`/sessions/${sessionId}`);
+          }
+          return;
+        }
       }
+      // Open new window
+      if (sessionId) {
+        return clients.openWindow(`/sessions/${sessionId}`);
+      }
+      return clients.openWindow('/');
     })
   );
 });
