@@ -42,6 +42,12 @@ export const api = {
   getSessionFileDiff: (sessionId: string, file: string) =>
     request<{ diff: string; file: string }>(`/sessions/${sessionId}/git/diff/${encodeURIComponent(file)}`),
 
+  // Files
+  getSessionFiles: (sessionId: string, path = '.') =>
+    request<DirectoryListing>(`/sessions/${sessionId}/files?path=${encodeURIComponent(path)}`),
+  getSessionFileContent: (sessionId: string, path: string) =>
+    request<FileContent>(`/sessions/${sessionId}/files/content?path=${encodeURIComponent(path)}`),
+
   // Projects
   getProjects: () => request<Project[]>('/projects'),
   getProject: (id: string) => request<Project>(`/projects/${id}`),
@@ -292,4 +298,23 @@ export interface ProceedResponse {
   batchId: string;
   message: string;
   commentCount: number;
+}
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  size?: number;
+}
+
+export interface DirectoryListing {
+  path: string;
+  entries: FileEntry[];
+}
+
+export interface FileContent {
+  path: string;
+  name: string;
+  content: string;
+  size: number;
 }

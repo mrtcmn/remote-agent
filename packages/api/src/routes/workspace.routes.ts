@@ -61,6 +61,7 @@ export const workspaceRoutes = new Elysia({ prefix: '/workspace' })
     return keys;
   })
 
+
   // Add SSH key
   .post('/ssh-keys', async ({ user, body, set }) => {
     try {

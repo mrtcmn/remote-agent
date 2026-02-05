@@ -221,9 +221,8 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     // Close all terminals for this session
     await terminalService.closeSessionTerminals(params.id);
 
-    // Update session status
-    await db.update(claudeSessions)
-      .set({ status: 'terminated' })
+    // Delete session (cascades to messages, terminals, review comments)
+    await db.delete(claudeSessions)
       .where(eq(claudeSessions.id, params.id));
 
     return { success: true };

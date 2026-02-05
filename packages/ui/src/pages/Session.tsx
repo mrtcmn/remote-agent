@@ -12,15 +12,17 @@ import {
   PanelRightClose,
   PanelRight,
   ChevronDown,
+  FolderOpen,
 } from 'lucide-react';
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Terminal } from '@/components/Terminal';
 import { GitDiffView } from '@/components/GitDiffView';
+import { FileExplorer } from '@/components/FileExplorer';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/Toaster';
 
-type ViewMode = 'terminal' | 'git';
+type ViewMode = 'terminal' | 'git' | 'files';
 
 export function SessionPage() {
   const { id } = useParams<{ id: string }>();
@@ -219,6 +221,23 @@ export function SessionPage() {
                 />
               ))}
             </div>
+
+            {/* Files Button */}
+            {session?.project && (
+              <div className="flex flex-col items-center py-2 border-t border-border/50">
+                <button
+                  onClick={() => setViewMode(viewMode === 'files' ? 'terminal' : 'files')}
+                  className={cn(
+                    'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
+                    'hover:bg-accent',
+                    viewMode === 'files' && 'bg-primary text-primary-foreground'
+                  )}
+                  title="File Explorer"
+                >
+                  <FolderOpen className="h-4 w-4" />
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -303,7 +322,7 @@ export function SessionPage() {
               ) : (
                 <EmptyState isLoading={isLoading} onCreateClaude={() => createMutation.mutate({ type: 'claude' })} />
               )
-            ) : (
+            ) : viewMode === 'git' ? (
               <GitDiffView
                 sessionId={id!}
                 onProceed={(message) => {
@@ -331,6 +350,8 @@ export function SessionPage() {
                   );
                 }}
               />
+            ) : (
+              <FileExplorer sessionId={id!} className="h-full" />
             )}
           </div>
         </div>
