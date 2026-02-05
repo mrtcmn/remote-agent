@@ -10,6 +10,25 @@ export const terminalTypeEnum = pgEnum('terminal_type', ['shell', 'claude']);
 export const reviewCommentStatusEnum = pgEnum('review_comment_status', ['pending', 'running', 'resolved']);
 export const lineSideEnum = pgEnum('line_side', ['additions', 'deletions']);
 
+export const notificationTypeEnum = pgEnum('notification_type', [
+  'user_input_required',
+  'permission_request',
+  'task_complete',
+  'error',
+  'session_started',
+  'session_ended',
+]);
+
+export const notificationStatusEnum = pgEnum('notification_status', [
+  'pending',
+  'sent',
+  'read',
+  'resolved',
+  'dismissed',
+]);
+
+export const notificationPriorityEnum = pgEnum('notification_priority', ['low', 'normal', 'high']);
+
 // Better Auth tables
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -112,6 +131,29 @@ export const notificationPrefs = pgTable('notification_prefs', {
   notifyOnComplete: boolean('notify_on_complete').default(true),
 });
 
+// Persistent notifications
+export const notifications = pgTable('notifications', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  sessionId: text('session_id').references(() => claudeSessions.id, { onDelete: 'cascade' }).notNull(),
+  terminalId: text('terminal_id'),
+
+  type: notificationTypeEnum('type').notNull(),
+  title: text('title').notNull(),
+  body: text('body').notNull(),
+  metadata: text('metadata'), // JSON
+  actions: text('actions'), // JSON array of NotificationAction
+  priority: notificationPriorityEnum('priority').default('normal'),
+
+  status: notificationStatusEnum('status').default('pending'),
+  resolvedAction: text('resolved_action'),
+  resolvedAt: timestamp('resolved_at'),
+  expiresAt: timestamp('expires_at'),
+
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
 // SSH keys for git operations
 export const sshKeys = pgTable('ssh_keys', {
   id: text('id').primaryKey(),
@@ -180,6 +222,7 @@ export const userRelations = relations(user, ({ many, one }) => ({
     fields: [user.id],
     references: [notificationPrefs.userId],
   }),
+  notifications: many(notifications),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -227,6 +270,7 @@ export const claudeSessionsRelations = relations(claudeSessions, ({ one, many })
   messages: many(messages),
   terminals: many(terminals),
   reviewComments: many(reviewComments),
+  notifications: many(notifications),
 }));
 
 export const fcmTokensRelations = relations(fcmTokens, ({ one }) => ({
@@ -240,6 +284,17 @@ export const notificationPrefsRelations = relations(notificationPrefs, ({ one })
   user: one(user, {
     fields: [notificationPrefs.userId],
     references: [user.id],
+  }),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(user, {
+    fields: [notifications.userId],
+    references: [user.id],
+  }),
+  session: one(claudeSessions, {
+    fields: [notifications.sessionId],
+    references: [claudeSessions.id],
   }),
 }));
 
@@ -287,3 +342,5 @@ export type Terminal = typeof terminals.$inferSelect;
 export type NewTerminal = typeof terminals.$inferInsert;
 export type ReviewComment = typeof reviewComments.$inferSelect;
 export type NewReviewComment = typeof reviewComments.$inferInsert;
+export type Notification = typeof notifications.$inferSelect;
+export type NewNotification = typeof notifications.$inferInsert;
