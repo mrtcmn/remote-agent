@@ -68,6 +68,31 @@ export const api = {
   updatePreferences: (prefs: Partial<NotificationPrefs>) =>
     request('/notifications/preferences', { method: 'PUT', body: JSON.stringify(prefs) }),
   testNotification: () => request<{ success: boolean }>('/notifications/test', { method: 'POST' }),
+  getNotifications: (params?: { status?: string; sessionId?: string; limit?: number; offset?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.set('status', params.status);
+    if (params?.sessionId) searchParams.set('sessionId', params.sessionId);
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    if (params?.offset) searchParams.set('offset', String(params.offset));
+    const query = searchParams.toString();
+    return request<{ notifications: NotificationRecord[] }>(`/notifications${query ? `?${query}` : ''}`);
+  },
+  getUnreadCount: () => request<{ count: number }>('/notifications/unread-count'),
+  markNotificationRead: (id: string) =>
+    request(`/notifications/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'read' }),
+    }),
+  markNotificationsRead: (ids: string[]) =>
+    request('/notifications/mark-read', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }),
+  dismissNotifications: (params: { sessionId?: string; terminalId?: string }) =>
+    request('/notifications/dismiss', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
 
   // Version
   getVersion: (force = false) =>
@@ -188,6 +213,19 @@ export interface NotificationPrefs {
   notifyOnInput: boolean;
   notifyOnError: boolean;
   notifyOnComplete: boolean;
+}
+
+export interface NotificationRecord {
+  id: string;
+  sessionId: string;
+  terminalId?: string | null;
+  type: string;
+  title: string;
+  body: string;
+  priority: 'low' | 'normal' | 'high';
+  status: 'pending' | 'sent' | 'read' | 'resolved' | 'dismissed';
+  resolvedAction?: string | null;
+  createdAt: string;
 }
 
 export interface SSHKey {
