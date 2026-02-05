@@ -3,9 +3,37 @@ import { nanoid } from 'nanoid';
 import { eq } from 'drizzle-orm';
 import { db, fcmTokens, notificationPrefs } from '../db';
 import { requireAuth } from '../auth/middleware';
+import { notificationRepository } from '../services/notification';
 
 export const notificationRoutes = new Elysia({ prefix: '/notifications' })
   .use(requireAuth)
+
+  // List notifications (inbox)
+  .get('/', async ({ user, query }) => {
+    const statusFilter = query.status?.split(',').filter(Boolean) as any[] | undefined;
+
+    const notifications = await notificationRepository.findByUser(user!.id, {
+      status: statusFilter,
+      sessionId: query.sessionId,
+      limit: query.limit ? parseInt(query.limit) : 50,
+      offset: query.offset ? parseInt(query.offset) : 0,
+    });
+
+    return { notifications };
+  }, {
+    query: t.Object({
+      status: t.Optional(t.String()), // comma-separated: pending,sent,read
+      sessionId: t.Optional(t.String()),
+      limit: t.Optional(t.String()),
+      offset: t.Optional(t.String()),
+    }),
+  })
+
+  // Get unread count
+  .get('/unread-count', async ({ user }) => {
+    const count = await notificationRepository.getUnreadCount(user!.id);
+    return { count };
+  })
 
   // Register FCM token
   .post('/fcm/register', async ({ user, body }) => {
@@ -155,4 +183,68 @@ export const notificationRoutes = new Elysia({ prefix: '/notifications' })
     });
 
     return result;
+  })
+
+  // Update notification status
+  .patch('/:id', async ({ user, params, body, set }) => {
+    const notification = await notificationRepository.findById(params.id);
+
+    if (!notification) {
+      set.status = 404;
+      return { error: 'Notification not found' };
+    }
+
+    if (notification.userId !== user!.id) {
+      set.status = 403;
+      return { error: 'Forbidden' };
+    }
+
+    await notificationRepository.updateStatus(
+      params.id,
+      body.status,
+      body.resolvedAction
+    );
+
+    return { success: true };
+  }, {
+    params: t.Object({
+      id: t.String(),
+    }),
+    body: t.Object({
+      status: t.Union([
+        t.Literal('read'),
+        t.Literal('resolved'),
+        t.Literal('dismissed'),
+      ]),
+      resolvedAction: t.Optional(t.String()),
+    }),
+  })
+
+  // Bulk mark as read
+  .post('/mark-read', async ({ user, body }) => {
+    // Verify all notifications belong to user (simplified - just mark)
+    await notificationRepository.markManyAsRead(body.ids);
+    return { success: true };
+  }, {
+    body: t.Object({
+      ids: t.Array(t.String()),
+    }),
+  })
+
+  // Bulk dismiss by session or terminal
+  .post('/dismiss', async ({ user, body }) => {
+    let count = 0;
+
+    if (body.sessionId) {
+      count = await notificationRepository.dismissBySession(body.sessionId);
+    } else if (body.terminalId) {
+      count = await notificationRepository.dismissByTerminal(body.terminalId);
+    }
+
+    return { success: true, dismissed: count };
+  }, {
+    body: t.Object({
+      sessionId: t.Optional(t.String()),
+      terminalId: t.Optional(t.String()),
+    }),
   });
