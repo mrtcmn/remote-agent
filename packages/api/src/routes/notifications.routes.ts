@@ -185,6 +185,59 @@ export const notificationRoutes = new Elysia({ prefix: '/notifications' })
     return result;
   })
 
+  // Respond to notification (for mobile inline replies)
+  .post('/:id/respond', async ({ user, params, body, set }) => {
+    const notification = await notificationRepository.findById(params.id);
+
+    if (!notification) {
+      set.status = 404;
+      return { error: 'Notification not found' };
+    }
+
+    if (notification.userId !== user!.id) {
+      set.status = 403;
+      return { error: 'Forbidden' };
+    }
+
+    // Mark as resolved
+    await notificationRepository.updateStatus(params.id, 'resolved', body.action);
+
+    // If this is a permission_request or user_input_required, write to terminal
+    if (
+      notification.terminalId &&
+      (notification.type === 'permission_request' || notification.type === 'user_input_required')
+    ) {
+      // Import terminal service to write response
+      const { terminalManager } = await import('../services/terminal');
+
+      let response = body.action;
+      if (body.text) {
+        response = body.text;
+      } else if (body.action === 'approve') {
+        response = 'yes';
+      } else if (body.action === 'deny') {
+        response = 'no';
+      }
+
+      try {
+        terminalManager.writeToTerminal(notification.terminalId, response + '\n');
+      } catch (error) {
+        console.error('Failed to write to terminal:', error);
+        // Don't fail the response - notification is already resolved
+      }
+    }
+
+    return { success: true };
+  }, {
+    params: t.Object({
+      id: t.String(),
+    }),
+    body: t.Object({
+      action: t.String(),
+      text: t.Optional(t.String()),
+    }),
+  })
+
   // Update notification status
   .patch('/:id', async ({ user, params, body, set }) => {
     const notification = await notificationRepository.findById(params.id);
