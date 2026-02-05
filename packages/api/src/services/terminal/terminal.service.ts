@@ -2,6 +2,7 @@ import { spawn } from 'bun';
 import { EventEmitter } from 'events';
 import { eq } from 'drizzle-orm';
 import { db, terminals, claudeSessions } from '../../db';
+import { notificationService } from '../notification';
 import type {
   TerminalInstance,
   CreateTerminalOptions,
@@ -260,6 +261,9 @@ export class TerminalService extends EventEmitter {
     await db.update(terminals)
       .set(updateData)
       .where(eq(terminals.id, terminalId));
+
+    // Dismiss pending notifications for this terminal
+    await notificationService.dismissByTerminal(terminalId);
 
     this.emit('exit', terminalId, { exitCode, signal });
   }
