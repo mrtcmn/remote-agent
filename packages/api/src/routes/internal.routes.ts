@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia';
 import { eq } from 'drizzle-orm';
 import { db, claudeSessions } from '../db';
 import { notificationService } from '../services/notification';
-import type { NotificationType } from '../services/notification/types';
+import type { NotificationType, NotificationAction } from '../services/notification/types';
 
 // Internal routes for hooks (not authenticated, only accessible from localhost)
 export const internalRoutes = new Elysia({ prefix: '/internal' })
@@ -32,17 +32,34 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       .set({ status: 'waiting_input' })
       .where(eq(claudeSessions.id, body.sessionId));
 
-    // Send notification
-    const result = await notificationService.notify(session.userId, {
+    // Define actions based on type
+    const actions: NotificationAction[] = body.type === 'permission_request'
+      ? [
+          { label: 'Approve', action: 'approve' },
+          { label: 'Deny', action: 'deny' },
+        ]
+      : [
+          { label: 'Open', action: 'open' },
+          { label: 'Reply', action: 'reply' },
+        ];
+
+    // Create and send notification
+    const result = await notificationService.createAndSend({
+      userId: session.userId,
       sessionId: body.sessionId,
       terminalId: body.terminalId,
       type: body.type as NotificationType,
-      title: 'Attention Required',
+      title: body.type === 'permission_request' ? 'Permission Request' : 'Attention Required',
       body: body.prompt,
+      actions,
       priority: 'high',
     });
 
-    return { success: true, notification: result };
+    return {
+      success: true,
+      notificationId: result.notification.id,
+      notification: result.sendResult,
+    };
   }, {
     body: t.Object({
       sessionId: t.String(),
@@ -69,17 +86,23 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       .set({ status: 'terminated' })
       .where(eq(claudeSessions.id, body.sessionId));
 
-    // Send notification
-    const result = await notificationService.notify(session.userId, {
+    // Create and send notification
+    const result = await notificationService.createAndSend({
+      userId: session.userId,
       sessionId: body.sessionId,
       terminalId: body.terminalId,
       type: 'task_complete' as NotificationType,
       title: 'Task Complete',
       body: body.prompt,
+      actions: [{ label: 'View', action: 'view' }],
       priority: 'normal',
     });
 
-    return { success: true, notification: result };
+    return {
+      success: true,
+      notificationId: result.notification.id,
+      notification: result.sendResult,
+    };
   }, {
     body: t.Object({
       sessionId: t.String(),
