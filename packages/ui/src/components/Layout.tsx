@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { UpdateBanner } from '@/components/UpdateBanner';
+import { NotificationInbox } from '@/components/NotificationInbox';
 import { cn } from '@/lib/utils';
 
 const navItems = [
@@ -60,6 +61,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <div className="ml-auto flex items-center gap-2">
             {user && (
               <>
+                <NotificationInbox />
                 <Avatar className="h-8 w-8">
                   <AvatarImage src={user.image} alt={user.name} />
                   <AvatarFallback>{user.name?.charAt(0).toUpperCase()}</AvatarFallback>
