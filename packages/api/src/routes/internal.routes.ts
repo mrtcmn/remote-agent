@@ -86,6 +86,9 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       .set({ status: 'terminated' })
       .where(eq(claudeSessions.id, body.sessionId));
 
+    // Dismiss pending notifications for this session (they're now irrelevant)
+    await notificationService.dismissBySession(body.sessionId);
+
     // Create and send notification
     const result = await notificationService.createAndSend({
       userId: session.userId,

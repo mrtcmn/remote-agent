@@ -4,6 +4,7 @@ import { eq, and } from 'drizzle-orm';
 import { db, claudeSessions, projects } from '../db';
 import { terminalService } from '../services/terminal';
 import { gitService } from '../services/git';
+import { notificationService } from '../services/notification';
 import { requireAuth } from '../auth/middleware';
 
 export const sessionRoutes = new Elysia({ prefix: '/sessions' })
@@ -220,6 +221,9 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
 
     // Close all terminals for this session
     await terminalService.closeSessionTerminals(params.id);
+
+    // Dismiss pending notifications for this session
+    await notificationService.dismissBySession(params.id);
 
     // Delete session (cascades to messages, terminals, review comments)
     await db.delete(claudeSessions)
