@@ -4,6 +4,31 @@ import { db, fcmTokens } from '../../../db';
 import { BaseNotificationAdapter } from './base.adapter';
 import type { NotificationPayload } from '../types';
 
+function getAndroidChannelId(type: string): string {
+  switch (type) {
+    case 'permission_request':
+      return 'permissions';
+    case 'user_input_required':
+      return 'input_required';
+    case 'error':
+      return 'errors';
+    case 'task_complete':
+      return 'task_complete';
+    default:
+      return 'default';
+  }
+}
+
+function getIosCategory(type: string): string {
+  return type; // Category names match type names
+}
+
+function getIosInterruptionLevel(priority: string | undefined, type: string): string {
+  if (priority === 'high') return 'time-sensitive';
+  if (type === 'task_complete') return 'passive';
+  return 'active';
+}
+
 export class FirebaseAdapter extends BaseNotificationAdapter {
   readonly name = 'firebase';
   private initialized = false;
@@ -90,6 +115,8 @@ export class FirebaseAdapter extends BaseNotificationAdapter {
       return false;
     }
 
+    const notificationId = payload.metadata?.notificationId as string | undefined;
+
     const message: admin.messaging.MulticastMessage = {
       tokens: tokens.map(t => t.token),
       notification: {
@@ -98,7 +125,9 @@ export class FirebaseAdapter extends BaseNotificationAdapter {
       },
       data: {
         sessionId: payload.sessionId,
+        terminalId: payload.terminalId || '',
         type: payload.type,
+        notificationId: notificationId || '',
         ...(payload.metadata ? { metadata: JSON.stringify(payload.metadata) } : {}),
       },
       webpush: {
@@ -108,8 +137,9 @@ export class FirebaseAdapter extends BaseNotificationAdapter {
         notification: {
           icon: '/icon-192.png',
           badge: '/badge-72.png',
-          requireInteraction: payload.type === 'user_input_required',
-          actions: payload.actions?.map(a => ({
+          tag: payload.sessionId, // Group by session
+          requireInteraction: payload.priority === 'high',
+          actions: payload.actions?.slice(0, 2).map(a => ({
             action: a.action,
             title: a.label,
           })),
@@ -118,8 +148,10 @@ export class FirebaseAdapter extends BaseNotificationAdapter {
       android: {
         priority: payload.priority === 'high' ? 'high' : 'normal',
         notification: {
-          channelId: payload.type === 'user_input_required' ? 'urgent' : 'default',
-          priority: payload.priority === 'high' ? 'high' : 'default',
+          channelId: getAndroidChannelId(payload.type),
+          color: '#6366f1', // Indigo
+          icon: 'notification_icon',
+          tag: `${payload.sessionId}:${payload.terminalId || 'session'}`, // For grouping
         },
       },
       apns: {
@@ -131,6 +163,10 @@ export class FirebaseAdapter extends BaseNotificationAdapter {
             },
             sound: payload.priority === 'high' ? 'default' : undefined,
             badge: 1,
+            category: getIosCategory(payload.type),
+            'thread-id': payload.sessionId,
+            'mutable-content': 1,
+            'interruption-level': getIosInterruptionLevel(payload.priority, payload.type),
           },
         },
       },
