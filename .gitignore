@@ -40,3 +40,4 @@ workspaces/
 
 # Data directory
 data/
+*.tsbuildinfo
