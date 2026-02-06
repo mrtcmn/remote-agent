@@ -123,23 +123,20 @@ export class WorkspaceService {
   async storeHooks(userId: string, sessionId?: string, terminalId?: string, customHooks?: HookConfig): Promise<void> {
     const settingsPath = join(this.workspacesRoot, userId, '.claude', 'settings.json');
 
-    // Build curl commands for hook callbacks
+    // Build hook commands that read from stdin and pass actual data from Claude CLI
     const baseUrl = 'http://localhost:5100/internal/hooks';
-    const attentionPayload = JSON.stringify({
-      sessionId: sessionId || '',
-      terminalId: terminalId || '',
-      type: 'user_input_required',
-      prompt: 'Attention required',
-    }).replace(/"/g, '\\"');
+    const sid = sessionId || '';
+    const tid = terminalId || '';
 
-    const completePayload = JSON.stringify({
-      sessionId: sessionId || '',
-      terminalId: terminalId || '',
-      type: 'task_complete',
-      prompt: 'Task completed',
-    }).replace(/"/g, '\\"');
+    // Notification hook: Claude CLI sends { session_id, message, type } via stdin
+    // We read it with jq, add our sessionId/terminalId, and POST to the API
+    const attentionCommand = `jq -c '. + {"sessionId": "${sid}", "terminalId": "${tid}"}' | curl -s -X POST "${baseUrl}/attention" -H "Content-Type: application/json" -d @- || true`;
 
-    // Default notification hooks using curl commands directly
+    // Stop hook: Claude CLI sends { session_id, transcript_path, ... } via stdin
+    // We read it with jq, add our sessionId/terminalId, and POST to the API
+    const completeCommand = `jq -c '. + {"sessionId": "${sid}", "terminalId": "${tid}"}' | curl -s -X POST "${baseUrl}/complete" -H "Content-Type: application/json" -d @- || true`;
+
+    // Default notification hooks using commands that read from stdin
     const defaultHooks: HookConfig = {
       hooks: {
         // Notification hook for user input and permission requests
@@ -147,14 +144,14 @@ export class WorkspaceService {
           matcher: 'idle_prompt|permission_prompt',
           hooks: [{
             type: 'command',
-            command: `curl -s -X POST "${baseUrl}/attention" -H "Content-Type: application/json" -d "${attentionPayload}" || true`,
+            command: attentionCommand,
           }],
         }],
         // Stop hook for task completion
         Stop: [{
           hooks: [{
             type: 'command',
-            command: `curl -s -X POST "${baseUrl}/complete" -H "Content-Type: application/json" -d "${completePayload}" || true`,
+            command: completeCommand,
           }],
         }],
       },

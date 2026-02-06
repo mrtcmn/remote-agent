@@ -222,6 +222,11 @@ export interface NotificationRecord {
   type: string;
   title: string;
   body: string;
+  metadata?: {
+    projectName?: string;
+    stopReason?: string;
+    [key: string]: unknown;
+  } | null;
   priority: 'low' | 'normal' | 'high';
   status: 'pending' | 'sent' | 'read' | 'resolved' | 'dismissed';
   resolvedAction?: string | null;

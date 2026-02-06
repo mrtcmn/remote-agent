@@ -119,6 +119,9 @@ function NotificationItem({
     onClose();
   };
 
+  const projectName = notification.metadata?.projectName;
+  const stopReason = notification.metadata?.stopReason;
+
   return (
     <li
       className={`p-3 border-b last:border-b-0 cursor-pointer hover:bg-muted ${
@@ -128,16 +131,28 @@ function NotificationItem({
     >
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {projectName && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                {projectName}
+              </span>
+            )}
             <span className="font-medium text-sm truncate">{notification.title}</span>
             {isUnread && (
               <span className="h-2 w-2 rounded-full bg-blue-500 flex-shrink-0" />
             )}
           </div>
           <p className="text-sm text-muted-foreground line-clamp-2">{notification.body}</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
-          </p>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-xs text-muted-foreground">
+              {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+            </span>
+            {stopReason && stopReason !== 'end_turn' && (
+              <span className="text-xs px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-600">
+                {stopReason}
+              </span>
+            )}
+          </div>
         </div>
         <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
       </div>
