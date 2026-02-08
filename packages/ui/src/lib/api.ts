@@ -155,6 +155,113 @@ export const api = {
     request<{ success: boolean; count: number }>(`/sessions/${sessionId}/review-comments/batches/${batchId}/rerun`, {
       method: 'POST',
     }),
+
+  // ─── Kanban ──────────────────────────────────────────────────────────────
+
+  // Board
+  getKanbanBoard: (projectId?: string) => {
+    const params = new URLSearchParams();
+    if (projectId) params.set('projectId', projectId);
+    const query = params.toString();
+    return request<KanbanBoardData>(`/kanban/board${query ? `?${query}` : ''}`);
+  },
+  getKanbanStatuses: () => request<{ id: string; title: string }[]>('/kanban/statuses'),
+
+  // Tasks
+  getKanbanTasks: (filters?: TaskFiltersInput) => {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined) params.set(key, value);
+      });
+    }
+    const query = params.toString();
+    return request<KanbanTask[]>(`/kanban/tasks${query ? `?${query}` : ''}`);
+  },
+  getKanbanTask: (id: string) => request<KanbanTask>(`/kanban/tasks/${id}`),
+  createKanbanTask: (data: CreateTaskInput) =>
+    request<KanbanTask>('/kanban/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  updateKanbanTask: (id: string, data: UpdateTaskInput) =>
+    request<KanbanTask>(`/kanban/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  moveKanbanTask: (id: string, status: KanbanStatus, position: number) =>
+    request<KanbanTask>(`/kanban/tasks/${id}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ status, position }),
+    }),
+  deleteKanbanTask: (id: string) =>
+    request<{ success: boolean }>(`/kanban/tasks/${id}`, { method: 'DELETE' }),
+
+  // Dependencies
+  addTaskDependency: (taskId: string, dependsOnTaskId: string) =>
+    request<TaskDependency>(`/kanban/tasks/${taskId}/dependencies`, {
+      method: 'POST',
+      body: JSON.stringify({ dependsOnTaskId }),
+    }),
+  removeTaskDependency: (id: string) =>
+    request<{ success: boolean }>(`/kanban/dependencies/${id}`, { method: 'DELETE' }),
+
+  // Comments
+  getTaskComments: (taskId: string) => request<TaskComment[]>(`/kanban/tasks/${taskId}/comments`),
+  addTaskComment: (taskId: string, content: string, parentCommentId?: string) =>
+    request<TaskComment>(`/kanban/tasks/${taskId}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ content, parentCommentId }),
+    }),
+  resolveTaskComment: (commentId: string) =>
+    request<TaskComment>(`/kanban/comments/${commentId}/resolve`, { method: 'POST' }),
+  rejectTaskComment: (commentId: string) =>
+    request<TaskComment>(`/kanban/comments/${commentId}/reject`, { method: 'POST' }),
+  reopenTaskComment: (commentId: string) =>
+    request<TaskComment>(`/kanban/comments/${commentId}/reopen`, { method: 'POST' }),
+  deleteTaskComment: (commentId: string) =>
+    request<{ success: boolean }>(`/kanban/comments/${commentId}`, { method: 'DELETE' }),
+
+  // Attachments
+  uploadTaskAttachment: async (taskId: string, file: File, commentId?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (commentId) formData.append('commentId', commentId);
+
+    const response = await fetch(`${API_BASE}/kanban/tasks/${taskId}/attachments`, {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+      throw new Error(error.error || 'Upload failed');
+    }
+    return response.json() as Promise<TaskAttachment>;
+  },
+  deleteTaskAttachment: (id: string) =>
+    request<{ success: boolean }>(`/kanban/attachments/${id}`, { method: 'DELETE' }),
+  getAttachmentUrl: (id: string) => `${API_BASE}/kanban/attachments/${id}/file`,
+
+  // Auto-Flows
+  getAutoFlows: (projectId?: string) => {
+    const params = new URLSearchParams();
+    if (projectId) params.set('projectId', projectId);
+    const query = params.toString();
+    return request<AutoFlow[]>(`/kanban/flows${query ? `?${query}` : ''}`);
+  },
+  getAutoFlow: (id: string) => request<AutoFlow>(`/kanban/flows/${id}`),
+  createAutoFlow: (data: {
+    projectId: string;
+    name: string;
+    description?: string;
+    triggerType?: string;
+    cronExpression?: string;
+    adapterType?: string;
+    adapterConfig?: Record<string, any>;
+    taskIds?: string[];
+  }) => request<AutoFlow>('/kanban/flows', { method: 'POST', body: JSON.stringify(data) }),
+  updateAutoFlow: (id: string, data: Record<string, any>) =>
+    request<AutoFlow>(`/kanban/flows/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteAutoFlow: (id: string) =>
+    request<{ success: boolean }>(`/kanban/flows/${id}`, { method: 'DELETE' }),
+
+  // CLI Adapters
+  getCLIAdapters: () => request<CLIAdapterInfo[]>('/kanban/adapters'),
 };
 
 // Types
@@ -341,6 +448,183 @@ export interface ProceedResponse {
   batchId: string;
   message: string;
   commentCount: number;
+}
+
+// ─── Kanban Types ────────────────────────────────────────────────────────────
+
+export type KanbanStatus = 'backlog' | 'todo' | 'in_progress' | 'manual_testing' | 'review_needed' | 'completed';
+export type KanbanPriority = 'low' | 'medium' | 'high' | 'critical';
+export type AssigneeType = 'user' | 'agent' | 'unassigned';
+export type TaskCommentStatus = 'open' | 'resolved' | 'rejected';
+export type CLIAdapterType = 'claude_code' | 'gemini_cli' | 'custom';
+
+export interface KanbanTask {
+  id: string;
+  projectId: string;
+  parentTaskId: string | null;
+  userId: string;
+  title: string;
+  description: string | null;
+  status: KanbanStatus;
+  priority: KanbanPriority;
+  position: number;
+  assigneeType: AssigneeType;
+  assigneeId: string | null;
+  sessionId: string | null;
+  githubIssueNumber: number | null;
+  githubIssueUrl: string | null;
+  branch: string | null;
+  autoFlow: boolean;
+  adapterType: CLIAdapterType | null;
+  adapterConfig: string | null;
+  labels: string | null; // JSON array
+  estimatedEffort: string | null;
+  createdAt: string;
+  updatedAt: string;
+  project?: Project;
+  subtasks?: KanbanTask[];
+  comments?: TaskComment[];
+  attachments?: TaskAttachment[];
+  dependencies?: TaskDependency[];
+  dependents?: TaskDependency[];
+  session?: Session;
+}
+
+export interface TaskComment {
+  id: string;
+  taskId: string;
+  userId: string;
+  parentCommentId: string | null;
+  content: string;
+  status: TaskCommentStatus;
+  resolvedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user?: { id: string; name: string; email: string; image?: string };
+  replies?: TaskComment[];
+  attachments?: TaskAttachment[];
+}
+
+export interface TaskAttachment {
+  id: string;
+  taskId: string;
+  commentId: string | null;
+  userId: string;
+  filename: string;
+  filepath: string;
+  mimetype: string;
+  size: number;
+  createdAt: string;
+}
+
+export interface TaskDependency {
+  id: string;
+  taskId: string;
+  dependsOnTaskId: string;
+  dependsOn?: KanbanTask;
+  task?: KanbanTask;
+}
+
+export interface KanbanColumn {
+  id: KanbanStatus;
+  title: string;
+  tasks: KanbanTask[];
+  count: number;
+}
+
+export interface KanbanBoardData {
+  columns: KanbanColumn[];
+  summary: Record<string, number>;
+}
+
+export interface CreateTaskInput {
+  projectId: string;
+  title: string;
+  description?: string;
+  status?: KanbanStatus;
+  priority?: KanbanPriority;
+  parentTaskId?: string;
+  assigneeType?: AssigneeType;
+  assigneeId?: string;
+  autoFlow?: boolean;
+  adapterType?: CLIAdapterType;
+  labels?: string[];
+  branch?: string;
+  githubIssueNumber?: number;
+  githubIssueUrl?: string;
+}
+
+export interface UpdateTaskInput {
+  title?: string;
+  description?: string;
+  status?: KanbanStatus;
+  priority?: KanbanPriority;
+  position?: number;
+  parentTaskId?: string | null;
+  assigneeType?: AssigneeType;
+  assigneeId?: string | null;
+  sessionId?: string | null;
+  autoFlow?: boolean;
+  adapterType?: CLIAdapterType;
+  labels?: string[];
+  branch?: string;
+  githubIssueNumber?: number;
+  githubIssueUrl?: string;
+  estimatedEffort?: string;
+}
+
+export interface TaskFiltersInput {
+  projectId?: string;
+  status?: string;
+  priority?: string;
+  assigneeType?: string;
+  assigneeId?: string;
+  sessionId?: string;
+  search?: string;
+  parentTaskId?: string;
+  topLevel?: string;
+  limit?: string;
+  offset?: string;
+}
+
+export interface AutoFlow {
+  id: string;
+  projectId: string;
+  userId: string;
+  name: string;
+  description: string | null;
+  triggerType: 'on_complete' | 'manual' | 'cron';
+  cronExpression: string | null;
+  adapterType: CLIAdapterType;
+  adapterConfig: string | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  steps?: FlowStep[];
+  project?: Project;
+}
+
+export interface FlowStep {
+  id: string;
+  flowId: string;
+  taskId: string;
+  stepOrder: number;
+  adapterType: CLIAdapterType;
+  config: string | null;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  sessionId: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  output: string | null;
+  createdAt: string;
+  updatedAt: string;
+  task?: KanbanTask;
+}
+
+export interface CLIAdapterInfo {
+  name: string;
+  type: CLIAdapterType;
+  available: boolean;
 }
 
 export interface FileEntry {

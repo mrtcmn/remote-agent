@@ -190,6 +190,122 @@ export const terminals = pgTable('terminals', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
+// ─── Kanban Enums ───────────────────────────────────────────────────────────
+
+export const kanbanStatusEnum = pgEnum('kanban_status', [
+  'backlog', 'todo', 'in_progress', 'manual_testing', 'review_needed', 'completed',
+]);
+
+export const kanbanPriorityEnum = pgEnum('kanban_priority', ['low', 'medium', 'high', 'critical']);
+
+export const assigneeTypeEnum = pgEnum('assignee_type', ['user', 'agent', 'unassigned']);
+
+export const taskCommentStatusEnum = pgEnum('task_comment_status', ['open', 'resolved', 'rejected']);
+
+export const autoFlowTriggerEnum = pgEnum('auto_flow_trigger', ['on_complete', 'manual', 'cron']);
+
+export const flowStepStatusEnum = pgEnum('flow_step_status', ['pending', 'running', 'completed', 'failed', 'skipped']);
+
+export const cliAdapterTypeEnum = pgEnum('cli_adapter_type', ['claude_code', 'gemini_cli', 'custom']);
+
+// ─── Kanban Tables ──────────────────────────────────────────────────────────
+
+export const kanbanTasks = pgTable('kanban_tasks', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  parentTaskId: text('parent_task_id'), // Self-reference for sub-tasks
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+
+  title: text('title').notNull(),
+  description: text('description'),
+  status: kanbanStatusEnum('status').notNull().default('backlog'),
+  priority: kanbanPriorityEnum('priority').notNull().default('medium'),
+  position: integer('position').notNull().default(0),
+
+  assigneeType: assigneeTypeEnum('assignee_type').notNull().default('unassigned'),
+  assigneeId: text('assignee_id'), // userId when assigneeType is 'user'
+  sessionId: text('session_id').references(() => claudeSessions.id, { onDelete: 'set null' }),
+
+  // GitHub integration
+  githubIssueNumber: integer('github_issue_number'),
+  githubIssueUrl: text('github_issue_url'),
+  branch: text('branch'),
+
+  // Auto-flow
+  autoFlow: boolean('auto_flow').notNull().default(false),
+  adapterType: cliAdapterTypeEnum('adapter_type').default('claude_code'),
+  adapterConfig: text('adapter_config'), // JSON - adapter-specific config
+
+  // Metadata
+  labels: text('labels'), // JSON array of strings
+  estimatedEffort: text('estimated_effort'), // e.g., "1h", "1d"
+
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const kanbanTaskDependencies = pgTable('kanban_task_dependencies', {
+  id: text('id').primaryKey(),
+  taskId: text('task_id').references(() => kanbanTasks.id, { onDelete: 'cascade' }).notNull(),
+  dependsOnTaskId: text('depends_on_task_id').references(() => kanbanTasks.id, { onDelete: 'cascade' }).notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const kanbanTaskComments = pgTable('kanban_task_comments', {
+  id: text('id').primaryKey(),
+  taskId: text('task_id').references(() => kanbanTasks.id, { onDelete: 'cascade' }).notNull(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  parentCommentId: text('parent_comment_id'), // For threaded replies
+  content: text('content').notNull(),
+  status: taskCommentStatusEnum('status').notNull().default('open'),
+  resolvedBy: text('resolved_by'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const kanbanTaskAttachments = pgTable('kanban_task_attachments', {
+  id: text('id').primaryKey(),
+  taskId: text('task_id').references(() => kanbanTasks.id, { onDelete: 'cascade' }).notNull(),
+  commentId: text('comment_id').references(() => kanbanTaskComments.id, { onDelete: 'set null' }),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  filename: text('filename').notNull(),
+  filepath: text('filepath').notNull(),
+  mimetype: text('mimetype').notNull(),
+  size: integer('size').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const kanbanAutoFlows = pgTable('kanban_auto_flows', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  triggerType: autoFlowTriggerEnum('trigger_type').notNull().default('on_complete'),
+  cronExpression: text('cron_expression'),
+  adapterType: cliAdapterTypeEnum('adapter_type').notNull().default('claude_code'),
+  adapterConfig: text('adapter_config'), // JSON
+  enabled: boolean('enabled').notNull().default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const kanbanFlowSteps = pgTable('kanban_flow_steps', {
+  id: text('id').primaryKey(),
+  flowId: text('flow_id').references(() => kanbanAutoFlows.id, { onDelete: 'cascade' }).notNull(),
+  taskId: text('task_id').references(() => kanbanTasks.id, { onDelete: 'cascade' }).notNull(),
+  stepOrder: integer('step_order').notNull(),
+  adapterType: cliAdapterTypeEnum('adapter_type').notNull().default('claude_code'),
+  config: text('config'), // JSON - step-specific config
+  status: flowStepStatusEnum('status').notNull().default('pending'),
+  sessionId: text('session_id').references(() => claudeSessions.id, { onDelete: 'set null' }),
+  startedAt: timestamp('started_at'),
+  completedAt: timestamp('completed_at'),
+  output: text('output'), // Last output/summary
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
 // Review comments for code annotations
 export const reviewComments = pgTable('review_comments', {
   id: text('id').primaryKey(),
@@ -223,6 +339,8 @@ export const userRelations = relations(user, ({ many, one }) => ({
     references: [notificationPrefs.userId],
   }),
   notifications: many(notifications),
+  kanbanTasks: many(kanbanTasks),
+  kanbanComments: many(kanbanTaskComments),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -256,6 +374,8 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
     references: [sshKeys.id],
   }),
   claudeSessions: many(claudeSessions),
+  kanbanTasks: many(kanbanTasks),
+  kanbanAutoFlows: many(kanbanAutoFlows),
 }));
 
 export const claudeSessionsRelations = relations(claudeSessions, ({ one, many }) => ({
@@ -327,6 +447,107 @@ export const reviewCommentsRelations = relations(reviewComments, ({ one }) => ({
   }),
 }));
 
+// ─── Kanban Relations ───────────────────────────────────────────────────────
+
+export const kanbanTasksRelations = relations(kanbanTasks, ({ one, many }) => ({
+  project: one(projects, {
+    fields: [kanbanTasks.projectId],
+    references: [projects.id],
+  }),
+  user: one(user, {
+    fields: [kanbanTasks.userId],
+    references: [user.id],
+  }),
+  parentTask: one(kanbanTasks, {
+    fields: [kanbanTasks.parentTaskId],
+    references: [kanbanTasks.id],
+    relationName: 'subtasks',
+  }),
+  subtasks: many(kanbanTasks, { relationName: 'subtasks' }),
+  session: one(claudeSessions, {
+    fields: [kanbanTasks.sessionId],
+    references: [claudeSessions.id],
+  }),
+  comments: many(kanbanTaskComments),
+  attachments: many(kanbanTaskAttachments),
+  dependencies: many(kanbanTaskDependencies, { relationName: 'taskDeps' }),
+  dependents: many(kanbanTaskDependencies, { relationName: 'taskDependents' }),
+  flowSteps: many(kanbanFlowSteps),
+}));
+
+export const kanbanTaskDependenciesRelations = relations(kanbanTaskDependencies, ({ one }) => ({
+  task: one(kanbanTasks, {
+    fields: [kanbanTaskDependencies.taskId],
+    references: [kanbanTasks.id],
+    relationName: 'taskDeps',
+  }),
+  dependsOn: one(kanbanTasks, {
+    fields: [kanbanTaskDependencies.dependsOnTaskId],
+    references: [kanbanTasks.id],
+    relationName: 'taskDependents',
+  }),
+}));
+
+export const kanbanTaskCommentsRelations = relations(kanbanTaskComments, ({ one, many }) => ({
+  task: one(kanbanTasks, {
+    fields: [kanbanTaskComments.taskId],
+    references: [kanbanTasks.id],
+  }),
+  user: one(user, {
+    fields: [kanbanTaskComments.userId],
+    references: [user.id],
+  }),
+  parentComment: one(kanbanTaskComments, {
+    fields: [kanbanTaskComments.parentCommentId],
+    references: [kanbanTaskComments.id],
+    relationName: 'replies',
+  }),
+  replies: many(kanbanTaskComments, { relationName: 'replies' }),
+  attachments: many(kanbanTaskAttachments),
+}));
+
+export const kanbanTaskAttachmentsRelations = relations(kanbanTaskAttachments, ({ one }) => ({
+  task: one(kanbanTasks, {
+    fields: [kanbanTaskAttachments.taskId],
+    references: [kanbanTasks.id],
+  }),
+  comment: one(kanbanTaskComments, {
+    fields: [kanbanTaskAttachments.commentId],
+    references: [kanbanTaskComments.id],
+  }),
+  user: one(user, {
+    fields: [kanbanTaskAttachments.userId],
+    references: [user.id],
+  }),
+}));
+
+export const kanbanAutoFlowsRelations = relations(kanbanAutoFlows, ({ one, many }) => ({
+  project: one(projects, {
+    fields: [kanbanAutoFlows.projectId],
+    references: [projects.id],
+  }),
+  user: one(user, {
+    fields: [kanbanAutoFlows.userId],
+    references: [user.id],
+  }),
+  steps: many(kanbanFlowSteps),
+}));
+
+export const kanbanFlowStepsRelations = relations(kanbanFlowSteps, ({ one }) => ({
+  flow: one(kanbanAutoFlows, {
+    fields: [kanbanFlowSteps.flowId],
+    references: [kanbanAutoFlows.id],
+  }),
+  task: one(kanbanTasks, {
+    fields: [kanbanFlowSteps.taskId],
+    references: [kanbanTasks.id],
+  }),
+  session: one(claudeSessions, {
+    fields: [kanbanFlowSteps.sessionId],
+    references: [claudeSessions.id],
+  }),
+}));
+
 // Type exports
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
@@ -344,3 +565,12 @@ export type ReviewComment = typeof reviewComments.$inferSelect;
 export type NewReviewComment = typeof reviewComments.$inferInsert;
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
+export type KanbanTask = typeof kanbanTasks.$inferSelect;
+export type NewKanbanTask = typeof kanbanTasks.$inferInsert;
+export type KanbanTaskDependency = typeof kanbanTaskDependencies.$inferSelect;
+export type KanbanTaskComment = typeof kanbanTaskComments.$inferSelect;
+export type NewKanbanTaskComment = typeof kanbanTaskComments.$inferInsert;
+export type KanbanTaskAttachment = typeof kanbanTaskAttachments.$inferSelect;
+export type KanbanAutoFlow = typeof kanbanAutoFlows.$inferSelect;
+export type NewKanbanAutoFlow = typeof kanbanAutoFlows.$inferInsert;
+export type KanbanFlowStep = typeof kanbanFlowSteps.$inferSelect;
