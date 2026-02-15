@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import {
-  Send, Check, X, RotateCcw, Reply, Paperclip, Image as ImageIcon,
+  Send, Check, X, RotateCcw, Reply, Paperclip,
   Trash2, MessageSquare, CheckCircle2, XCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -31,7 +31,7 @@ interface TaskCommentsProps {
 }
 
 export function TaskComments({
-  taskId,
+  taskId: _taskId,
   comments,
   onAddComment,
   onResolveComment,
@@ -44,7 +44,6 @@ export function TaskComments({
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyContent, setReplyContent] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const replyFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = () => {
     if (newComment.trim()) {
@@ -148,7 +147,7 @@ function CommentItem({
   onReplyContentChange,
   onSubmitReply,
   onCancelReply,
-  onUploadAttachment,
+  onUploadAttachment: _onUploadAttachment,
 }: {
   comment: TaskComment;
   onResolve: (id: string) => void;

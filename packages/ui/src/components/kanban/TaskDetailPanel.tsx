@@ -1,8 +1,8 @@
 import { useState, useRef } from 'react';
 import {
   X, Edit3, Save, Trash2, GitBranch, Link2, Plus, Upload,
-  Bot, User as UserIcon, ChevronRight, ArrowRight, AlertTriangle,
-  Clock, Tag, Zap, ExternalLink, Image as ImageIcon,
+  ArrowRight, AlertTriangle,
+  Clock, Tag, Zap, ExternalLink,
   ChevronDown, ChevronUp
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -14,8 +14,6 @@ import {
   type KanbanTask,
   type KanbanStatus,
   type KanbanPriority,
-  type AssigneeType,
-  type TaskAttachment,
 } from '@/lib/api';
 
 const statusOptions: { value: KanbanStatus; label: string; color: string }[] = [

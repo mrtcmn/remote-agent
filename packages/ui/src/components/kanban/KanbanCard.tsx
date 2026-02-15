@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   GripVertical, MessageSquare, Paperclip, GitBranch, AlertTriangle,
   Bot, User as UserIcon, Clock, ChevronRight, Link2

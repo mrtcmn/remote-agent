@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Loader2, LayoutGrid, List, Zap } from 'lucide-react';
+import { Plus, Loader2, LayoutGrid } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toaster';
 import { KanbanBoard } from '@/components/kanban/KanbanBoard';
