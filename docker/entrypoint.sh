@@ -6,11 +6,9 @@ echo "🚀 Starting Remote Agent..."
 # Ensure directories exist
 mkdir -p /app/data /app/workspaces /app/ssh-keys
 
-# Initialize database if not exists
-if [ ! -f /app/data/sqlite.db ]; then
-  echo "📦 Initializing database..."
-  cd /app/packages/api && bun run db:generate && bun run db:migrate
-fi
+# Run database migrations
+echo "📦 Running database migrations..."
+cd /app && bun run db:migrate
 
 # Setup SSH directory
 mkdir -p ~/.ssh
