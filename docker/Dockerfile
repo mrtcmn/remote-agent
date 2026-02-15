@@ -56,7 +56,7 @@ RUN bun install --frozen-lockfile || bun install
 COPY . .
 
 # Build UI
-RUN bun run build:ui || echo "UI build skipped"
+RUN bun run build:ui
 
 # Create required directories
 RUN mkdir -p /app/workspaces /app/ssh-keys /app/config/hooks /app/config/skills && \
