@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, FolderGit2, Settings, Menu, X, LogOut } from 'lucide-react';
+import { Home, FolderGit2, Settings, Menu, X, LogOut, LayoutGrid } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/Avatar';
@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 
 const navItems = [
   { path: '/', label: 'Sessions', icon: Home },
+  { path: '/kanban', label: 'Kanban', icon: LayoutGrid },
   { path: '/projects', label: 'Projects', icon: FolderGit2 },
   { path: '/settings', label: 'Settings', icon: Settings },
 ];
@@ -20,9 +21,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
 
   const isSessionPage = location.pathname.startsWith('/sessions/');
+  const isFullHeightPage = isSessionPage || location.pathname === '/kanban';
 
   return (
-    <div className={cn('flex flex-col', isSessionPage ? 'h-screen' : 'min-h-screen')}>
+    <div className={cn('flex flex-col', isFullHeightPage ? 'h-screen' : 'min-h-screen')}>
       {/* Header */}
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur safe-area-top">
         <div className="flex h-14 items-center px-4">
@@ -110,6 +112,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* Main Content */}
       {isSessionPage ? (
         <main className="flex-1 flex flex-col overflow-hidden min-h-0">{children}</main>
+      ) : isFullHeightPage ? (
+        <main className="flex-1 flex flex-col overflow-hidden min-h-0 p-4 md:p-6">{children}</main>
       ) : (
         <main className="flex-1 p-4 md:p-6 safe-area-bottom">
           <div className="max-w-6xl mx-auto">{children}</div>

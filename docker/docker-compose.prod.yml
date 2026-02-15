@@ -13,14 +13,18 @@ services:
     volumes:
       - postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent} -d ${POSTGRES_DB:-remote_agent}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-agent} -d ${POSTGRES_DB:-remote_agent}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 5
     restart: unless-stopped
 
   remote-agent:
-    image: ghcr.io/yourorg/remote-agent:${IMAGE_TAG:-latest}
+    image: ghcr.io/mrtcmn/remote-agent:${IMAGE_TAG:-latest}
     container_name: remote-agent
     ports:
       - "127.0.0.1:${PORT:-5100}:5100"
@@ -37,12 +41,12 @@ services:
       # Database
       - DATABASE_URL=postgres://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-remote_agent}
 
-      # Required
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required}
+      # API Keys
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
 
       # GitHub OAuth
-      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:?GITHUB_CLIENT_ID is required}
-      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:?GITHUB_CLIENT_SECRET is required}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
 
       # Firebase Push Notifications (optional)
       - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:-}

@@ -9,6 +9,7 @@ import { internalRoutes } from './internal.routes';
 import { versionRoutes } from './version.routes';
 import { reviewCommentsRoutes } from './review-comments.routes';
 import { fileRoutes } from './files.routes';
+import { kanbanRoutes } from './kanban.routes';
 
 export const api = new Elysia({ prefix: '/api' })
   .use(authRoutes)
@@ -19,6 +20,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(terminalRoutes)
   .use(reviewCommentsRoutes)
   .use(fileRoutes)
+  .use(kanbanRoutes)
   .use(versionRoutes);
 
 export { internalRoutes };
