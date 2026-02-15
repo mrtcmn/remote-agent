@@ -98,4 +98,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:5100/health || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["bun", "run", "--cwd", "packages/api", "start"]
+CMD ["bun", "run", "--cwd", "packages/api", "src/index.ts"]

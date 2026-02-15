@@ -32,11 +32,9 @@ services:
       db:
         condition: service_healthy
     volumes:
-      # User data - host mounted for easy backup and visibility
-      - ${INSTALL_DIR:-/opt/remote-agent}/workspaces:/app/workspaces
-      - ${INSTALL_DIR:-/opt/remote-agent}/ssh-keys:/app/ssh-keys
-      # Custom config (read-only)
-      - ${INSTALL_DIR:-/opt/remote-agent}/config:/app/config:ro
+      - workspaces:/app/workspaces
+      - ssh-keys:/app/ssh-keys
+      - config:/app/config:ro
     environment:
       # Database
       - DATABASE_URL=postgres://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-remote_agent}
@@ -72,3 +70,9 @@ services:
 volumes:
   postgres:
     name: remote-agent-postgres
+  workspaces:
+    name: remote-agent-workspaces
+  ssh-keys:
+    name: remote-agent-ssh-keys
+  config:
+    name: remote-agent-config
