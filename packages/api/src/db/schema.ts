@@ -548,6 +548,13 @@ export const kanbanFlowStepsRelations = relations(kanbanFlowSteps, ({ one }) => 
   }),
 }));
 
+// App settings (key-value store)
+export const appSettings = pgTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
 // Type exports
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
@@ -574,3 +581,4 @@ export type KanbanTaskAttachment = typeof kanbanTaskAttachments.$inferSelect;
 export type KanbanAutoFlow = typeof kanbanAutoFlows.$inferSelect;
 export type NewKanbanAutoFlow = typeof kanbanAutoFlows.$inferInsert;
 export type KanbanFlowStep = typeof kanbanFlowSteps.$inferSelect;
+export type AppSetting = typeof appSettings.$inferSelect;

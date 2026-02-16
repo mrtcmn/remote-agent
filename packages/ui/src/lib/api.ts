@@ -262,6 +262,14 @@ export const api = {
 
   // CLI Adapters
   getCLIAdapters: () => request<CLIAdapterInfo[]>('/kanban/adapters'),
+
+  // Settings
+  getOrigins: () => request<{ origins: string[] }>('/settings/origins'),
+  updateOrigins: (origins: string[]) =>
+    request<{ origins: string[] }>('/settings/origins', {
+      method: 'PUT',
+      body: JSON.stringify({ origins }),
+    }),
 };
 
 // Types

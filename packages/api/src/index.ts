@@ -5,24 +5,28 @@ import { api, internalRoutes } from './routes';
 import { terminalWebsocketRoutes } from './routes/terminal-websocket';
 import { notificationService } from './services/notification';
 import { terminalService } from './services/terminal';
+import { originsService } from './services/origins';
 import { seedTestUser } from './auth/seed';
 
 const PORT = process.env.PORT || 5100;
 
 // Initialize services
+await originsService.initialize();
 await notificationService.initialize();
 await terminalService.initialize();
 
 // Seed test user
 await seedTestUser();
 
-const corsOrigin = process.env.CORS_ORIGIN === '*'
-  ? true
-  : (process.env.CORS_ORIGIN?.split(',') || ['http://localhost:5173', 'http://localhost:5100']);
-
 const app = new Elysia()
   .use(cors({
-    origin: corsOrigin,
+    aot: false,
+    origin: (request) => {
+      if (process.env.CORS_ORIGIN === '*') return true;
+      const origin = request.headers.get('origin');
+      if (!origin) return true;
+      return originsService.isAllowed(origin);
+    },
     credentials: true,
   }))
 

@@ -2,6 +2,7 @@ import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { db } from '../db';
 import * as schema from '../db/schema';
+import { originsService } from '../services/origins';
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -32,10 +33,7 @@ export const auth = betterAuth({
     // Don't set domain so cookies work with Vite proxy
     domain: undefined,
   },
-  trustedOrigins: [
-    process.env.APP_URL || 'http://localhost:3000',
-    'http://localhost:5173', // Vite dev server
-  ],
+  trustedOrigins: () => originsService.getOrigins(),
 });
 
 export type Session = typeof auth.$Infer.Session;

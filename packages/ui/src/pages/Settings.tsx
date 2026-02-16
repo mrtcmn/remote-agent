@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell, Key, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw, RefreshCw, ExternalLink, Package, Trash2 } from 'lucide-react';
+import { Bell, Key, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw, RefreshCw, ExternalLink, Package, Trash2, Globe, Plus, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -22,6 +22,7 @@ export function SettingsPage() {
 
       <VersionSection />
       <PinSection hasPin={user?.hasPin || false} />
+      <OriginsSection />
       <NotificationSection />
       <SSHKeysSection />
       <TroubleshootSection />
@@ -215,6 +216,138 @@ function PinSection({ hasPin }: { hasPin: boolean }) {
             {hasPin ? 'Update PIN' : 'Set PIN'}
           </Button>
         </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+function OriginsSection() {
+  const [newOrigin, setNewOrigin] = useState('');
+  const [error, setError] = useState('');
+  const queryClient = useQueryClient();
+
+  const { data } = useQuery({
+    queryKey: ['origins'],
+    queryFn: api.getOrigins,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: api.updateOrigins,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['origins'] });
+      toast({ title: 'Origins updated' });
+    },
+    onError: (err) => {
+      toast({ title: 'Error', description: (err as Error).message, variant: 'destructive' });
+    },
+  });
+
+  const origins = data?.origins ?? [];
+
+  const validateOrigin = (value: string): string | null => {
+    if (!value) return 'Origin is required';
+    try {
+      const url = new URL(value);
+      if (url.origin !== value) {
+        return 'Use origin format (e.g. https://example.com) without trailing paths';
+      }
+    } catch {
+      return 'Invalid URL format';
+    }
+    if (origins.includes(value)) return 'Origin already exists';
+    return null;
+  };
+
+  const handleAdd = () => {
+    const validationError = validateOrigin(newOrigin.trim());
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setError('');
+    updateMutation.mutate([...origins, newOrigin.trim()]);
+    setNewOrigin('');
+  };
+
+  const handleRemove = (origin: string) => {
+    updateMutation.mutate(origins.filter((o) => o !== origin));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAdd();
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Globe className="h-5 w-5" />
+          <CardTitle>Allowed Origins</CardTitle>
+        </div>
+        <CardDescription>
+          Manage CORS and trusted origins. Changes take effect immediately without a server restart.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {origins.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No origins configured.</p>
+        ) : (
+          <div className="space-y-2">
+            {origins.map((origin) => (
+              <div
+                key={origin}
+                className="flex items-center gap-2 text-sm p-2 rounded bg-secondary"
+              >
+                <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="flex-1 font-mono text-xs break-all">{origin}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                  onClick={() => handleRemove(origin)}
+                  disabled={updateMutation.isPending}
+                >
+                  {updateMutation.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <X className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <Input
+              value={newOrigin}
+              onChange={(e) => {
+                setNewOrigin(e.target.value);
+                setError('');
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder="https://example.com"
+              className="font-mono text-sm"
+            />
+            {error && <p className="text-xs text-destructive mt-1">{error}</p>}
+          </div>
+          <Button
+            size="sm"
+            onClick={handleAdd}
+            disabled={!newOrigin.trim() || updateMutation.isPending}
+          >
+            {updateMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4 mr-1" />
+            )}
+            Add
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
