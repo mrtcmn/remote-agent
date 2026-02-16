@@ -8,6 +8,7 @@ export const auth = betterAuth({
     provider: 'sqlite',
     schema,
   }),
+  secret: process.env.JWT_SECRET || 'secret',
   baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:3000',
   emailAndPassword: {
     enabled: true,
