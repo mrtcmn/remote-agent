@@ -47,7 +47,17 @@ const app = new Elysia()
     prefix: '/',
   }))
 
-  // Fallback to index.html for SPA routing
+  // Serve index.html for root path
+  .get('/', async ({ set }) => {
+    const file = Bun.file('../ui/dist/index.html');
+    if (await file.exists()) {
+      set.headers['content-type'] = 'text/html';
+      return file;
+    }
+    return { error: 'Not found' };
+  })
+
+  // Fallback to index.html for SPA routing (client-side routes)
   .get('*', async ({ set }) => {
     const file = Bun.file('../ui/dist/index.html');
     if (await file.exists()) {

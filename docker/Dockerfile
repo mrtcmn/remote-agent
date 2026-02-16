@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y \
     jq \
     nodejs \
     npm \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub CLI
@@ -76,10 +77,8 @@ ENV PATH="/home/agent/.local/bin:/usr/local/bin:${PATH}"
 # Expose port
 EXPOSE 5100
 
-# Switch to non-root user
-USER agent
-
 # Install Claude Code CLI as agent user (installs to ~/.local/bin)
+USER agent
 RUN curl -fsSL https://claude.ai/install.sh | bash || \
     npm install -g @anthropic-ai/claude-code || \
     echo "Claude CLI installation skipped"
@@ -89,8 +88,11 @@ RUN git config --global user.email "agent@remote-agent.local" && \
     git config --global user.name "Remote Agent" && \
     git config --global init.defaultBranch main
 
+# Switch back to root for entrypoint (entrypoint drops to agent after fixing permissions)
+USER root
+
 # Entrypoint
-COPY --chown=agent:agent docker/entrypoint.sh /entrypoint.sh
+COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Health check

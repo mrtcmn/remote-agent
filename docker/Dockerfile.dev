@@ -6,7 +6,7 @@ FROM oven/bun:latest
 # ---- CACHED: System dependencies (rarely changes) ----
 RUN apt-get update && apt-get install -y \
     bash git curl ca-certificates gnupg sudo vim jq \
-    nodejs npm \
+    nodejs npm gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # ---- CACHED: GitHub CLI (rarely changes) ----
@@ -38,10 +38,8 @@ ENV PATH="/home/agent/.local/bin:/usr/local/bin:${PATH}"
 
 EXPOSE 5100
 
-# ---- Switch to non-root user ----
+# ---- Install Claude CLI as agent user ----
 USER agent
-
-# ---- CACHED: Claude CLI (install as agent user) ----
 RUN curl -fsSL https://claude.ai/install.sh | bash || \
     npm install -g @anthropic-ai/claude-code || \
     echo "Claude CLI installation skipped"
@@ -51,4 +49,11 @@ RUN git config --global user.email "agent@remote-agent.local" && \
     git config --global user.name "Remote Agent" && \
     git config --global init.defaultBranch main
 
+# Switch back to root for entrypoint (drops to agent after fixing volume permissions)
+USER root
+
+COPY docker/entrypoint.dev.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bun", "run", "--watch", "--cwd", "packages/api", "src/index.ts"]
