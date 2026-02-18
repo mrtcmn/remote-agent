@@ -28,7 +28,9 @@ async function request<T>(
 export const api = {
   // Auth
   getMe: () => request<{ user: User | null }>('/auth/me'),
-  setPin: (pin: string) => request('/auth/pin/set', { method: 'POST', body: JSON.stringify({ pin }) }),
+  setPin: (data: { pin: string; password: string }) => request('/auth/pin/set', { method: 'POST', body: JSON.stringify(data) }),
+  changePassword: (data: { currentPassword: string; newPassword: string; revokeOtherSessions?: boolean }) =>
+    request('/auth/change-password', { method: 'POST', body: JSON.stringify(data) }),
   verifyPin: (pin: string) => request<{ valid: boolean }>('/auth/pin/verify', { method: 'POST', body: JSON.stringify({ pin }) }),
 
   // Sessions (container for terminals)

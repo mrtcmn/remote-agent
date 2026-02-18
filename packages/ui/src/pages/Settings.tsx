@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell, Key, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw, RefreshCw, ExternalLink, Package, Trash2, Globe, Plus, X } from 'lucide-react';
+import { Bell, Key, Lock, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw, RefreshCw, ExternalLink, Package, Trash2, Globe, Plus, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -21,6 +21,7 @@ export function SettingsPage() {
       </div>
 
       <VersionSection />
+      <PasswordSection />
       <PinSection hasPin={user?.hasPin || false} />
       <OriginsSection />
       <NotificationSection />
@@ -142,7 +143,89 @@ function VersionSection() {
   );
 }
 
+function PasswordSection() {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const changeMutation = useMutation({
+    mutationFn: api.changePassword,
+    onSuccess: () => {
+      toast({ title: 'Password changed successfully' });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    },
+    onError: (error) => {
+      toast({ title: 'Error', description: (error as Error).message, variant: 'destructive' });
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      toast({ title: 'Error', description: 'New passwords do not match', variant: 'destructive' });
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast({ title: 'Error', description: 'Password must be at least 6 characters', variant: 'destructive' });
+      return;
+    }
+    changeMutation.mutate({ currentPassword, newPassword });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Lock className="h-5 w-5" />
+          <CardTitle>Password</CardTitle>
+        </div>
+        <CardDescription>
+          Change your account password
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4 max-w-xs">
+          <div>
+            <label className="text-sm font-medium">Current Password</label>
+            <Input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Enter current password"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium">New Password</label>
+            <Input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Enter new password"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Confirm New Password</label>
+            <Input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Confirm new password"
+            />
+          </div>
+          <Button type="submit" disabled={!currentPassword || !newPassword || !confirmPassword || changeMutation.isPending}>
+            {changeMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Change Password
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
 function PinSection({ hasPin }: { hasPin: boolean }) {
+  const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const { setPin: setPinFn } = useAuth();
@@ -158,17 +241,21 @@ function PinSection({ hasPin }: { hasPin: boolean }) {
       toast({ title: 'Error', description: 'PIN must be 4-8 digits', variant: 'destructive' });
       return;
     }
-    setPinFn(pin, {
-      onSuccess: () => {
-        toast({ title: 'PIN set successfully' });
-        setPin('');
-        setConfirmPin('');
-        queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
+    setPinFn(
+      { pin, password },
+      {
+        onSuccess: () => {
+          toast({ title: 'PIN set successfully' });
+          setPassword('');
+          setPin('');
+          setConfirmPin('');
+          queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
+        },
+        onError: (error: unknown) => {
+          toast({ title: 'Error', description: (error as Error).message, variant: 'destructive' });
+        },
       },
-      onError: (error: unknown) => {
-        toast({ title: 'Error', description: (error as Error).message, variant: 'destructive' });
-      },
-    });
+    );
   };
 
   return (
@@ -180,12 +267,21 @@ function PinSection({ hasPin }: { hasPin: boolean }) {
         </div>
         <CardDescription>
           {hasPin
-            ? 'Your PIN is set. Required for sensitive operations.'
+            ? 'Your PIN is set. Required for sensitive operations like deleting projects and SSH keys.'
             : 'Set a PIN for extra security on sensitive operations.'}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSetPin} className="space-y-4 max-w-xs">
+          <div>
+            <label className="text-sm font-medium">Current Password</label>
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter your password"
+            />
+          </div>
           <div>
             <label className="text-sm font-medium">
               {hasPin ? 'New PIN' : 'PIN'} (4-8 digits)
@@ -212,7 +308,7 @@ function PinSection({ hasPin }: { hasPin: boolean }) {
               placeholder="Confirm PIN"
             />
           </div>
-          <Button type="submit" disabled={!pin || !confirmPin}>
+          <Button type="submit" disabled={!password || !pin || !confirmPin}>
             {hasPin ? 'Update PIN' : 'Set PIN'}
           </Button>
         </form>

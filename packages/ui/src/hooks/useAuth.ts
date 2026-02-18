@@ -11,7 +11,7 @@ export function useAuth() {
   });
 
   const setPinMutation = useMutation({
-    mutationFn: api.setPin,
+    mutationFn: (data: { pin: string; password: string }) => api.setPin(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
     },

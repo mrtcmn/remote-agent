@@ -1,5 +1,8 @@
 import { Elysia, t } from 'elysia';
+import { eq, and } from 'drizzle-orm';
 import { auth } from '../auth';
+import { db } from '../db';
+import { account } from '../db/schema';
 import { setPin, verifyPin, hasPin, removePin } from '../auth/pin';
 import { requireAuth, authMiddleware } from '../auth/middleware';
 
@@ -31,6 +34,28 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       return { error: 'Unauthorized' };
     }
 
+    // Always require password to set/change PIN
+    if (!body.password) {
+      set.status = 400;
+      return { error: 'Password is required' };
+    }
+
+    // Verify password against the credential account
+    const credentialAccount = await db.query.account.findFirst({
+      where: and(eq(account.userId, user.id), eq(account.providerId, 'credential')),
+    });
+
+    if (!credentialAccount?.password) {
+      set.status = 400;
+      return { error: 'No password set for this account' };
+    }
+
+    const passwordValid = await Bun.password.verify(body.password, credentialAccount.password);
+    if (!passwordValid) {
+      set.status = 403;
+      return { error: 'Invalid password' };
+    }
+
     try {
       await setPin(user.id, body.pin);
       return { success: true };
@@ -41,6 +66,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
   }, {
     body: t.Object({
       pin: t.String({ minLength: 4, maxLength: 8 }),
+      password: t.String(),
     }),
   })
 
