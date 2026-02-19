@@ -73,6 +73,16 @@ export class WorkspaceService {
     }
   }
 
+  private normalizeSSHKey(key: string): string {
+    // Remove \r (Windows line endings) and trim whitespace
+    let normalized = key.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    // SSH keys must end with a newline
+    if (!normalized.endsWith('\n')) {
+      normalized += '\n';
+    }
+    return normalized;
+  }
+
   async storeSSHKey(userId: string, privateKey: string, publicKey?: string): Promise<string> {
     const userKeysDir = join(this.sshKeysRoot, userId);
     await mkdir(userKeysDir, { recursive: true });
@@ -81,10 +91,12 @@ export class WorkspaceService {
     const privateKeyPath = join(userKeysDir, `${keyId}_id_rsa`);
     const publicKeyPath = join(userKeysDir, `${keyId}_id_rsa.pub`);
 
-    await writeFile(privateKeyPath, privateKey, { mode: 0o600 });
+    const normalizedPrivateKey = this.normalizeSSHKey(privateKey);
+    await writeFile(privateKeyPath, normalizedPrivateKey, { mode: 0o600 });
 
     if (publicKey) {
-      await writeFile(publicKeyPath, publicKey, { mode: 0o644 });
+      const normalizedPublicKey = this.normalizeSSHKey(publicKey);
+      await writeFile(publicKeyPath, normalizedPublicKey, { mode: 0o644 });
     }
 
     // Store in database
