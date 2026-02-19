@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, rm, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import { $ } from 'bun';
 import { nanoid } from 'nanoid';
@@ -93,6 +93,7 @@ export class WorkspaceService {
 
     const normalizedPrivateKey = this.normalizeSSHKey(privateKey);
     await writeFile(privateKeyPath, normalizedPrivateKey, { mode: 0o600 });
+    await chmod(privateKeyPath, 0o600);
 
     if (publicKey) {
       const normalizedPublicKey = this.normalizeSSHKey(publicKey);

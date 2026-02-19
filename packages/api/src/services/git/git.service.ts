@@ -35,7 +35,8 @@ export class GitService {
   private getEnv(sshKeyPath?: string): Record<string, string> {
     if (!sshKeyPath) return {};
     return {
-      GIT_SSH_COMMAND: `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`,
+      ...process.env as Record<string, string>,
+      GIT_SSH_COMMAND: `ssh -i "${sshKeyPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`,
     };
   }
 
