@@ -10,6 +10,33 @@ import { seedTestUser } from './auth/seed';
 
 const PORT = process.env.PORT || 5100;
 
+// Runtime env injection for the frontend
+const HTML_PATH = '../ui/dist/index.html';
+const htmlFile = Bun.file(HTML_PATH);
+const rawHtml = await htmlFile.exists() ? await htmlFile.text() : '';
+
+const CLIENT_ENV_KEYS = [
+  'VITE_FIREBASE_API_KEY',
+  'VITE_FIREBASE_AUTH_DOMAIN',
+  'VITE_FIREBASE_PROJECT_ID',
+  'VITE_FIREBASE_STORAGE_BUCKET',
+  'VITE_FIREBASE_MESSAGING_SENDER_ID',
+  'VITE_FIREBASE_APP_ID',
+  'VITE_FIREBASE_MEASUREMENT_ID',
+  'VITE_FIREBASE_VAPID_KEY',
+];
+
+function buildEnvScript(): string {
+  const env: Record<string, string> = {};
+  for (const key of CLIENT_ENV_KEYS) {
+    const value = process.env[key];
+    if (value) env[key] = value;
+  }
+  return `<script>window.__ENV__=${JSON.stringify(env)}</script>`;
+}
+
+const indexHtml = rawHtml.replace('<head>', `<head>\n    ${buildEnvScript()}`);
+
 // Initialize services
 await originsService.initialize();
 await notificationService.initialize();
@@ -51,24 +78,18 @@ const app = new Elysia()
     prefix: '/',
   }))
 
-  // Serve index.html for root path
-  .get('/', async ({ set }) => {
-    const file = Bun.file('../ui/dist/index.html');
-    if (await file.exists()) {
-      set.headers['content-type'] = 'text/html';
-      return file;
-    }
-    return { error: 'Not found' };
+  // Serve index.html for root path (with runtime env injection)
+  .get('/', ({ set }) => {
+    if (!indexHtml) return { error: 'Not found' };
+    set.headers['content-type'] = 'text/html';
+    return indexHtml;
   })
 
   // Fallback to index.html for SPA routing (client-side routes)
-  .get('*', async ({ set }) => {
-    const file = Bun.file('../ui/dist/index.html');
-    if (await file.exists()) {
-      set.headers['content-type'] = 'text/html';
-      return file;
-    }
-    return { error: 'Not found' };
+  .get('*', ({ set }) => {
+    if (!indexHtml) return { error: 'Not found' };
+    set.headers['content-type'] = 'text/html';
+    return indexHtml;
   })
 
   .onError(({ code, error, set }) => {
