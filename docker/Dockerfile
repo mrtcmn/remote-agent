@@ -3,16 +3,7 @@
 
 FROM oven/bun:latest AS base
 
-# Version information (set at build time)
-ARG VERSION=dev
-ENV APP_VERSION=$VERSION
-
-# OCI Labels for container registry
-LABEL org.opencontainers.image.title="Remote Agent"
-LABEL org.opencontainers.image.description="Remote Claude Code sessions with web UI"
-LABEL org.opencontainers.image.version=$VERSION
-LABEL org.opencontainers.image.source="https://github.com/yourorg/remote-agent"
-LABEL org.opencontainers.image.licenses="MIT"
+# ── Infrastructure (cached aggressively, rarely changes) ──
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -45,13 +36,26 @@ RUN useradd -m -s /bin/bash agent
 # Setup app directory
 WORKDIR /app
 
-# Copy package files first for better caching
+# ── Dependencies (cached when lockfile unchanged) ──
+
 COPY --chown=agent:agent package.json bun.lockb* ./
 COPY --chown=agent:agent packages/api/package.json ./packages/api/
 COPY --chown=agent:agent packages/ui/package.json ./packages/ui/
 
-# Install dependencies
 RUN bun install --frozen-lockfile || bun install
+
+# ── App source (invalidated by code changes or CACHE_BUST) ──
+
+# Version + cache bust ARGs placed here so infrastructure layers above stay cached
+ARG VERSION=dev
+ARG CACHE_BUST=0
+ENV APP_VERSION=$VERSION
+
+LABEL org.opencontainers.image.title="Remote Agent"
+LABEL org.opencontainers.image.description="Remote Claude Code sessions with web UI"
+LABEL org.opencontainers.image.version=$VERSION
+LABEL org.opencontainers.image.source="https://github.com/mrtcmn/remote-agent"
+LABEL org.opencontainers.image.licenses="MIT"
 
 # Copy source code (--chown eliminates ghost layer from separate chown -R)
 COPY --chown=agent:agent . .

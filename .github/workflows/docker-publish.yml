@@ -6,6 +6,12 @@ on:
       - main
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      no_cache:
+        description: 'Build without cache'
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
@@ -62,6 +68,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
+            CACHE_BUST=${{ inputs.no_cache == true && github.run_id || '0' }}
           cache-from: type=gha,scope=${{ steps.platform.outputs.slug }}
           cache-to: type=gha,mode=max,scope=${{ steps.platform.outputs.slug }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
