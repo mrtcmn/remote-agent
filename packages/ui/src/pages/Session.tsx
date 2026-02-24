@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -26,10 +26,12 @@ type ViewMode = 'terminal' | 'git' | 'files';
 
 export function SessionPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
+  const terminalIdFromUrl = searchParams.get('terminalId');
+  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(terminalIdFromUrl);
   const [viewMode, setViewMode] = useState<ViewMode>('terminal');
   const [showSidebar, setShowSidebar] = useState(true);
   const [showTerminalDropdown, setShowTerminalDropdown] = useState(false);
@@ -80,9 +82,17 @@ export function SessionPage() {
     },
   });
 
-  // Auto-select first terminal
+  // Auto-select terminal from URL param or fall back to first terminal
   if (!activeTerminalId && terminals.length > 0 && !isLoading) {
     setActiveTerminalId(terminals[0].id);
+  }
+
+  // Clean up terminalId from URL after terminals load
+  if (terminalIdFromUrl && terminals.length > 0 && !isLoading) {
+    setSearchParams((prev) => {
+      prev.delete('terminalId');
+      return prev;
+    }, { replace: true });
   }
 
   const activeTerminal = terminals.find((t) => t.id === activeTerminalId);

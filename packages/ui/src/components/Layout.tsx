@@ -24,7 +24,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const isFullHeightPage = isSessionPage || location.pathname === '/kanban';
 
   return (
-    <div className={cn('flex flex-col', isFullHeightPage ? 'h-screen' : 'min-h-screen')}>
+    <div className={cn('flex flex-col', isFullHeightPage ? 'h-dvh' : 'min-h-dvh')}>
       {/* Header */}
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur safe-area-top">
         <div className="flex h-14 items-center px-4">

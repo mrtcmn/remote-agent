@@ -21,6 +21,8 @@
     --border: 0 0% 15%;
     --input: 0 0% 15%;
     --ring: 142 76% 36%;
+    --popover: 0 0% 9%;
+    --popover-foreground: 0 0% 98%;
     --radius: 0.5rem;
   }
 }
@@ -77,6 +79,16 @@
   --diff-remove-bg: rgba(248, 81, 73, 0.15);
   --diff-add-color: #3fb950;
   --diff-remove-color: #f85149;
+}
+
+/* Ensure dvh fallback for older browsers */
+@supports not (height: 100dvh) {
+  .h-dvh {
+    height: 100vh;
+  }
+  .min-h-dvh {
+    min-height: 100vh;
+  }
 }
 
 /* Safe area for mobile */

@@ -115,7 +115,8 @@ function NotificationItem({
     if (isUnread) {
       markReadMutation.mutate();
     }
-    window.location.href = `/sessions/${notification.sessionId}`;
+    const terminalParam = notification.terminalId ? `?terminalId=${notification.terminalId}` : '';
+    window.location.href = `/sessions/${notification.sessionId}${terminalParam}`;
     onClose();
   };
 

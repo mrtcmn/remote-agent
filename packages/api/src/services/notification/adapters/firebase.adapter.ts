@@ -132,7 +132,9 @@ export class FirebaseAdapter extends BaseNotificationAdapter {
       },
       webpush: {
         fcmOptions: {
-          link: `/sessions/${payload.sessionId}`,
+          link: payload.terminalId
+            ? `/sessions/${payload.sessionId}?terminalId=${payload.terminalId}`
+            : `/sessions/${payload.sessionId}`,
         },
         notification: {
           icon: '/icon-192.png',

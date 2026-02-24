@@ -37,7 +37,10 @@ messaging.onBackgroundMessage((payload) => {
 self.addEventListener('notificationclick', (event) => {
   const { action, notification } = event;
   const data = notification.data || {};
-  const { sessionId, notificationId } = data;
+  const { sessionId, terminalId, notificationId } = data;
+  const sessionUrl = terminalId
+    ? `/sessions/${sessionId}?terminalId=${terminalId}`
+    : `/sessions/${sessionId}`;
 
   notification.close();
 
@@ -59,6 +62,9 @@ self.addEventListener('notificationclick', (event) => {
       // Try to find an existing window with the session
       for (const client of clientList) {
         if (client.url.includes(`/sessions/${sessionId}`) && 'focus' in client) {
+          if ('navigate' in client && terminalId) {
+            client.navigate(sessionUrl);
+          }
           return client.focus();
         }
       }
@@ -67,14 +73,14 @@ self.addEventListener('notificationclick', (event) => {
         if ('focus' in client) {
           client.focus();
           if ('navigate' in client && sessionId) {
-            return client.navigate(`/sessions/${sessionId}`);
+            return client.navigate(sessionUrl);
           }
           return;
         }
       }
       // Open new window
       if (sessionId) {
-        return clients.openWindow(`/sessions/${sessionId}`);
+        return clients.openWindow(sessionUrl);
       }
       return clients.openWindow('/');
     })
