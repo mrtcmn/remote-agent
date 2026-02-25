@@ -13,6 +13,7 @@ import {
   PanelRight,
   ChevronDown,
   FolderOpen,
+  Trash2,
 } from 'lucide-react';
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -82,9 +83,16 @@ export function SessionPage() {
     },
   });
 
-  // Auto-select terminal from URL param or fall back to first terminal
-  if (!activeTerminalId && terminals.length > 0 && !isLoading) {
-    setActiveTerminalId(terminals[0].id);
+  const cleanupMutation = useMutation({
+    mutationFn: () => api.removeExitedTerminals(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['terminals', id] });
+    },
+  });
+
+  // Auto-select terminal from URL param or fall back to first running terminal
+  if (!activeTerminalId && activeTerminals.length > 0 && !isLoading) {
+    setActiveTerminalId(activeTerminals[0].id);
   }
 
   // Clean up terminalId from URL after terminals load
@@ -103,9 +111,11 @@ export function SessionPage() {
     return (gitStatus.modified?.length || 0) + (gitStatus.staged?.length || 0) + (gitStatus.untracked?.length || 0);
   }, [gitStatus]);
 
-  // Group terminals by type
-  const claudeTerminals = terminals.filter((t) => t.type === 'claude');
-  const shellTerminals = terminals.filter((t) => t.type === 'shell');
+  // Filter out exited terminals, group by type
+  const activeTerminals = terminals.filter((t) => (t.liveStatus || t.status) === 'running');
+  const exitedCount = terminals.length - activeTerminals.length;
+  const claudeTerminals = activeTerminals.filter((t) => t.type === 'claude');
+  const shellTerminals = activeTerminals.filter((t) => t.type === 'shell');
 
   return (
     <div className="flex flex-col h-full">
@@ -232,6 +242,23 @@ export function SessionPage() {
               ))}
             </div>
 
+            {/* Clean up exited terminals */}
+            {exitedCount > 0 && (
+              <div className="flex flex-col items-center py-2 border-t border-border/50">
+                <button
+                  onClick={() => cleanupMutation.mutate()}
+                  disabled={cleanupMutation.isPending}
+                  className={cn(
+                    'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
+                    'hover:bg-destructive/20 text-muted-foreground hover:text-destructive',
+                  )}
+                  title={`Remove ${exitedCount} exited terminal${exitedCount !== 1 ? 's' : ''}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+
             {/* Files Button */}
             {session?.project && (
               <div className="flex flex-col items-center py-2 border-t border-border/50">
@@ -282,7 +309,7 @@ export function SessionPage() {
 
               {showTerminalDropdown && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-card border rounded-md shadow-lg z-20 max-h-48 overflow-y-auto">
-                  {terminals.map((terminal) => (
+                  {activeTerminals.map((terminal) => (
                     <button
                       key={terminal.id}
                       className={cn(
@@ -309,8 +336,20 @@ export function SessionPage() {
                       />
                     </button>
                   ))}
-                  {terminals.length === 0 && (
+                  {activeTerminals.length === 0 && (
                     <div className="px-3 py-4 text-center text-sm text-muted-foreground">No terminals</div>
+                  )}
+                  {exitedCount > 0 && (
+                    <button
+                      className="flex items-center gap-2 w-full px-3 py-2 text-left text-sm hover:bg-destructive/10 text-muted-foreground hover:text-destructive border-t"
+                      onClick={() => {
+                        cleanupMutation.mutate();
+                        setShowTerminalDropdown(false);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span className="font-mono text-xs">Remove {exitedCount} exited</span>
+                    </button>
                   )}
                 </div>
               )}

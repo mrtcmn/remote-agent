@@ -120,6 +120,8 @@ export const api = {
     request(`/terminals/${id}/resize`, { method: 'POST', body: JSON.stringify({ cols, rows }) }),
   closeTerminal: (id: string) =>
     request(`/terminals/${id}`, { method: 'DELETE' }),
+  removeExitedTerminals: (sessionId: string) =>
+    request<{ success: boolean; removed: number }>(`/terminals/session/${sessionId}/exited`, { method: 'DELETE' }),
 
   // Review Comments
   getReviewComments: (sessionId: string, status?: ReviewCommentStatus, batchId?: string) => {

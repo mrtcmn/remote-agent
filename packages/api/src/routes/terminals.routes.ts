@@ -205,6 +205,29 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     }),
   })
 
+  // Remove all exited terminals for a session
+  .delete('/session/:sessionId/exited', async ({ user, params, set }) => {
+    // Verify session ownership
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(
+        eq(claudeSessions.id, params.sessionId),
+        eq(claudeSessions.userId, user!.id)
+      ),
+    });
+
+    if (!session) {
+      set.status = 404;
+      return { error: 'Session not found' };
+    }
+
+    const removed = await terminalService.removeExitedTerminals(params.sessionId);
+    return { success: true, removed };
+  }, {
+    params: t.Object({
+      sessionId: t.String(),
+    }),
+  })
+
   // Close terminal
   .delete('/:id', async ({ user, params, set }) => {
     const terminal = await db.query.terminals.findFirst({

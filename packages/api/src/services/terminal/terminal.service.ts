@@ -1,6 +1,6 @@
 import { spawn } from 'bun';
 import { EventEmitter } from 'events';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { db, terminals, claudeSessions } from '../../db';
 import { notificationService } from '../notification';
 import type {
@@ -167,6 +167,30 @@ export class TerminalService extends EventEmitter {
     for (const terminal of sessionTerminals) {
       await this.closeTerminal(terminal.id);
     }
+  }
+
+  async removeExitedTerminals(sessionId: string): Promise<number> {
+    // Close any in-memory instances that are exited
+    const exitedInstances = Array.from(this.instances.values())
+      .filter(t => t.sessionId === sessionId && t.status === 'exited');
+
+    for (const instance of exitedInstances) {
+      this.instances.delete(instance.id);
+    }
+
+    // Delete exited terminals from database
+    const exited = await db.query.terminals.findMany({
+      where: and(
+        eq(terminals.sessionId, sessionId),
+        eq(terminals.status, 'exited'),
+      ),
+    });
+
+    for (const t of exited) {
+      await db.delete(terminals).where(eq(terminals.id, t.id));
+    }
+
+    return exited.length;
   }
 
   getTerminal(terminalId: string): TerminalInstance | undefined {
