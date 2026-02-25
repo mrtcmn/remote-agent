@@ -100,6 +100,9 @@ export class WorkspaceService {
       await writeFile(publicKeyPath, normalizedPublicKey, { mode: 0o644 });
     }
 
+    // Register key with ssh-agent
+    await this.registerWithSSHAgent(privateKeyPath);
+
     // Store in database
     await db.insert(sshKeys).values({
       id: keyId,
@@ -111,6 +114,26 @@ export class WorkspaceService {
     });
 
     return keyId;
+  }
+
+  private async registerWithSSHAgent(privateKeyPath: string): Promise<void> {
+    try {
+      // Ensure ssh-agent is running, start one if not
+      if (!process.env.SSH_AUTH_SOCK) {
+        const agentOutput = await $`ssh-agent -s`.quiet();
+        const output = agentOutput.stdout.toString();
+        // Parse SSH_AUTH_SOCK and SSH_AGENT_PID from agent output
+        const sockMatch = output.match(/SSH_AUTH_SOCK=([^;]+)/);
+        const pidMatch = output.match(/SSH_AGENT_PID=(\d+)/);
+        if (sockMatch) process.env.SSH_AUTH_SOCK = sockMatch[1];
+        if (pidMatch) process.env.SSH_AGENT_PID = pidMatch[1];
+      }
+
+      // Add the key to the agent
+      await $`ssh-add ${privateKeyPath}`.quiet();
+    } catch (err) {
+      console.warn(`Failed to register SSH key with agent: ${err}`);
+    }
   }
 
   async getSSHKeyPath(userId: string, keyId?: string): Promise<string | null> {

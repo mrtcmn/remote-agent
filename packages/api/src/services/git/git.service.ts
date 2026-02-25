@@ -33,11 +33,18 @@ export class GitService {
   }
 
   private getEnv(sshKeyPath?: string): Record<string, string> {
-    if (!sshKeyPath) return {};
-    return {
+    const env: Record<string, string> = {
       ...process.env as Record<string, string>,
-      GIT_SSH_COMMAND: `ssh -i "${sshKeyPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`,
     };
+
+    if (sshKeyPath) {
+      env.GIT_SSH_COMMAND = `ssh -i "${sshKeyPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
+    } else if (process.env.SSH_AUTH_SOCK) {
+      // Use ssh-agent when no explicit key is provided
+      env.GIT_SSH_COMMAND = `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
+    }
+
+    return env;
   }
 
   async cloneProject(opts: CloneOptions): Promise<string> {

@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { PatchDiff, FileDiff } from '@pierre/diffs/react';
+import { PatchDiff, FileDiff, WorkerPoolContextProvider } from '@pierre/diffs/react';
 import type { DiffLineAnnotation } from '@pierre/diffs';
 import { parsePatchFiles, type FileDiffMetadata } from '@pierre/diffs';
 import {
@@ -14,6 +14,8 @@ import {
   Pencil,
   History,
   Send,
+  ChevronDown,
+  Eye,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { DIFF_THEME } from '@/lib/constants';
@@ -23,6 +25,21 @@ import { useReviewComments } from '@/hooks/useReviewComments';
 import { ReviewCommentInput } from './ReviewCommentInput';
 import { ReviewCommentAnnotation } from './ReviewCommentAnnotation';
 import { ReviewBatchPanel } from './ReviewBatchPanel';
+
+// Threshold: collapse diffs with more than this many lines
+const LARGE_DIFF_LINE_THRESHOLD = 500;
+
+const workerFactory = () =>
+  new Worker(new URL('../workers/diff-worker.js', import.meta.url), { type: 'module' });
+
+/** Count total diff lines (additions + deletions) from a FileDiffMetadata */
+function countDiffLines(fileDiff: FileDiffMetadata): number {
+  let count = 0;
+  for (const hunk of fileDiff.hunks) {
+    count += hunk.lines.length;
+  }
+  return count;
+}
 
 interface GitDiffViewProps {
   sessionId: string;
@@ -168,216 +185,218 @@ export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProp
   }, [proceed, onProceed]);
 
   return (
-    <div className={cn('flex flex-col h-full bg-background', className)}>
-      {/* Compact Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b bg-card/30 shrink-0">
-        <div className="flex items-center gap-2">
-          <GitBranch className="h-4 w-4 text-primary" />
-          {gitStatus?.branch && (
-            <span className="font-mono text-xs text-muted-foreground">
-              {gitStatus.branch}
-            </span>
-          )}
-          {hasChanges && (
-            <span className="font-mono text-xs text-muted-foreground">
-              · {allFiles.length} file{allFiles.length !== 1 ? 's' : ''}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => refetchStatus()}
-            className="h-7 w-7 p-0"
-            title="Refresh"
-          >
-            <RefreshCw className={cn('h-3.5 w-3.5', statusLoading && 'animate-spin')} />
-          </Button>
-          {pendingComments.length > 0 && (
+    <WorkerPoolContextProvider workerFactory={workerFactory}>
+      <div className={cn('flex flex-col h-full bg-background', className)}>
+        {/* Compact Header */}
+        <div className="flex items-center justify-between px-3 py-2 border-b bg-card/30 shrink-0">
+          <div className="flex items-center gap-2">
+            <GitBranch className="h-4 w-4 text-primary" />
+            {gitStatus?.branch && (
+              <span className="font-mono text-xs text-muted-foreground">
+                {gitStatus.branch}
+              </span>
+            )}
+            {hasChanges && (
+              <span className="font-mono text-xs text-muted-foreground">
+                · {allFiles.length} file{allFiles.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
             <Button
-              variant="default"
+              variant="ghost"
               size="sm"
-              onClick={handleProceed}
-              disabled={isProceedPending}
-              className="h-7 text-xs"
+              onClick={() => refetchStatus()}
+              className="h-7 w-7 p-0"
+              title="Refresh"
             >
-              <Send className="h-3.5 w-3.5 mr-1" />
-              Proceed ({pendingComments.length})
+              <RefreshCw className={cn('h-3.5 w-3.5', statusLoading && 'animate-spin')} />
             </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowBatchPanel(true)}
-            className="h-7 w-7 p-0"
-            title="Review history"
-          >
-            <History className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowFileList(!showFileList)}
-            className="h-7 w-7 p-0"
-            title={showFileList ? 'Hide files' : 'Show files'}
-          >
-            <ChevronRight
-              className={cn('h-3.5 w-3.5 transition-transform', showFileList && 'rotate-90')}
-            />
-          </Button>
+            {pendingComments.length > 0 && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleProceed}
+                disabled={isProceedPending}
+                className="h-7 text-xs"
+              >
+                <Send className="h-3.5 w-3.5 mr-1" />
+                Proceed ({pendingComments.length})
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowBatchPanel(true)}
+              className="h-7 w-7 p-0"
+              title="Review history"
+            >
+              <History className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowFileList(!showFileList)}
+              className="h-7 w-7 p-0"
+              title={showFileList ? 'Hide files' : 'Show files'}
+            >
+              <ChevronRight
+                className={cn('h-3.5 w-3.5 transition-transform', showFileList && 'rotate-90')}
+              />
+            </Button>
+          </div>
         </div>
-      </div>
 
-      {/* Content */}
-      <div className="flex flex-1 min-h-0">
-        {/* File List - Collapsible */}
-        {showFileList && (
-          <div className="w-64 border-r bg-card/20 flex flex-col shrink-0">
-            <div className="flex-1 overflow-y-auto">
-              {statusLoading ? (
-                <div className="flex items-center justify-center p-8">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                </div>
-              ) : !hasChanges ? (
-                <div className="flex flex-col items-center justify-center p-8 text-muted-foreground">
-                  <Circle className="h-8 w-8 mb-2 opacity-30" />
-                  <p className="text-sm font-mono">No changes</p>
-                </div>
-              ) : (
-                <div className="p-2 space-y-0.5">
-                  {/* View all button */}
-                  <button
-                    onClick={() => setSelectedFile(null)}
-                    className={cn(
-                      'flex items-center gap-2 w-full px-3 py-2 rounded text-left',
-                      'font-mono text-xs transition-colors',
-                      'hover:bg-accent',
-                      selectedFile === null && 'bg-accent'
-                    )}
-                  >
-                    <FileCode className="h-3.5 w-3.5 text-primary" />
-                    <span className="font-medium">All changes</span>
-                    <span className="ml-auto text-muted-foreground">{allFiles.length}</span>
-                  </button>
+        {/* Content */}
+        <div className="flex flex-1 min-h-0">
+          {/* File List - Collapsible */}
+          {showFileList && (
+            <div className="w-64 border-r bg-card/20 flex flex-col shrink-0">
+              <div className="flex-1 overflow-y-auto">
+                {statusLoading ? (
+                  <div className="flex items-center justify-center p-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : !hasChanges ? (
+                  <div className="flex flex-col items-center justify-center p-8 text-muted-foreground">
+                    <Circle className="h-8 w-8 mb-2 opacity-30" />
+                    <p className="text-sm font-mono">No changes</p>
+                  </div>
+                ) : (
+                  <div className="p-2 space-y-0.5">
+                    {/* View all button */}
+                    <button
+                      onClick={() => setSelectedFile(null)}
+                      className={cn(
+                        'flex items-center gap-2 w-full px-3 py-2 rounded text-left',
+                        'font-mono text-xs transition-colors',
+                        'hover:bg-accent',
+                        selectedFile === null && 'bg-accent'
+                      )}
+                    >
+                      <FileCode className="h-3.5 w-3.5 text-primary" />
+                      <span className="font-medium">All changes</span>
+                      <span className="ml-auto text-muted-foreground">{allFiles.length}</span>
+                    </button>
 
-                  <div className="h-px bg-border my-2" />
+                    <div className="h-px bg-border my-2" />
 
-                  {/* File list */}
-                  {allFiles.map(({ file, status }) => (
-                    <FileItem
-                      key={`${status}-${file}`}
-                      file={file}
-                      status={status}
-                      isSelected={selectedFile === file}
-                      onClick={() => setSelectedFile(selectedFile === file ? null : file)}
-                    />
-                  ))}
+                    {/* File list */}
+                    {allFiles.map(({ file, status }) => (
+                      <FileItem
+                        key={`${status}-${file}`}
+                        file={file}
+                        status={status}
+                        isSelected={selectedFile === file}
+                        onClick={() => setSelectedFile(selectedFile === file ? null : file)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Summary */}
+              {hasChanges && (
+                <div className="border-t px-3 py-2 flex items-center gap-3 text-xs font-mono">
+                  {gitStatus?.staged.length > 0 && (
+                    <span className="flex items-center gap-1 text-green-500">
+                      <Plus className="h-3 w-3" />
+                      {gitStatus.staged.length}
+                    </span>
+                  )}
+                  {gitStatus?.modified.length > 0 && (
+                    <span className="flex items-center gap-1 text-yellow-500">
+                      <Pencil className="h-3 w-3" />
+                      {gitStatus.modified.length}
+                    </span>
+                  )}
+                  {gitStatus?.untracked.length > 0 && (
+                    <span className="flex items-center gap-1 text-blue-500">
+                      <Circle className="h-3 w-3" />
+                      {gitStatus.untracked.length}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
+          )}
 
-            {/* Summary */}
-            {hasChanges && (
-              <div className="border-t px-3 py-2 flex items-center gap-3 text-xs font-mono">
-                {gitStatus?.staged.length > 0 && (
-                  <span className="flex items-center gap-1 text-green-500">
-                    <Plus className="h-3 w-3" />
-                    {gitStatus.staged.length}
-                  </span>
-                )}
-                {gitStatus?.modified.length > 0 && (
-                  <span className="flex items-center gap-1 text-yellow-500">
-                    <Pencil className="h-3 w-3" />
-                    {gitStatus.modified.length}
-                  </span>
-                )}
-                {gitStatus?.untracked.length > 0 && (
-                  <span className="flex items-center gap-1 text-blue-500">
-                    <Circle className="h-3 w-3" />
-                    {gitStatus.untracked.length}
-                  </span>
-                )}
+          {/* Diff View */}
+          <div className="flex-1 overflow-auto bg-[#0d1117]">
+            {diffLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : selectedFile && diffData?.diff ? (
+              <div className="p-2">
+                <div className="mb-2 px-2 flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                  <FileCode className="h-3.5 w-3.5" />
+                  <span className="truncate">{selectedFile}</span>
+                </div>
+                <PatchDiff
+                  patch={diffData.diff}
+                  options={{
+                    theme: DIFF_THEME,
+                    diffStyle: 'unified',
+                    enableHoverUtility: true,
+                  }}
+                  lineAnnotations={lineAnnotations}
+                  renderAnnotation={renderAnnotation}
+                  renderHoverUtility={createRenderHoverUtility(selectedFile)}
+                />
+              </div>
+            ) : fullDiff?.diff ? (
+              <div className="p-2">
+                <MultiFileDiffView
+                  diff={fullDiff.diff}
+                  getLineAnnotationsForFile={getLineAnnotationsForFile}
+                  renderAnnotation={renderAnnotation}
+                  createRenderHoverUtility={createRenderHoverUtility}
+                />
+              </div>
+            ) : hasChanges ? (
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                <FileCode className="h-8 w-8 mb-2 opacity-30" />
+                <p className="text-xs font-mono">Select a file to view changes</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                <GitBranch className="h-8 w-8 mb-2 opacity-30" />
+                <p className="text-xs font-mono">Working tree clean</p>
               </div>
             )}
           </div>
+        </div>
+
+        {commentPopover && (
+          <div
+            className="fixed z-50"
+            style={{ left: commentPopover.position.x, top: commentPopover.position.y }}
+          >
+            <ReviewCommentInput
+              onSubmit={handleAddComment}
+              onCancel={() => setCommentPopover(null)}
+              existingComments={comments
+                .filter(c =>
+                  c.filePath === commentPopover.filePath &&
+                  c.lineNumber === commentPopover.lineNumber &&
+                  c.status === 'pending'
+                )
+                .map(c => ({ id: c.id, comment: c.comment }))}
+            />
+          </div>
         )}
 
-        {/* Diff View */}
-        <div className="flex-1 overflow-auto bg-[#0d1117]">
-          {diffLoading ? (
-            <div className="flex items-center justify-center h-full">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : selectedFile && diffData?.diff ? (
-            <div className="p-2">
-              <div className="mb-2 px-2 flex items-center gap-2 font-mono text-xs text-muted-foreground">
-                <FileCode className="h-3.5 w-3.5" />
-                <span className="truncate">{selectedFile}</span>
-              </div>
-              <PatchDiff
-                patch={diffData.diff}
-                options={{
-                  theme: DIFF_THEME,
-                  diffStyle: 'unified',
-                  enableHoverUtility: true,
-                }}
-                lineAnnotations={lineAnnotations}
-                renderAnnotation={renderAnnotation}
-                renderHoverUtility={createRenderHoverUtility(selectedFile)}
-              />
-            </div>
-          ) : fullDiff?.diff ? (
-            <div className="p-2">
-              <MultiFileDiffView
-                diff={fullDiff.diff}
-                getLineAnnotationsForFile={getLineAnnotationsForFile}
-                renderAnnotation={renderAnnotation}
-                createRenderHoverUtility={createRenderHoverUtility}
-              />
-            </div>
-          ) : hasChanges ? (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-              <FileCode className="h-8 w-8 mb-2 opacity-30" />
-              <p className="text-xs font-mono">Select a file to view changes</p>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-              <GitBranch className="h-8 w-8 mb-2 opacity-30" />
-              <p className="text-xs font-mono">Working tree clean</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {commentPopover && (
-        <div
-          className="fixed z-50"
-          style={{ left: commentPopover.position.x, top: commentPopover.position.y }}
-        >
-          <ReviewCommentInput
-            onSubmit={handleAddComment}
-            onCancel={() => setCommentPopover(null)}
-            existingComments={comments
-              .filter(c =>
-                c.filePath === commentPopover.filePath &&
-                c.lineNumber === commentPopover.lineNumber &&
-                c.status === 'pending'
-              )
-              .map(c => ({ id: c.id, comment: c.comment }))}
+        {showBatchPanel && (
+          <ReviewBatchPanel
+            batches={batches}
+            comments={comments}
+            onRerun={rerunBatch}
+            onClose={() => setShowBatchPanel(false)}
           />
-        </div>
-      )}
-
-      {showBatchPanel && (
-        <ReviewBatchPanel
-          batches={batches}
-          comments={comments}
-          onRerun={rerunBatch}
-          onClose={() => setShowBatchPanel(false)}
-        />
-      )}
-    </div>
+        )}
+      </div>
+    </WorkerPoolContextProvider>
   );
 }
 
@@ -474,6 +493,21 @@ function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, 
     }
   }, [diff]);
 
+  // Track which large files have been manually expanded
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+
+  const toggleExpand = useCallback((fileName: string) => {
+    setExpandedFiles(prev => {
+      const next = new Set(prev);
+      if (next.has(fileName)) {
+        next.delete(fileName);
+      } else {
+        next.add(fileName);
+      }
+      return next;
+    });
+  }, []);
+
   if (parsedFiles.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
@@ -484,25 +518,89 @@ function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, 
 
   return (
     <div className="flex flex-col gap-2">
-      {parsedFiles.map((fileDiff, index) => (
-        <div key={fileDiff.name || index} className="rounded overflow-hidden border border-border/30">
-          <div className="bg-card/30 px-3 py-1.5 border-b border-border/30 font-mono text-xs text-muted-foreground flex items-center gap-2">
-            <FileCode className="h-3 w-3" />
-            <span className="truncate">{fileDiff.name}</span>
+      {parsedFiles.map((fileDiff, index) => {
+        const lineCount = countDiffLines(fileDiff);
+        const isLarge = lineCount > LARGE_DIFF_LINE_THRESHOLD;
+        const isExpanded = expandedFiles.has(fileDiff.name || String(index));
+        const fileKey = fileDiff.name || String(index);
+
+        return (
+          <div key={fileKey} className="rounded overflow-hidden border border-border/30">
+            <div className="bg-card/30 px-3 py-1.5 border-b border-border/30 font-mono text-xs text-muted-foreground flex items-center gap-2">
+              <FileCode className="h-3 w-3" />
+              <span className="truncate flex-1">{fileDiff.name}</span>
+              {isLarge && (
+                <span className="text-yellow-500/70 text-[10px] shrink-0">
+                  {lineCount} lines
+                </span>
+              )}
+            </div>
+            {isLarge && !isExpanded ? (
+              <CollapsedDiffPlaceholder
+                lineCount={lineCount}
+                fileName={fileDiff.name}
+                onExpand={() => toggleExpand(fileKey)}
+              />
+            ) : (
+              <>
+                {isLarge && isExpanded && (
+                  <button
+                    onClick={() => toggleExpand(fileKey)}
+                    className="w-full px-3 py-1 bg-card/20 border-b border-border/30 text-xs text-muted-foreground hover:text-foreground hover:bg-card/40 transition-colors flex items-center justify-center gap-1"
+                  >
+                    <ChevronDown className="h-3 w-3 rotate-180" />
+                    Collapse diff
+                  </button>
+                )}
+                <FileDiff
+                  fileDiff={fileDiff}
+                  options={{
+                    theme: DIFF_THEME,
+                    diffStyle: 'unified',
+                    enableHoverUtility: true,
+                  }}
+                  lineAnnotations={getLineAnnotationsForFile(fileDiff.name)}
+                  renderAnnotation={renderAnnotation}
+                  renderHoverUtility={createRenderHoverUtility(fileDiff.name)}
+                />
+              </>
+            )}
           </div>
-          <FileDiff
-            fileDiff={fileDiff}
-            options={{
-              theme: DIFF_THEME,
-              diffStyle: 'unified',
-              enableHoverUtility: true,
-            }}
-            lineAnnotations={getLineAnnotationsForFile(fileDiff.name)}
-            renderAnnotation={renderAnnotation}
-            renderHoverUtility={createRenderHoverUtility(fileDiff.name)}
-          />
-        </div>
-      ))}
+        );
+      })}
+    </div>
+  );
+}
+
+function CollapsedDiffPlaceholder({
+  lineCount,
+  fileName,
+  onExpand,
+}: {
+  lineCount: number;
+  fileName: string;
+  onExpand: () => void;
+}) {
+  const ext = fileName.split('.').pop() || '';
+  const isGenerated = /\.(lock|min\.\w+|map|snap)$/.test(fileName) ||
+    fileName.includes('package-lock') || fileName.includes('yarn.lock');
+
+  return (
+    <div className="flex flex-col items-center justify-center py-6 px-4 bg-card/10">
+      <p className="text-xs text-muted-foreground mb-1">
+        Large diff not shown — <span className="text-foreground/70 font-medium">{lineCount} lines</span> changed
+        {isGenerated && (
+          <span className="text-yellow-500/70 ml-1">(generated file)</span>
+        )}
+      </p>
+      <button
+        onClick={onExpand}
+        className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium
+          bg-accent/50 hover:bg-accent text-foreground/80 hover:text-foreground transition-colors"
+      >
+        <Eye className="h-3.5 w-3.5" />
+        Load diff
+      </button>
     </div>
   );
 }

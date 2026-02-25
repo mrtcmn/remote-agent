@@ -20,16 +20,32 @@ gosu agent mkdir -p /home/agent/.ssh
 chmod 700 /home/agent/.ssh
 chown agent:agent /home/agent/.ssh
 
-# Copy SSH keys if mounted
+# Copy SSH keys if mounted and fix permissions
 if [ -d /app/ssh-keys ] && [ "$(ls -A /app/ssh-keys 2>/dev/null)" ]; then
   echo "Setting up SSH keys..."
   gosu agent cp -r /app/ssh-keys/* /home/agent/.ssh/ 2>/dev/null || true
-  chmod 600 /home/agent/.ssh/* 2>/dev/null || true
+  # Fix permissions on all key files (recursive for user subdirectories)
+  find /home/agent/.ssh -type f -name "*_id_rsa" -exec chmod 600 {} \;
+  find /home/agent/.ssh -type f -name "*_id_rsa.pub" -exec chmod 644 {} \;
+  find /home/agent/.ssh -type d -exec chmod 700 {} \;
   chown -R agent:agent /home/agent/.ssh
 fi
 
 # Add GitHub to known hosts
 gosu agent bash -c 'ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts 2>/dev/null' || true
+
+# Start ssh-agent and register all existing keys
+echo "Starting ssh-agent..."
+eval $(gosu agent ssh-agent -s)
+export SSH_AUTH_SOCK
+export SSH_AGENT_PID
+
+if [ -d /app/ssh-keys ]; then
+  find /app/ssh-keys -type f -name "*_id_rsa" | while read keyfile; do
+    chmod 600 "$keyfile" 2>/dev/null || true
+    gosu agent ssh-add "$keyfile" 2>/dev/null && echo "Registered SSH key: $keyfile" || true
+  done
+fi
 
 # Check Claude Code installation
 if command -v claude &> /dev/null; then

@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { nanoid } from 'nanoid';
 import { eq } from 'drizzle-orm';
+import { $ } from 'bun';
 import { db, sshKeys } from '../db';
 import { workspaceService } from '../services/workspace';
 import { requireAuth, requirePin } from '../auth/middleware';
@@ -101,6 +102,13 @@ export const workspaceRoutes = new Elysia({ prefix: '/workspace' })
     if (!key || key.userId !== user!.id) {
       set.status = 404;
       return { error: 'SSH key not found' };
+    }
+
+    // Remove key from ssh-agent
+    try {
+      await $`ssh-add -d ${key.privateKeyPath}`.quiet();
+    } catch {
+      // Key might not be in agent
     }
 
     // Delete key file
