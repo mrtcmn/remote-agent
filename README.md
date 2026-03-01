@@ -19,14 +19,14 @@ Run Claude Code from anywhere. A Docker-based infrastructure for remote Claude C
 ### One-Command Installation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yourorg/remote-agent/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mrtcmn/remote-agent/main/install.sh | bash
 ```
 
 ### Manual Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourorg/remote-agent.git
+git clone https://github.com/mrtcmn/remote-agent.git
 cd remote-agent
 ```
 

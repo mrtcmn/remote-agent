@@ -14,10 +14,18 @@ NC='\033[0m'
 
 echo -e "${GREEN}Building production image: ${TAG}${NC}"
 
-docker build \
+# Derive version from git: tag if on one, otherwise short SHA
+VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
+echo -e "${YELLOW}Version: ${VERSION}${NC}"
+
+# Build with BuildKit.
+# --no-cache-filter=app  → the "app" stage always runs fresh (deps + source + build)
+# The "infra" stage (system deps, gh, claude) stays cached across builds.
+DOCKER_BUILDKIT=1 docker build \
     -f docker/Dockerfile \
     -t "$TAG" \
-    --build-arg BUILDKIT_INLINE_CACHE=1 \
+    --build-arg VERSION="$VERSION" \
+    --no-cache-filter=app \
     .
 
 echo ""
@@ -28,5 +36,5 @@ echo "To run:"
 echo "  docker run -p 3000:3000 --env-file docker/.env $TAG"
 echo ""
 echo "To push:"
-echo "  docker tag $TAG your-registry/$TAG"
-echo "  docker push your-registry/$TAG"
+echo "  docker tag $TAG ghcr.io/mrtcmn/remote-agent:$VERSION"
+echo "  docker push ghcr.io/mrtcmn/remote-agent:$VERSION"

@@ -1,15 +1,15 @@
 #!/bin/bash
 # Remote Agent Installation Script
-# Run with: curl -fsSL https://raw.githubusercontent.com/yourorg/remote-agent/main/install.sh | bash
+# Run with: curl -fsSL https://raw.githubusercontent.com/mrtcmn/remote-agent/main/install.sh | bash
 
 set -e
 
 # Configuration
 INSTALL_DIR="${INSTALL_DIR:-/opt/remote-agent}"
 REGISTRY="ghcr.io"
-IMAGE_NAME="${IMAGE_NAME:-yourorg/remote-agent}"
+IMAGE_NAME="${IMAGE_NAME:-mrtcmn/remote-agent}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
-GITHUB_REPO="${GITHUB_REPO:-yourorg/remote-agent}"
+GITHUB_REPO="${GITHUB_REPO:-mrtcmn/remote-agent}"
 REPO_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/main"
 
 # Colors for output

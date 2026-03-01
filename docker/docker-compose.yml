@@ -17,7 +17,7 @@ services:
 
   remote-agent:
     # Use pre-built image if IMAGE_TAG is set, otherwise build locally
-    image: ${IMAGE_TAG:+ghcr.io/yourorg/remote-agent:}${IMAGE_TAG:-}
+    image: ${IMAGE_TAG:+ghcr.io/mrtcmn/remote-agent:}${IMAGE_TAG:-}
     build:
       context: ..
       dockerfile: docker/Dockerfile

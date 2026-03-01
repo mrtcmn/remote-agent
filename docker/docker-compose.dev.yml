@@ -65,6 +65,7 @@ services:
       # Development settings
       - NODE_ENV=development
       - APP_URL=http://localhost:${PORT:-5100}
+      - APP_VERSION=dev
       - CORS_ORIGIN=*
       - PORT=5100
 

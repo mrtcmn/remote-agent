@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia';
 
 // Configuration
-const GITHUB_REPO = process.env.GITHUB_REPO || 'yourorg/remote-agent';
+const GITHUB_REPO = process.env.GITHUB_REPO || 'mrtcmn/remote-agent';
 const CACHE_DURATION_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 // Cache for GitHub API response

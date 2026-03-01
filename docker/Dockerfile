@@ -1,9 +1,13 @@
 # Remote Agent Docker Image
 # Debian-based image with Bun, Claude Code, and GitHub CLI
+#
+# Stage 1 (infra): system deps, GitHub CLI, Claude Code — cached aggressively
+# Stage 2 (app):   deps install, source copy, UI build  — always fresh
 
-FROM oven/bun:1.2 AS base
-
-# ── Infrastructure (cached aggressively, rarely changes) ──
+# ═══════════════════════════════════════════════════════════════
+# Stage 1: Infrastructure (cached — only rebuilds on base image or apt changes)
+# ═══════════════════════════════════════════════════════════════
+FROM oven/bun:1.2 AS infra
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -33,8 +37,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
 # Create app user (no sudo access for security)
 RUN useradd -m -s /bin/bash agent
 
-# ── Claude Code CLI (cached separately, only changes on base image update) ──
-
+# Claude Code CLI
 USER agent
 RUN curl -fsSL https://claude.ai/install.sh | bash || \
     npm install -g @anthropic-ai/claude-code || \
@@ -46,23 +49,22 @@ RUN git config --global user.email "agent@remote-agent.local" && \
     git config --global init.defaultBranch main
 USER root
 
+# ═══════════════════════════════════════════════════════════════
+# Stage 2: Application (no cache — always gets fresh deps + source)
+# ═══════════════════════════════════════════════════════════════
+FROM infra AS app
+
 # Setup app directory
 WORKDIR /app
 
-# ── Dependencies (cached when lockfile unchanged) ──
-
+# ── Dependencies ──
 COPY --chown=agent:agent package.json bun.lockb* ./
 COPY --chown=agent:agent packages/api/package.json ./packages/api/
 COPY --chown=agent:agent packages/ui/package.json ./packages/ui/
 
 RUN bun install --frozen-lockfile || bun install
 
-# ── App source (invalidated only by code changes) ──
-
-# CACHE_BUST ARG placed here - only busts source layers, not infra/deps above
-ARG CACHE_BUST=0
-
-# Copy source code (--chown eliminates ghost layer from separate chown -R)
+# ── App source ──
 COPY --chown=agent:agent . .
 
 # Build UI
@@ -74,8 +76,7 @@ RUN mkdir -p /app/workspaces /app/ssh-keys /app/config/hooks /app/config/skills
 # Copy hook scripts (--chmod eliminates ghost layer from separate chmod)
 COPY --chown=agent:agent --chmod=755 docker/hooks/ /app/hooks/
 
-# ── Metadata & environment (last — VERSION changes every commit, costs nothing here) ──
-
+# ── Metadata & environment ──
 ARG VERSION=dev
 ENV APP_VERSION=$VERSION
 ENV NODE_ENV=production

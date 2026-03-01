@@ -9,9 +9,9 @@ INSTALL_DIR="${INSTALL_DIR:-/opt/remote-agent}"
 BACKUP_DIR="${INSTALL_DIR}/backups"
 BACKUP_RETENTION=3
 REGISTRY="ghcr.io"
-IMAGE_NAME="${IMAGE_NAME:-yourorg/remote-agent}"
+IMAGE_NAME="${IMAGE_NAME:-mrtcmn/remote-agent}"
 COMPOSE_FILE="${INSTALL_DIR}/docker-compose.yml"
-GITHUB_REPO="${GITHUB_REPO:-yourorg/remote-agent}"
+GITHUB_REPO="${GITHUB_REPO:-mrtcmn/remote-agent}"
 
 # Colors for output
 RED='\033[0;31m'
