@@ -129,7 +129,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     body: t.Object({
       sessionId: t.String(),
       name: t.Optional(t.String()),
-      type: t.Optional(t.Union([t.Literal('shell'), t.Literal('claude')])),
+      type: t.Optional(t.Union([t.Literal('shell'), t.Literal('claude'), t.Literal('process')])),
       command: t.Optional(t.Array(t.String())),
       cols: t.Optional(t.Number()),
       rows: t.Optional(t.Number()),

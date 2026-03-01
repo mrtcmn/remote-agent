@@ -6,7 +6,7 @@ export const sessionStatusEnum = pgEnum('session_status', ['active', 'waiting_in
 export const platformEnum = pgEnum('platform', ['web', 'android', 'ios']);
 export const messageRoleEnum = pgEnum('message_role', ['user', 'assistant', 'system']);
 export const terminalStatusEnum = pgEnum('terminal_status', ['running', 'exited']);
-export const terminalTypeEnum = pgEnum('terminal_type', ['shell', 'claude']);
+export const terminalTypeEnum = pgEnum('terminal_type', ['shell', 'claude', 'process']);
 export const reviewCommentStatusEnum = pgEnum('review_comment_status', ['pending', 'running', 'resolved']);
 export const lineSideEnum = pgEnum('line_side', ['additions', 'deletions']);
 
@@ -208,6 +208,10 @@ export const flowStepStatusEnum = pgEnum('flow_step_status', ['pending', 'runnin
 
 export const cliAdapterTypeEnum = pgEnum('cli_adapter_type', ['claude_code', 'gemini_cli', 'custom']);
 
+export const runConfigAdapterTypeEnum = pgEnum('run_config_adapter_type', [
+  'npm_script', 'custom_command', 'browser_preview',
+]);
+
 // ─── Kanban Tables ──────────────────────────────────────────────────────────
 
 export const kanbanTasks = pgTable('kanban_tasks', {
@@ -322,6 +326,31 @@ export const reviewComments = pgTable('review_comments', {
   resolvedAt: timestamp('resolved_at'),
 });
 
+// ─── Run Configurations ─────────────────────────────────────────────────────
+
+export const runConfigs = pgTable('run_configs', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(),
+  adapterType: runConfigAdapterTypeEnum('adapter_type').notNull(),
+  command: text('command').notNull(), // JSON - adapter-specific command config
+  cwd: text('cwd'),
+  env: text('env'), // JSON - environment variables
+  autoRestart: boolean('auto_restart').notNull().default(false),
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const runConfigInstances = pgTable('run_config_instances', {
+  id: text('id').primaryKey(),
+  runConfigId: text('run_config_id').references(() => runConfigs.id, { onDelete: 'cascade' }).notNull(),
+  terminalId: text('terminal_id').references(() => terminals.id, { onDelete: 'set null' }),
+  startedAt: timestamp('started_at').notNull().defaultNow(),
+  stoppedAt: timestamp('stopped_at'),
+});
+
 // Relations
 export const userRelations = relations(user, ({ many, one }) => ({
   sessions: many(session),
@@ -376,6 +405,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   claudeSessions: many(claudeSessions),
   kanbanTasks: many(kanbanTasks),
   kanbanAutoFlows: many(kanbanAutoFlows),
+  runConfigs: many(runConfigs),
 }));
 
 export const claudeSessionsRelations = relations(claudeSessions, ({ one, many }) => ({
@@ -548,6 +578,31 @@ export const kanbanFlowStepsRelations = relations(kanbanFlowSteps, ({ one }) => 
   }),
 }));
 
+// ─── Run Config Relations ─────────────────────────────────────────────────
+
+export const runConfigsRelations = relations(runConfigs, ({ one, many }) => ({
+  project: one(projects, {
+    fields: [runConfigs.projectId],
+    references: [projects.id],
+  }),
+  user: one(user, {
+    fields: [runConfigs.userId],
+    references: [user.id],
+  }),
+  instances: many(runConfigInstances),
+}));
+
+export const runConfigInstancesRelations = relations(runConfigInstances, ({ one }) => ({
+  runConfig: one(runConfigs, {
+    fields: [runConfigInstances.runConfigId],
+    references: [runConfigs.id],
+  }),
+  terminal: one(terminals, {
+    fields: [runConfigInstances.terminalId],
+    references: [terminals.id],
+  }),
+}));
+
 // App settings (key-value store)
 export const appSettings = pgTable('app_settings', {
   key: text('key').primaryKey(),
@@ -582,3 +637,6 @@ export type KanbanAutoFlow = typeof kanbanAutoFlows.$inferSelect;
 export type NewKanbanAutoFlow = typeof kanbanAutoFlows.$inferInsert;
 export type KanbanFlowStep = typeof kanbanFlowSteps.$inferSelect;
 export type AppSetting = typeof appSettings.$inferSelect;
+export type RunConfig = typeof runConfigs.$inferSelect;
+export type NewRunConfig = typeof runConfigs.$inferInsert;
+export type RunConfigInstance = typeof runConfigInstances.$inferSelect;

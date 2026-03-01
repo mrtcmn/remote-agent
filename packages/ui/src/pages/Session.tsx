@@ -14,16 +14,18 @@ import {
   ChevronDown,
   FolderOpen,
   Trash2,
+  Play,
 } from 'lucide-react';
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Terminal } from '@/components/Terminal';
 import { GitDiffView } from '@/components/GitDiffView';
 import { FileExplorer } from '@/components/FileExplorer';
+import { RunConfigPanel } from '@/components/RunConfigPanel';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/Toaster';
 
-type ViewMode = 'terminal' | 'git' | 'files';
+type ViewMode = 'terminal' | 'git' | 'files' | 'run';
 
 export function SessionPage() {
   const { id } = useParams<{ id: string }>();
@@ -116,6 +118,7 @@ export function SessionPage() {
   const exitedCount = terminals.length - activeTerminals.length;
   const claudeTerminals = activeTerminals.filter((t) => t.type === 'claude');
   const shellTerminals = activeTerminals.filter((t) => t.type === 'shell');
+  const processTerminals = activeTerminals.filter((t) => t.type === 'process');
 
   return (
     <div className="flex flex-col h-full">
@@ -185,6 +188,19 @@ export function SessionPage() {
           </Button>
         )}
 
+        {/* Run Configs Toggle */}
+        {session?.project && (
+          <Button
+            variant={viewMode === 'run' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="gap-1.5 h-8 px-2.5 font-mono text-xs"
+            onClick={() => setViewMode(viewMode === 'run' ? 'terminal' : 'run')}
+          >
+            <Play className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Run</span>
+          </Button>
+        )}
+
         {/* Spacer */}
         <div className="flex-1" />
 
@@ -242,6 +258,24 @@ export function SessionPage() {
               ))}
             </div>
 
+            {/* Process Terminals */}
+            {processTerminals.length > 0 && (
+              <div className="flex flex-col items-center py-2 gap-1 border-t border-border/50">
+                {processTerminals.map((terminal) => (
+                  <TerminalIconButton
+                    key={terminal.id}
+                    terminal={terminal}
+                    isActive={activeTerminalId === terminal.id && viewMode === 'terminal'}
+                    onClick={() => {
+                      setActiveTerminalId(terminal.id);
+                      setViewMode('terminal');
+                    }}
+                    onClose={() => closeMutation.mutate(terminal.id)}
+                  />
+                ))}
+              </div>
+            )}
+
             {/* Clean up exited terminals */}
             {exitedCount > 0 && (
               <div className="flex flex-col items-center py-2 border-t border-border/50">
@@ -295,6 +329,8 @@ export function SessionPage() {
                     <>
                       {activeTerminal.type === 'claude' ? (
                         <Bot className="h-3.5 w-3.5 text-orange-500" />
+                      ) : activeTerminal.type === 'process' ? (
+                        <Play className="h-3.5 w-3.5 text-green-500" />
                       ) : (
                         <TerminalSquare className="h-3.5 w-3.5" />
                       )}
@@ -324,6 +360,8 @@ export function SessionPage() {
                     >
                       {terminal.type === 'claude' ? (
                         <Bot className="h-4 w-4 text-orange-500" />
+                      ) : terminal.type === 'process' ? (
+                        <Play className="h-4 w-4 text-green-500" />
                       ) : (
                         <TerminalSquare className="h-4 w-4" />
                       )}
@@ -399,6 +437,16 @@ export function SessionPage() {
                   );
                 }}
               />
+            ) : viewMode === 'run' ? (
+              <RunConfigPanel
+                projectId={session!.project!.id}
+                sessionId={id!}
+                onTerminalCreated={(terminalId) => {
+                  queryClient.invalidateQueries({ queryKey: ['terminals', id] });
+                  setActiveTerminalId(terminalId);
+                  setViewMode('terminal');
+                }}
+              />
             ) : (
               <FileExplorer sessionId={id!} className="h-full" />
             )}
@@ -422,7 +470,7 @@ interface TerminalIconButtonProps {
 }
 
 function TerminalIconButton({ terminal, isActive, onClick, onClose }: TerminalIconButtonProps) {
-  const Icon = terminal.type === 'claude' ? Bot : TerminalSquare;
+  const Icon = terminal.type === 'claude' ? Bot : terminal.type === 'process' ? Play : TerminalSquare;
 
   return (
     <div className="group relative">
@@ -436,7 +484,11 @@ function TerminalIconButton({ terminal, isActive, onClick, onClose }: TerminalIc
         title={terminal.name}
       >
         <Icon
-          className={cn('h-4 w-4', terminal.type === 'claude' && !isActive && 'text-orange-500')}
+          className={cn(
+            'h-4 w-4',
+            terminal.type === 'claude' && !isActive && 'text-orange-500',
+            terminal.type === 'process' && !isActive && 'text-green-500',
+          )}
         />
         {/* Status indicator */}
         <div

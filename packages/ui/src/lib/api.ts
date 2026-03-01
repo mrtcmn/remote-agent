@@ -274,6 +274,31 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ origins }),
     }),
+
+  // ─── Run Configs ──────────────────────────────────────────────────────────
+
+  getRunConfigs: (projectId: string) =>
+    request<RunConfig[]>(`/run-configs/project/${projectId}`),
+  discoverScripts: (projectId: string) =>
+    request<{ scripts: PackageJsonScript[] }>(`/run-configs/project/${projectId}/scripts`),
+  createRunConfig: (data: CreateRunConfigInput) =>
+    request<RunConfig>('/run-configs', { method: 'POST', body: JSON.stringify(data) }),
+  updateRunConfig: (id: string, data: UpdateRunConfigInput) =>
+    request<RunConfig>(`/run-configs/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteRunConfig: (id: string) =>
+    request<{ success: boolean }>(`/run-configs/${id}`, { method: 'DELETE' }),
+  startRunConfig: (id: string, sessionId: string) =>
+    request<{ success: boolean; instanceId: string; terminalId: string }>(
+      `/run-configs/${id}/start`,
+      { method: 'POST', body: JSON.stringify({ sessionId }) },
+    ),
+  stopRunConfig: (id: string) =>
+    request<{ success: boolean }>(`/run-configs/${id}/stop`, { method: 'POST' }),
+  restartRunConfig: (id: string, sessionId: string) =>
+    request<{ success: boolean; instanceId: string; terminalId: string }>(
+      `/run-configs/${id}/restart`,
+      { method: 'POST', body: JSON.stringify({ sessionId }) },
+    ),
 };
 
 // Types
@@ -381,7 +406,7 @@ export interface PairWorkspaceInput {
   claudeSettings?: Record<string, unknown>;
 }
 
-export type TerminalType = 'shell' | 'claude';
+export type TerminalType = 'shell' | 'claude' | 'process';
 
 export interface TerminalInfo {
   id: string;
@@ -656,4 +681,50 @@ export interface FileContent {
   name: string;
   content: string;
   size: number;
+}
+
+// ─── Run Config Types ─────────────────────────────────────────────────────────
+
+export type RunConfigAdapterType = 'npm_script' | 'custom_command' | 'browser_preview';
+
+export interface RunConfig {
+  id: string;
+  projectId: string;
+  userId: string;
+  name: string;
+  adapterType: RunConfigAdapterType;
+  command: Record<string, unknown>;
+  cwd: string | null;
+  env: Record<string, string> | null;
+  autoRestart: boolean;
+  position: number;
+  isRunning: boolean;
+  activeTerminalId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PackageJsonScript {
+  name: string;
+  command: string;
+}
+
+export interface CreateRunConfigInput {
+  projectId: string;
+  name: string;
+  adapterType: RunConfigAdapterType;
+  command: Record<string, unknown>;
+  cwd?: string;
+  env?: Record<string, string>;
+  autoRestart?: boolean;
+}
+
+export interface UpdateRunConfigInput {
+  name?: string;
+  adapterType?: RunConfigAdapterType;
+  command?: Record<string, unknown>;
+  cwd?: string | null;
+  env?: Record<string, string> | null;
+  autoRestart?: boolean;
+  position?: number;
 }
