@@ -67,6 +67,9 @@ jobs:
           file: ./docker/Dockerfile
           platforms: ${{ matrix.platform }}
           no-cache: ${{ inputs.no_cache == true }}
+          # Skip cache for the "app" stage so deps + source + UI build are always fresh.
+          # The "infra" stage (apt, gh, claude) stays cached via GHA cache.
+          no-cache-filters: app
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
           cache-from: ${{ inputs.no_cache != true && format('type=gha,scope={0}', steps.platform.outputs.slug) || '' }}
