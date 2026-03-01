@@ -113,6 +113,9 @@ export function SessionPage() {
     },
   });
 
+  // Filter out exited terminals, group by type
+  const activeTerminals = terminals.filter((t) => (t.liveStatus || t.status) === 'running');
+
   // Auto-select terminal from URL param or fall back to first running terminal
   if (!activeTerminalId && activeTerminals.length > 0 && !isLoading) {
     setActiveTerminalId(activeTerminals[0].id);
@@ -133,9 +136,6 @@ export function SessionPage() {
     if (!gitStatus) return 0;
     return (gitStatus.modified?.length || 0) + (gitStatus.staged?.length || 0) + (gitStatus.untracked?.length || 0);
   }, [gitStatus]);
-
-  // Filter out exited terminals, group by type
-  const activeTerminals = terminals.filter((t) => (t.liveStatus || t.status) === 'running');
   const exitedCount = terminals.length - activeTerminals.length;
   const claudeTerminals = activeTerminals.filter((t) => t.type === 'claude');
   const shellTerminals = activeTerminals.filter((t) => t.type === 'shell');

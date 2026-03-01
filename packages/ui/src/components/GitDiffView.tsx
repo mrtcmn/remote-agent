@@ -36,7 +36,7 @@ const workerFactory = () =>
 function countDiffLines(fileDiff: FileDiffMetadata): number {
   let count = 0;
   for (const hunk of fileDiff.hunks) {
-    count += hunk.lines.length;
+    count += hunk.hunkContent.length;
   }
   return count;
 }
@@ -185,7 +185,7 @@ export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProp
   }, [proceed, onProceed]);
 
   return (
-    <WorkerPoolContextProvider workerFactory={workerFactory}>
+    <WorkerPoolContextProvider poolOptions={{ workerFactory }} highlighterOptions={{}}>
       <div className={cn('flex flex-col h-full bg-background', className)}>
         {/* Compact Header */}
         <div className="flex items-center justify-between px-3 py-2 border-b bg-card/30 shrink-0">
@@ -581,7 +581,6 @@ function CollapsedDiffPlaceholder({
   fileName: string;
   onExpand: () => void;
 }) {
-  const ext = fileName.split('.').pop() || '';
   const isGenerated = /\.(lock|min\.\w+|map|snap)$/.test(fileName) ||
     fileName.includes('package-lock') || fileName.includes('yarn.lock');
 
