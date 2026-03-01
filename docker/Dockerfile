@@ -1,7 +1,7 @@
 # Remote Agent Docker Image
 # Debian-based image with Bun, Claude Code, and GitHub CLI
 
-FROM oven/bun:latest AS base
+FROM oven/bun:1.2 AS base
 
 # ── Infrastructure (cached aggressively, rarely changes) ──
 
@@ -33,6 +33,19 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
 # Create app user (no sudo access for security)
 RUN useradd -m -s /bin/bash agent
 
+# ── Claude Code CLI (cached separately, only changes on base image update) ──
+
+USER agent
+RUN curl -fsSL https://claude.ai/install.sh | bash || \
+    npm install -g @anthropic-ai/claude-code || \
+    echo "Claude CLI installation skipped"
+
+# Setup git config
+RUN git config --global user.email "agent@remote-agent.local" && \
+    git config --global user.name "Remote Agent" && \
+    git config --global init.defaultBranch main
+USER root
+
 # Setup app directory
 WORKDIR /app
 
@@ -44,18 +57,10 @@ COPY --chown=agent:agent packages/ui/package.json ./packages/ui/
 
 RUN bun install --frozen-lockfile || bun install
 
-# ── App source (invalidated by code changes or CACHE_BUST) ──
+# ── App source (invalidated only by code changes) ──
 
-# Version + cache bust ARGs placed here so infrastructure layers above stay cached
-ARG VERSION=dev
+# CACHE_BUST ARG placed here - only busts source layers, not infra/deps above
 ARG CACHE_BUST=0
-ENV APP_VERSION=$VERSION
-
-LABEL org.opencontainers.image.title="Remote Agent"
-LABEL org.opencontainers.image.description="Remote Claude Code sessions with web UI"
-LABEL org.opencontainers.image.version=$VERSION
-LABEL org.opencontainers.image.source="https://github.com/mrtcmn/remote-agent"
-LABEL org.opencontainers.image.licenses="MIT"
 
 # Copy source code (--chown eliminates ghost layer from separate chown -R)
 COPY --chown=agent:agent . .
@@ -69,30 +74,26 @@ RUN mkdir -p /app/workspaces /app/ssh-keys /app/config/hooks /app/config/skills
 # Copy hook scripts (--chmod eliminates ghost layer from separate chmod)
 COPY --chown=agent:agent --chmod=755 docker/hooks/ /app/hooks/
 
-# Environment
+# ── Metadata & environment (last — VERSION changes every commit, costs nothing here) ──
+
+ARG VERSION=dev
+ENV APP_VERSION=$VERSION
 ENV NODE_ENV=production
 ENV WORKSPACES_ROOT=/app/workspaces
 ENV SSH_KEYS_ROOT=/app/ssh-keys
 ENV CONFIG_ROOT=/app/config
 ENV PATH="/home/agent/.local/bin:/usr/local/bin:${PATH}"
 
+LABEL org.opencontainers.image.title="Remote Agent"
+LABEL org.opencontainers.image.description="Remote Claude Code sessions with web UI"
+LABEL org.opencontainers.image.version=$VERSION
+LABEL org.opencontainers.image.source="https://github.com/mrtcmn/remote-agent"
+LABEL org.opencontainers.image.licenses="MIT"
+
 # Expose port
 EXPOSE 5100
 
-# Install Claude Code CLI as agent user (installs to ~/.local/bin)
-USER agent
-RUN curl -fsSL https://claude.ai/install.sh | bash || \
-    npm install -g @anthropic-ai/claude-code || \
-    echo "Claude CLI installation skipped"
-
-# Setup git config
-RUN git config --global user.email "agent@remote-agent.local" && \
-    git config --global user.name "Remote Agent" && \
-    git config --global init.defaultBranch main
-
 # Switch back to root for entrypoint (entrypoint drops to agent after fixing permissions)
-USER root
-
 # Entrypoint (--chmod eliminates ghost layer from separate chmod)
 COPY --chmod=755 docker/entrypoint.sh /entrypoint.sh
 
