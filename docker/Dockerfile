@@ -50,9 +50,14 @@ RUN git config --global user.email "agent@remote-agent.local" && \
 USER root
 
 # ═══════════════════════════════════════════════════════════════
-# Stage 2: Application (no cache — always gets fresh deps + source)
+# Stage 2: Application (cache-busted by VERSION arg on every commit)
 # ═══════════════════════════════════════════════════════════════
 FROM infra AS app
+
+# VERSION changes every commit (dev-<sha>), which invalidates the cache
+# for every layer below it in this stage. This ensures deps, source copy,
+# and UI build are always fresh. The infra stage above stays cached.
+ARG VERSION=dev
 
 # Setup app directory
 WORKDIR /app
@@ -77,7 +82,6 @@ RUN mkdir -p /app/workspaces /app/ssh-keys /app/config/hooks /app/config/skills
 COPY --chown=agent:agent --chmod=755 docker/hooks/ /app/hooks/
 
 # ── Metadata & environment ──
-ARG VERSION=dev
 ENV APP_VERSION=$VERSION
 ENV NODE_ENV=production
 ENV WORKSPACES_ROOT=/app/workspaces
