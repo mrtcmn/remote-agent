@@ -299,6 +299,18 @@ export const api = {
       `/run-configs/${id}/restart`,
       { method: 'POST', body: JSON.stringify({ sessionId }) },
     ),
+
+  // ─── Browser Preview ────────────────────────────────────────────────────────
+
+  startPreview: (url: string, sessionId: string, viewport?: ViewportPreset) =>
+    request<{ previewId: string; viewport: ViewportPreset; url: string; status: string }>(
+      '/preview/start',
+      { method: 'POST', body: JSON.stringify({ url, sessionId, viewport }) },
+    ),
+  stopPreview: (id: string) =>
+    request<{ success: boolean }>(`/preview/${id}/stop`, { method: 'POST' }),
+  getActivePreviews: () =>
+    request<{ previews: BrowserPreview[] }>('/preview/active'),
 };
 
 // Types
@@ -727,4 +739,15 @@ export interface UpdateRunConfigInput {
   env?: Record<string, string> | null;
   autoRestart?: boolean;
   position?: number;
+}
+
+// ─── Browser Preview Types ────────────────────────────────────────────────────
+
+export type ViewportPreset = 'mobile' | 'tablet' | 'desktop' | 'desktop_hd';
+
+export interface BrowserPreview {
+  id: string;
+  url: string;
+  viewport: ViewportPreset;
+  status: 'starting' | 'running' | 'stopped' | 'error';
 }

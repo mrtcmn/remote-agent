@@ -5,4 +5,7 @@ export type {
   BrowserPreviewInstance,
   BrowserPreviewFrame,
   ViewportPreset,
+  MouseInputEvent,
+  KeyInputEvent,
+  ScrollInputEvent,
 } from './types';

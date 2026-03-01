@@ -15,6 +15,7 @@ import {
   FolderOpen,
   Trash2,
   Play,
+  Monitor,
 } from 'lucide-react';
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -22,10 +23,11 @@ import { Terminal } from '@/components/Terminal';
 import { GitDiffView } from '@/components/GitDiffView';
 import { FileExplorer } from '@/components/FileExplorer';
 import { RunConfigPanel } from '@/components/RunConfigPanel';
+import { BrowserPreview } from '@/components/BrowserPreview';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/Toaster';
 
-type ViewMode = 'terminal' | 'git' | 'files' | 'run';
+type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'preview';
 
 export function SessionPage() {
   const { id } = useParams<{ id: string }>();
@@ -38,6 +40,9 @@ export function SessionPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('terminal');
   const [showSidebar, setShowSidebar] = useState(true);
   const [showTerminalDropdown, setShowTerminalDropdown] = useState(false);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState('http://localhost:3000');
 
   const { data: session } = useQuery({
     queryKey: ['session', id],
@@ -89,6 +94,22 @@ export function SessionPage() {
     mutationFn: () => api.removeExitedTerminals(id!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['terminals', id] });
+    },
+  });
+
+  const startPreviewMutation = useMutation({
+    mutationFn: (url: string) => api.startPreview(url, id!),
+    onSuccess: (data) => {
+      setPreviewId(data.previewId);
+      setViewMode('preview');
+      setShowPreviewDialog(false);
+    },
+    onError: (error) => {
+      toast({
+        title: 'Failed to start preview',
+        description: (error as Error).message,
+        variant: 'destructive',
+      });
     },
   });
 
@@ -201,6 +222,25 @@ export function SessionPage() {
           </Button>
         )}
 
+        {/* Preview Toggle */}
+        <Button
+          variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
+          size="sm"
+          className="gap-1.5 h-8 px-2.5 font-mono text-xs"
+          onClick={() => {
+            if (viewMode === 'preview') {
+              setViewMode('terminal');
+            } else if (previewId) {
+              setViewMode('preview');
+            } else {
+              setShowPreviewDialog(true);
+            }
+          }}
+        >
+          <Monitor className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Preview</span>
+        </Button>
+
         {/* Spacer */}
         <div className="flex-1" />
 
@@ -309,6 +349,29 @@ export function SessionPage() {
                 </button>
               </div>
             )}
+
+            {/* Preview Button */}
+            <div className="flex flex-col items-center py-2 border-t border-border/50">
+              <button
+                onClick={() => {
+                  if (viewMode === 'preview') {
+                    setViewMode('terminal');
+                  } else if (previewId) {
+                    setViewMode('preview');
+                  } else {
+                    setShowPreviewDialog(true);
+                  }
+                }}
+                className={cn(
+                  'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
+                  'hover:bg-accent',
+                  viewMode === 'preview' && 'bg-primary text-primary-foreground'
+                )}
+                title="Browser Preview"
+              >
+                <Monitor className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
 
@@ -447,12 +510,78 @@ export function SessionPage() {
                   setViewMode('terminal');
                 }}
               />
+            ) : viewMode === 'preview' && previewId ? (
+              <BrowserPreview
+                previewId={previewId}
+                onStop={async () => {
+                  try {
+                    await api.stopPreview(previewId);
+                  } catch {
+                    // Ignore stop errors
+                  }
+                  setPreviewId(null);
+                  setViewMode('terminal');
+                }}
+                className="h-full"
+              />
             ) : (
               <FileExplorer sessionId={id!} className="h-full" />
             )}
           </div>
         </div>
       </div>
+
+      {/* Preview URL Dialog */}
+      {showPreviewDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-card border rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-sm font-semibold mb-4">Start Browser Preview</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">URL to preview</label>
+                <input
+                  type="text"
+                  value={previewUrl}
+                  onChange={(e) => setPreviewUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && previewUrl.trim()) {
+                      startPreviewMutation.mutate(previewUrl.trim());
+                    }
+                  }}
+                  placeholder="http://localhost:3000"
+                  className="w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowPreviewDialog(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    if (previewUrl.trim()) {
+                      startPreviewMutation.mutate(previewUrl.trim());
+                    }
+                  }}
+                  disabled={startPreviewMutation.isPending || !previewUrl.trim()}
+                >
+                  {startPreviewMutation.isPending ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                  ) : (
+                    <Monitor className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  Start Preview
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

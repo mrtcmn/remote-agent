@@ -3,8 +3,10 @@ import { cors } from '@elysiajs/cors';
 import { staticPlugin } from '@elysiajs/static';
 import { api, internalRoutes } from './routes';
 import { terminalWebsocketRoutes } from './routes/terminal-websocket';
+import { previewWebsocketRoutes } from './routes/preview-websocket';
 import { notificationService } from './services/notification';
 import { terminalService } from './services/terminal';
+import { browserPreviewService } from './services/browser-preview';
 import { originsService } from './services/origins';
 import { seedTestUser } from './auth/seed';
 
@@ -66,6 +68,9 @@ const app = new Elysia()
   // Terminal WebSocket routes
   .use(terminalWebsocketRoutes)
 
+  // Browser preview WebSocket routes
+  .use(previewWebsocketRoutes)
+
   // Health check
   .get('/health', () => ({
     status: 'ok',
@@ -117,6 +122,7 @@ console.log(`
 Endpoints:
   - API:        http://localhost:${PORT}/api
   - Terminal:   ws://localhost:${PORT}/ws/terminal/:terminalId
+  - Preview:    ws://localhost:${PORT}/ws/preview/:previewId
   - Health:     http://localhost:${PORT}/health
   - UI:         http://localhost:${PORT}
 `);
@@ -124,12 +130,14 @@ Endpoints:
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('Shutting down...');
+  await browserPreviewService.shutdown();
   await notificationService.shutdown();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   console.log('Shutting down...');
+  await browserPreviewService.shutdown();
   await notificationService.shutdown();
   process.exit(0);
 });
