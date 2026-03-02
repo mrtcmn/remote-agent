@@ -7,11 +7,6 @@ on:
   release:
     types: [published]
   workflow_dispatch:
-    inputs:
-      no_cache:
-        description: 'Build without cache'
-        type: boolean
-        default: false
 
 env:
   REGISTRY: ghcr.io
@@ -66,15 +61,9 @@ jobs:
           context: .
           file: ./docker/Dockerfile
           platforms: ${{ matrix.platform }}
-          no-cache: ${{ inputs.no_cache == true }}
+          no-cache: true
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
-          # GHA cache stores all layers (mode=max). The infra stage is reused from cache.
-          # The app stage is naturally cache-busted because ARG VERSION (dev-<sha>)
-          # is declared at the top of the app stage — it changes every commit,
-          # invalidating all layers below it.
-          cache-from: ${{ inputs.no_cache != true && format('type=gha,scope={0}', steps.platform.outputs.slug) || '' }}
-          cache-to: type=gha,mode=max,scope=${{ steps.platform.outputs.slug }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
