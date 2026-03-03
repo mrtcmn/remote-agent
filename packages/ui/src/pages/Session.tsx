@@ -20,7 +20,7 @@ import {
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Terminal } from '@/components/Terminal';
-import { GitDiffView } from '@/components/GitDiffView';
+import { GitPanel } from '@/components/git';
 import { FileExplorer } from '@/components/FileExplorer';
 import { RunConfigPanel } from '@/components/RunConfigPanel';
 import { BrowserPreview } from '@/components/BrowserPreview';
@@ -193,20 +193,27 @@ export function SessionPage() {
 
         {/* Git Toggle */}
         {session?.project && (
-          <Button
-            variant={viewMode === 'git' ? 'secondary' : 'ghost'}
-            size="sm"
-            className="gap-1.5 h-8 px-2.5 font-mono text-xs relative"
-            onClick={() => setViewMode(viewMode === 'git' ? 'terminal' : 'git')}
-          >
-            <GitBranch className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Git</span>
-            {changeCount > 0 && (
-              <span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-yellow-500 text-[10px] font-bold text-black flex items-center justify-center">
-                {changeCount > 99 ? '99+' : changeCount}
+          <>
+            <Button
+              variant={viewMode === 'git' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="gap-1.5 h-8 px-2.5 font-mono text-xs relative"
+              onClick={() => setViewMode(viewMode === 'git' ? 'terminal' : 'git')}
+            >
+              <GitBranch className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Git</span>
+              {changeCount > 0 && (
+                <span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-yellow-500 text-[10px] font-bold text-black flex items-center justify-center">
+                  {changeCount > 99 ? '99+' : changeCount}
+                </span>
+              )}
+            </Button>
+            {gitStatus?.branch && (
+              <span className="font-mono text-[11px] text-muted-foreground bg-accent/50 px-2 py-0.5 rounded hidden sm:inline-block">
+                {gitStatus.branch}
               </span>
             )}
-          </Button>
+          </>
         )}
 
         {/* Run Configs Toggle */}
@@ -473,7 +480,7 @@ export function SessionPage() {
                 <EmptyState isLoading={isLoading} onCreateClaude={() => createMutation.mutate({ type: 'claude' })} />
               )
             ) : viewMode === 'git' ? (
-              <GitDiffView
+              <GitPanel
                 sessionId={id!}
                 onProceed={(message) => {
                   createMutation.mutate(
