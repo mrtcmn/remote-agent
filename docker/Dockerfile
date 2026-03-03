@@ -95,6 +95,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 # Pre-install chromium browser as agent (workspaces can install others at runtime)
 USER agent
+ENV PATH="/home/agent/.nvm/default_bin:${PATH}"
 RUN npx playwright install chromium
 USER root
 
