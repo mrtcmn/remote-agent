@@ -37,10 +37,12 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
 # Create app user (no sudo access for security)
 RUN useradd -m -s /bin/bash agent
 
-# Claude Code CLI
+# Claude Code CLI — install as agent user with correct HOME and WORKDIR
 USER agent
+WORKDIR /home/agent
+ENV HOME=/home/agent
 RUN curl -fsSL https://claude.ai/install.sh | bash || \
-    npm install -g @anthropic-ai/claude-code || \
+    npm install -g @anthropic-ai/claude-code --prefix /home/agent/.local || \
     echo "Claude CLI installation skipped"
 
 # Setup git config
