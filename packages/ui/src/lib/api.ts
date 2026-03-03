@@ -81,6 +81,37 @@ export const api = {
     request<DirectoryListing>(`/sessions/${sessionId}/files?path=${encodeURIComponent(path)}`),
   getSessionFileContent: (sessionId: string, path: string) =>
     request<FileContent>(`/sessions/${sessionId}/files/content?path=${encodeURIComponent(path)}`),
+  uploadFiles: async (sessionId: string, files: File[], directory = '.') => {
+    const formData = new FormData();
+    files.forEach(f => formData.append('files', f));
+    formData.append('directory', directory);
+
+    const response = await fetch(`${API_BASE}/sessions/${sessionId}/files/upload`, {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+      throw new Error(error.error || 'Upload failed');
+    }
+    return response.json() as Promise<{ success: boolean; uploaded: string[] }>;
+  },
+  deleteFile: (sessionId: string, path: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/files`, {
+      method: 'DELETE',
+      body: JSON.stringify({ path }),
+    }),
+  copyFile: (sessionId: string, source: string, destination: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/files/copy`, {
+      method: 'POST',
+      body: JSON.stringify({ source, destination }),
+    }),
+  moveFile: (sessionId: string, source: string, destination: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/files/move`, {
+      method: 'POST',
+      body: JSON.stringify({ source, destination }),
+    }),
 
   // Projects
   getProjects: () => request<Project[]>('/projects'),
