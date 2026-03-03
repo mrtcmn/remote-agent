@@ -62,8 +62,38 @@ RUN git config --global user.email "agent@remote-agent.local" && \
     git config --global init.defaultBranch main
 USER root
 
-# Playwright Chromium — install system deps as root, then browser as agent
-RUN npx playwright install-deps chromium
+# Playwright — install system deps for all browsers directly via apt
+# This is more robust than `npx playwright install-deps` which depends on
+# the playwright version matching what workspaces use at runtime.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0t64 \
+    libnspr4 \
+    libnss3 \
+    libatk1.0-0t64 \
+    libatk-bridge2.0-0t64 \
+    libdbus-1-3 \
+    libcups2t64 \
+    libxkbcommon0 \
+    libatspi2.0-0t64 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libcairo2 \
+    libpango-1.0-0 \
+    libasound2t64 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxext6 \
+    libdrm2 \
+    libexpat1 \
+    libxcb-dri3-0 \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/*
+# Pre-install chromium browser as agent (workspaces can install others at runtime)
 USER agent
 RUN npx playwright install chromium
 USER root
