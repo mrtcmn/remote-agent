@@ -108,6 +108,14 @@ export class GitService {
     }
   }
 
+  async stage(projectPath: string, files: string[]): Promise<void> {
+    await $`git add ${files}`.cwd(projectPath).quiet();
+  }
+
+  async unstage(projectPath: string, files: string[]): Promise<void> {
+    await $`git reset HEAD -- ${files}`.cwd(projectPath).quiet();
+  }
+
   async commit(projectPath: string, message: string, files?: string[]): Promise<string> {
     if (files && files.length > 0) {
       await $`git add ${files}`.cwd(projectPath).quiet();
@@ -165,14 +173,44 @@ export class GitService {
     return { branch, ahead, behind, staged, modified, untracked };
   }
 
-  async log(projectPath: string, limit = 10): Promise<Array<{ hash: string; message: string; author: string; date: string }>> {
-    const result = await $`git log --oneline --format="%H|%s|%an|%ai" -n ${limit}`.cwd(projectPath).quiet();
-    const lines = result.stdout.toString().trim().split('\n').filter(Boolean);
+  async log(projectPath: string, limit = 50): Promise<Array<{
+    hash: string;
+    shortHash: string;
+    message: string;
+    author: string;
+    date: string;
+    refs: string[];
+    parents: string[];
+  }>> {
+    const result = await $`git log --format=%H%n%h%n%s%n%an%n%ai%n%D%n%P%n--END-- -n ${limit}`.cwd(projectPath).quiet();
+    const output = result.stdout.toString().trim();
+    if (!output) return [];
 
-    return lines.map(line => {
-      const [hash, message, author, date] = line.split('|');
-      return { hash, message, author, date };
-    });
+    const commits: Array<{
+      hash: string;
+      shortHash: string;
+      message: string;
+      author: string;
+      date: string;
+      refs: string[];
+      parents: string[];
+    }> = [];
+
+    const entries = output.split('--END--').filter(e => e.trim());
+    for (const entry of entries) {
+      const lines = entry.trim().split('\n');
+      if (lines.length < 7) continue;
+      commits.push({
+        hash: lines[0],
+        shortHash: lines[1],
+        message: lines[2],
+        author: lines[3],
+        date: lines[4],
+        refs: lines[5] ? lines[5].split(', ').map(r => r.trim()).filter(Boolean) : [],
+        parents: lines[6] ? lines[6].split(' ').filter(Boolean) : [],
+      });
+    }
+    return commits;
   }
 
   async diff(projectPath: string, cached = false): Promise<string> {
