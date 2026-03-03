@@ -19,8 +19,6 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     sudo \
     jq \
-    nodejs \
-    npm \
     gosu \
     && rm -rf /var/lib/apt/lists/*
 
@@ -40,12 +38,22 @@ RUN useradd -m -s /bin/bash agent
 # Ensure temp dirs are writable for all users (bun needs this)
 RUN chmod 1777 /tmp && mkdir -p /var/tmp && chmod 1777 /var/tmp
 
-# Claude Code CLI — install as agent user with correct HOME and WORKDIR
+# Install nvm, Node.js, and Claude CLI as agent user
 USER agent
 WORKDIR /home/agent
 ENV HOME=/home/agent
+
+# nvm + Node.js 22
+ENV NVM_DIR=/home/agent/.nvm
+RUN curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash && \
+    . "$NVM_DIR/nvm.sh" && \
+    nvm install 22 && \
+    nvm alias default 22 && \
+    ln -s "$(dirname "$(nvm which default)")" "$NVM_DIR/default_bin"
+
+# Claude Code CLI
 RUN curl -fsSL https://claude.ai/install.sh | bash || \
-    npm install -g @anthropic-ai/claude-code --prefix /home/agent/.local || \
+    . "$NVM_DIR/nvm.sh" && npm install -g @anthropic-ai/claude-code || \
     echo "Claude CLI installation skipped"
 
 # Setup git config
@@ -92,7 +100,8 @@ ENV NODE_ENV=production
 ENV WORKSPACES_ROOT=/app/workspaces
 ENV SSH_KEYS_ROOT=/app/ssh-keys
 ENV CONFIG_ROOT=/app/config
-ENV PATH="/home/agent/.local/bin:/usr/local/bin:${PATH}"
+ENV NVM_DIR=/home/agent/.nvm
+ENV PATH="/home/agent/.local/bin:/home/agent/.nvm/default_bin:/usr/local/bin:${PATH}"
 
 LABEL org.opencontainers.image.title="Remote Agent"
 LABEL org.opencontainers.image.description="Remote Claude Code sessions with web UI"
