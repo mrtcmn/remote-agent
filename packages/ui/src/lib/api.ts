@@ -44,6 +44,38 @@ export const api = {
   getSessionFileDiff: (sessionId: string, file: string) =>
     request<{ diff: string; file: string }>(`/sessions/${sessionId}/git/diff/${encodeURIComponent(file)}`),
 
+  // Git operations (session-level)
+  gitStage: (sessionId: string, files: string[]) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/git/stage`, {
+      method: 'POST',
+      body: JSON.stringify({ files }),
+    }),
+  gitUnstage: (sessionId: string, files: string[]) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/git/unstage`, {
+      method: 'POST',
+      body: JSON.stringify({ files }),
+    }),
+  gitCommit: (sessionId: string, message: string) =>
+    request<{ success: boolean; hash: string }>(`/sessions/${sessionId}/git/commit`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
+  gitCheckout: (sessionId: string, branch: string, create?: boolean) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/git/checkout`, {
+      method: 'POST',
+      body: JSON.stringify({ branch, create }),
+    }),
+  gitSessionPull: (sessionId: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/git/pull`, { method: 'POST' }),
+  gitSessionPush: (sessionId: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/git/push`, { method: 'POST' }),
+  gitSessionFetch: (sessionId: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/git/fetch`, { method: 'POST' }),
+  getSessionGitLog: (sessionId: string, limit?: number) =>
+    request<{ commits: GitLogEntry[] }>(`/sessions/${sessionId}/git/log${limit ? `?limit=${limit}` : ''}`),
+  getSessionGitBranches: (sessionId: string) =>
+    request<GitBranches>(`/sessions/${sessionId}/git/branches`),
+
   // Files
   getSessionFiles: (sessionId: string, path = '.') =>
     request<DirectoryListing>(`/sessions/${sessionId}/files?path=${encodeURIComponent(path)}`),
@@ -353,6 +385,22 @@ export interface GitStatus {
   staged: string[];
   modified: string[];
   untracked: string[];
+}
+
+export interface GitLogEntry {
+  hash: string;
+  shortHash: string;
+  message: string;
+  author: string;
+  date: string;
+  refs: string[];
+  parents: string[];
+}
+
+export interface GitBranches {
+  local: string[];
+  remote: string[];
+  current: string;
 }
 
 export interface Device {
