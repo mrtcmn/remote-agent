@@ -37,6 +37,9 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
 # Create app user (no sudo access for security)
 RUN useradd -m -s /bin/bash agent
 
+# Ensure temp dirs are writable for all users (bun needs this)
+RUN chmod 1777 /tmp && mkdir -p /var/tmp && chmod 1777 /var/tmp
+
 # Claude Code CLI — install as agent user with correct HOME and WORKDIR
 USER agent
 WORKDIR /home/agent
