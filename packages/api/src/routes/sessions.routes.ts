@@ -205,6 +205,140 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     }),
   })
 
+  // Stage files
+  .post('/:id/git/stage', async ({ user, params, body, set }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
+      with: { project: true },
+    });
+    if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    try {
+      await gitService.stage(session.project.localPath, body.files);
+      return { success: true };
+    } catch (error) { set.status = 500; return { error: (error as Error).message }; }
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({ files: t.Array(t.String()) }),
+  })
+
+  // Unstage files
+  .post('/:id/git/unstage', async ({ user, params, body, set }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
+      with: { project: true },
+    });
+    if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    try {
+      await gitService.unstage(session.project.localPath, body.files);
+      return { success: true };
+    } catch (error) { set.status = 500; return { error: (error as Error).message }; }
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({ files: t.Array(t.String()) }),
+  })
+
+  // Commit staged files
+  .post('/:id/git/commit', async ({ user, params, body, set }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
+      with: { project: true },
+    });
+    if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    try {
+      const hash = await gitService.commit(session.project.localPath, body.message);
+      return { success: true, hash };
+    } catch (error) { set.status = 500; return { error: (error as Error).message }; }
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({ message: t.String() }),
+  })
+
+  // Checkout branch
+  .post('/:id/git/checkout', async ({ user, params, body, set }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
+      with: { project: true },
+    });
+    if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    try {
+      await gitService.checkout(session.project.localPath, body.branch, body.create || false);
+      return { success: true };
+    } catch (error) { set.status = 500; return { error: (error as Error).message }; }
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({ branch: t.String(), create: t.Optional(t.Boolean()) }),
+  })
+
+  // Pull
+  .post('/:id/git/pull', async ({ user, params, set }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
+      with: { project: true },
+    });
+    if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    try {
+      await gitService.pull(session.project.localPath);
+      return { success: true };
+    } catch (error) { set.status = 500; return { error: (error as Error).message }; }
+  }, { params: t.Object({ id: t.String() }) })
+
+  // Push
+  .post('/:id/git/push', async ({ user, params, set }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
+      with: { project: true },
+    });
+    if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    try {
+      await gitService.push(session.project.localPath);
+      return { success: true };
+    } catch (error) { set.status = 500; return { error: (error as Error).message }; }
+  }, { params: t.Object({ id: t.String() }) })
+
+  // Fetch
+  .post('/:id/git/fetch', async ({ user, params, set }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
+      with: { project: true },
+    });
+    if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    try {
+      await gitService.fetch(session.project.localPath);
+      return { success: true };
+    } catch (error) { set.status = 500; return { error: (error as Error).message }; }
+  }, { params: t.Object({ id: t.String() }) })
+
+  // Get git log
+  .get('/:id/git/log', async ({ user, params, query, set }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
+      with: { project: true },
+    });
+    if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    try {
+      const limit = query.limit ? parseInt(query.limit) : 50;
+      const commits = await gitService.log(session.project.localPath, limit);
+      return { commits };
+    } catch (error) { set.status = 500; return { error: (error as Error).message }; }
+  }, {
+    params: t.Object({ id: t.String() }),
+    query: t.Object({ limit: t.Optional(t.String()) }),
+  })
+
+  // List branches
+  .get('/:id/git/branches', async ({ user, params, set }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
+      with: { project: true },
+    });
+    if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    try {
+      const branches = await gitService.listBranches(session.project.localPath);
+      const status = await gitService.status(session.project.localPath);
+      return { ...branches, current: status.branch };
+    } catch (error) { set.status = 500; return { error: (error as Error).message }; }
+  }, { params: t.Object({ id: t.String() }) })
+
   // Terminate session (close all terminals)
   .delete('/:id', async ({ user, params, set }) => {
     const session = await db.query.claudeSessions.findFirst({
