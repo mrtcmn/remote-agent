@@ -97,6 +97,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 USER agent
 ENV PATH="/home/agent/.nvm/default_bin:${PATH}"
 RUN npx playwright install chromium
+
+# Install agent-browser globally
+RUN npm install -g agent-browser && agent-browser install
 USER root
 
 # ═══════════════════════════════════════════════════════════════
