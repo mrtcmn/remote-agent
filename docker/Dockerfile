@@ -43,12 +43,12 @@ USER agent
 WORKDIR /home/agent
 ENV HOME=/home/agent
 
-# nvm + Node.js 22
+# nvm + Node.js 24 LTS
 ENV NVM_DIR=/home/agent/.nvm
 RUN curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash && \
     . "$NVM_DIR/nvm.sh" && \
-    nvm install 22 && \
-    nvm alias default 22 && \
+    nvm install --lts 24 && \
+    nvm alias default 24 && \
     ln -s "$(dirname "$(nvm which default)")" "$NVM_DIR/default_bin"
 
 # Claude Code CLI
@@ -88,8 +88,9 @@ COPY --chown=agent:agent . .
 # Build UI
 RUN bun run build:ui
 
-# Create required directories
-RUN mkdir -p /app/workspaces /app/ssh-keys /app/config/hooks /app/config/skills
+# Create required directories with agent ownership
+RUN mkdir -p /app/workspaces /app/ssh-keys /app/config/hooks /app/config/skills && \
+    chown -R agent:agent /app/workspaces /app/ssh-keys /app/config
 
 # Copy hook scripts (--chmod eliminates ghost layer from separate chmod)
 COPY --chown=agent:agent --chmod=755 docker/hooks/ /app/hooks/
