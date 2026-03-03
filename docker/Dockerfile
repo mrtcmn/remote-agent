@@ -62,6 +62,12 @@ RUN git config --global user.email "agent@remote-agent.local" && \
     git config --global init.defaultBranch main
 USER root
 
+# Playwright Chromium — install system deps as root, then browser as agent
+RUN npx playwright install-deps chromium
+USER agent
+RUN npx playwright install chromium
+USER root
+
 # ═══════════════════════════════════════════════════════════════
 # Stage 2: Application (cache-busted by VERSION arg on every commit)
 # ═══════════════════════════════════════════════════════════════
