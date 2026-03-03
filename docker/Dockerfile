@@ -7,7 +7,7 @@
 # ═══════════════════════════════════════════════════════════════
 # Stage 1: Infrastructure (cached — only rebuilds on base image or apt changes)
 # ═══════════════════════════════════════════════════════════════
-FROM oven/bun:1.2 AS infra
+FROM oven/bun:1.3.10 AS infra
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \

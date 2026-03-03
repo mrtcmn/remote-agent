@@ -55,6 +55,25 @@ export class TerminalService extends EventEmitter {
       env = {},
     } = opts;
 
+    // Create a placeholder instance first so exit/data callbacks can find it
+    const instance: TerminalInstance = {
+      id: terminalId,
+      sessionId,
+      name,
+      type,
+      command,
+      cols,
+      rows,
+      persist,
+      status: 'running',
+      exitCode: null,
+      process: null,
+      terminal: null,
+      scrollback: [],
+      createdAt: new Date(),
+    };
+    this.instances.set(terminalId, instance);
+
     const proc = spawn(command, {
       cwd,
       env: {
@@ -76,24 +95,13 @@ export class TerminalService extends EventEmitter {
       },
     });
 
-    const instance: TerminalInstance = {
-      id: terminalId,
-      sessionId,
-      name,
-      type,
-      command,
-      cols,
-      rows,
-      persist,
-      status: 'running',
-      exitCode: null,
-      process: proc,
-      terminal: proc.terminal ?? null,
-      scrollback: [],
-      createdAt: new Date(),
-    };
+    instance.process = proc;
+    instance.terminal = proc.terminal ?? null;
 
-    this.instances.set(terminalId, instance);
+    if (!proc.terminal) {
+      console.error(`[TerminalService] PTY allocation failed for terminal ${terminalId}, command: ${JSON.stringify(command)}`);
+      console.error(`[TerminalService] proc.pid=${proc.pid}, proc.exitCode=${proc.exitCode}`);
+    }
 
     // Persist to database
     await db.insert(terminals).values({
@@ -115,8 +123,11 @@ export class TerminalService extends EventEmitter {
 
   async write(terminalId: string, data: string): Promise<void> {
     const instance = this.instances.get(terminalId);
-    if (!instance?.terminal) {
-      throw new Error('Terminal not found or not running');
+    if (!instance) {
+      throw new Error('Terminal not found');
+    }
+    if (!instance.terminal) {
+      throw new Error(`Terminal PTY not available (status: ${instance.status}, pid: ${instance.process?.pid})`);
     }
 
     instance.terminal.write(data);
@@ -124,8 +135,11 @@ export class TerminalService extends EventEmitter {
 
   async resize(terminalId: string, cols: number, rows: number): Promise<void> {
     const instance = this.instances.get(terminalId);
-    if (!instance?.terminal) {
-      throw new Error('Terminal not found or not running');
+    if (!instance) {
+      throw new Error('Terminal not found');
+    }
+    if (!instance.terminal) {
+      throw new Error(`Terminal PTY not available (status: ${instance.status}, pid: ${instance.process?.pid})`);
     }
 
     instance.terminal.resize(cols, rows);
