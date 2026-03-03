@@ -72,6 +72,9 @@ FROM infra AS app
 # and UI build are always fresh. The infra stage above stays cached.
 ARG VERSION=dev
 
+# Fix temp dirs (bun 1.3.10 needs writable /tmp)
+RUN chmod 1777 /tmp && mkdir -p /var/tmp && chmod 1777 /var/tmp
+
 # Setup app directory
 WORKDIR /app
 
