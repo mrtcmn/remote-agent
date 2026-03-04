@@ -94,8 +94,21 @@ export const projects = pgTable('projects', {
   localPath: text('local_path').notNull(),
   defaultBranch: text('default_branch').default('main'),
   sshKeyId: text('ssh_key_id').references(() => sshKeys.id),
+  isMultiProject: boolean('is_multi_project').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// Multi-project links (parent-child relationships between projects)
+export const projectLinks = pgTable('project_links', {
+  id: text('id').primaryKey(),
+  parentProjectId: text('parent_project_id')
+    .references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  childProjectId: text('child_project_id')
+    .references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  alias: text('alias').notNull(),
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
 // Claude sessions
@@ -406,6 +419,21 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   kanbanTasks: many(kanbanTasks),
   kanbanAutoFlows: many(kanbanAutoFlows),
   runConfigs: many(runConfigs),
+  childLinks: many(projectLinks, { relationName: 'childLinks' }),
+  parentLinks: many(projectLinks, { relationName: 'parentLinks' }),
+}));
+
+export const projectLinksRelations = relations(projectLinks, ({ one }) => ({
+  parentProject: one(projects, {
+    fields: [projectLinks.parentProjectId],
+    references: [projects.id],
+    relationName: 'childLinks',
+  }),
+  childProject: one(projects, {
+    fields: [projectLinks.childProjectId],
+    references: [projects.id],
+    relationName: 'parentLinks',
+  }),
 }));
 
 export const claudeSessionsRelations = relations(claudeSessions, ({ one, many }) => ({
@@ -640,3 +668,5 @@ export type AppSetting = typeof appSettings.$inferSelect;
 export type RunConfig = typeof runConfigs.$inferSelect;
 export type NewRunConfig = typeof runConfigs.$inferInsert;
 export type RunConfigInstance = typeof runConfigInstances.$inferSelect;
+export type ProjectLink = typeof projectLinks.$inferSelect;
+export type NewProjectLink = typeof projectLinks.$inferInsert;

@@ -1,12 +1,16 @@
 import { Elysia, t } from 'elysia';
 import { eq, and } from 'drizzle-orm';
-import { db, claudeSessions } from '../db';
+import { db, claudeSessions, projectLinks } from '../db';
 import { requireAuth } from '../auth/middleware';
 import { readdir, stat, readFile, realpath, unlink, rm, copyFile, cp, rename, mkdir } from 'fs/promises';
 import { join, resolve, basename, dirname } from 'path';
 
 /** Resolve a path and verify it stays within the project root (prevents traversal and symlink escape) */
-async function validatePath(projectPath: string, requestedPath: string): Promise<string | null> {
+async function validatePath(
+  projectPath: string,
+  requestedPath: string,
+  allowedRealPaths?: string[]
+): Promise<string | null> {
   const projectRoot = resolve(projectPath);
   const fullPath = resolve(projectPath, requestedPath);
 
@@ -20,6 +24,19 @@ async function validatePath(projectPath: string, requestedPath: string): Promise
     const realFullPath = await realpath(fullPath);
     const realProjectRoot = await realpath(projectRoot);
     if (realFullPath !== realProjectRoot && !realFullPath.startsWith(realProjectRoot + '/')) {
+      // Check against allowed real paths (for multi-project symlinks)
+      if (allowedRealPaths) {
+        for (const allowed of allowedRealPaths) {
+          try {
+            const realAllowed = await realpath(allowed);
+            if (realFullPath === realAllowed || realFullPath.startsWith(realAllowed + '/')) {
+              return realFullPath;
+            }
+          } catch {
+            // Skip invalid allowed paths
+          }
+        }
+      }
       return null;
     }
     return realFullPath;
@@ -29,12 +46,12 @@ async function validatePath(projectPath: string, requestedPath: string): Promise
   }
 }
 
-/** Look up session + project, verify ownership. Returns project path or sets error on `set`. */
+/** Look up session + project, verify ownership. Returns { path, project } or sets error on `set`. */
 async function getSessionProject(
   sessionId: string,
   userId: string,
   set: { status?: number | string }
-): Promise<string | null> {
+): Promise<{ path: string; project: { id: string; isMultiProject: boolean } } | null> {
   const session = await db.query.claudeSessions.findFirst({
     where: and(
       eq(claudeSessions.id, sessionId),
@@ -51,7 +68,30 @@ async function getSessionProject(
     set.status = 400;
     return null;
   }
-  return session.project.localPath;
+  return {
+    path: session.project.localPath,
+    project: { id: session.project.id, isMultiProject: session.project.isMultiProject },
+  };
+}
+
+/** Get allowed real paths for a multi-project session */
+async function getAllowedPaths(projectId: string): Promise<string[] | undefined> {
+  const links = await db.query.projectLinks.findMany({
+    where: eq(projectLinks.parentProjectId, projectId),
+    with: { childProject: true },
+  });
+
+  if (links.length === 0) return undefined;
+  return links
+    .map(l => (l as any).childProject?.localPath)
+    .filter(Boolean);
+}
+
+/** Get allowed paths if the project is a multi-project, undefined otherwise */
+async function getMultiProjectAllowedPaths(
+  project: { id: string; isMultiProject: boolean }
+): Promise<string[] | undefined> {
+  return project.isMultiProject ? await getAllowedPaths(project.id) : undefined;
 }
 
 export const fileRoutes = new Elysia({ prefix: '/sessions/:id/files' })
@@ -59,14 +99,16 @@ export const fileRoutes = new Elysia({ prefix: '/sessions/:id/files' })
 
   // List directory contents
   .get('/', async ({ user, params, query, set }) => {
-    const projectPath = await getSessionProject(params.id, user!.id, set);
-    if (!projectPath) {
+    const result = await getSessionProject(params.id, user!.id, set);
+    if (!result) {
       return { error: set.status === 404 ? 'Session not found' : 'Session has no project' };
     }
 
+    const { path: projectPath, project } = result;
     const requestedPath = query.path || '.';
 
-    const validatedPath = await validatePath(projectPath, requestedPath);
+    const allowedPaths = await getMultiProjectAllowedPaths(project);
+    const validatedPath = await validatePath(projectPath, requestedPath, allowedPaths);
     if (!validatedPath) {
       set.status = 403;
       return { error: 'Path traversal not allowed' };
@@ -74,7 +116,7 @@ export const fileRoutes = new Elysia({ prefix: '/sessions/:id/files' })
 
     try {
       const entries = await readdir(validatedPath, { withFileTypes: true });
-      const result = await Promise.all(
+      const items = await Promise.all(
         entries
           .filter(entry => !entry.name.startsWith('.'))
           .map(async (entry) => {
@@ -95,12 +137,12 @@ export const fileRoutes = new Elysia({ prefix: '/sessions/:id/files' })
       );
 
       // Sort: directories first, then files, alphabetical
-      result.sort((a, b) => {
+      items.sort((a, b) => {
         if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
 
-      return { path: requestedPath, entries: result };
+      return { path: requestedPath, entries: items };
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
       if (err.code === 'ENOENT') {
@@ -117,11 +159,12 @@ export const fileRoutes = new Elysia({ prefix: '/sessions/:id/files' })
 
   // Read file content
   .get('/content', async ({ user, params, query, set }) => {
-    const projectPath = await getSessionProject(params.id, user!.id, set);
-    if (!projectPath) {
+    const result = await getSessionProject(params.id, user!.id, set);
+    if (!result) {
       return { error: set.status === 404 ? 'Session not found' : 'Session has no project' };
     }
 
+    const { path: projectPath, project } = result;
     const requestedPath = query.path;
 
     if (!requestedPath) {
@@ -129,7 +172,8 @@ export const fileRoutes = new Elysia({ prefix: '/sessions/:id/files' })
       return { error: 'Path is required' };
     }
 
-    const validatedPath = await validatePath(projectPath, requestedPath);
+    const allowedPaths = await getMultiProjectAllowedPaths(project);
+    const validatedPath = await validatePath(projectPath, requestedPath, allowedPaths);
     if (!validatedPath) {
       set.status = 403;
       return { error: 'Path traversal not allowed' };
@@ -172,11 +216,12 @@ export const fileRoutes = new Elysia({ prefix: '/sessions/:id/files' })
 
   // Upload files
   .post('/upload', async ({ user, params, body, set }) => {
-    const projectPath = await getSessionProject(params.id, user!.id, set);
-    if (!projectPath) {
+    const result = await getSessionProject(params.id, user!.id, set);
+    if (!result) {
       return { error: set.status === 404 ? 'Session not found' : 'Session has no project' };
     }
 
+    const { path: projectPath } = result;
     const directory = body.directory || '.';
     const validatedDir = await validatePath(projectPath, directory);
     if (!validatedDir) {
@@ -216,11 +261,12 @@ export const fileRoutes = new Elysia({ prefix: '/sessions/:id/files' })
 
   // Delete file or directory
   .delete('/', async ({ user, params, body, set }) => {
-    const projectPath = await getSessionProject(params.id, user!.id, set);
-    if (!projectPath) {
+    const result = await getSessionProject(params.id, user!.id, set);
+    if (!result) {
       return { error: set.status === 404 ? 'Session not found' : 'Session has no project' };
     }
 
+    const { path: projectPath } = result;
     const requestedPath = (body as { path: string }).path;
     if (!requestedPath || requestedPath === '.' || requestedPath === '/') {
       set.status = 400;
@@ -264,11 +310,12 @@ export const fileRoutes = new Elysia({ prefix: '/sessions/:id/files' })
 
   // Copy file or directory
   .post('/copy', async ({ user, params, body, set }) => {
-    const projectPath = await getSessionProject(params.id, user!.id, set);
-    if (!projectPath) {
+    const result = await getSessionProject(params.id, user!.id, set);
+    if (!result) {
       return { error: set.status === 404 ? 'Session not found' : 'Session has no project' };
     }
 
+    const { path: projectPath } = result;
     const { source, destination } = body;
     const validatedSrc = await validatePath(projectPath, source);
     const validatedDest = await validatePath(projectPath, destination);
@@ -302,11 +349,12 @@ export const fileRoutes = new Elysia({ prefix: '/sessions/:id/files' })
 
   // Move / rename file or directory
   .post('/move', async ({ user, params, body, set }) => {
-    const projectPath = await getSessionProject(params.id, user!.id, set);
-    if (!projectPath) {
+    const result = await getSessionProject(params.id, user!.id, set);
+    if (!result) {
       return { error: set.status === 404 ? 'Session not found' : 'Session has no project' };
     }
 
+    const { path: projectPath } = result;
     const { source, destination } = body;
     const validatedSrc = await validatePath(projectPath, source);
     const validatedDest = await validatePath(projectPath, destination);

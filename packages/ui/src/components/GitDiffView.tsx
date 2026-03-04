@@ -17,9 +17,10 @@ import {
   ChevronDown,
   Eye,
 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, type Project } from '@/lib/api';
 import { DIFF_THEME } from '@/lib/constants';
 import { Button } from '@/components/ui/Button';
+import { ProjectSelector } from '@/components/ProjectSelector';
 import { cn } from '@/lib/utils';
 import { useReviewComments } from '@/hooks/useReviewComments';
 import { ReviewCommentInput } from './ReviewCommentInput';
@@ -43,14 +44,23 @@ function countDiffLines(fileDiff: FileDiffMetadata): number {
 
 interface GitDiffViewProps {
   sessionId: string;
+  project?: Project;
   className?: string;
   onProceed?: (message: string) => void;
 }
 
-export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProps) {
+export function GitDiffView({ sessionId, project, className, onProceed }: GitDiffViewProps) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   // Show file list by default on desktop, hide on mobile
   const [showFileList, setShowFileList] = useState(window.innerWidth >= 768);
+
+  // Load child links when multi-project
+  const { data: projectLinks } = useQuery({
+    queryKey: ['project-links', project?.id],
+    queryFn: () => api.getProjectLinks(project!.id),
+    enabled: !!project?.isMultiProject,
+  });
 
   const {
     comments,
@@ -72,14 +82,17 @@ export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProp
     position: { x: number; y: number };
   } | null>(null);
 
+  // For multi-project, use selected project ID for git operations
+  const gitProjectId = project?.isMultiProject ? selectedProjectId ?? undefined : undefined;
+
   // Fetch git status
   const {
     data: gitStatus,
     isLoading: statusLoading,
     refetch: refetchStatus,
   } = useQuery({
-    queryKey: ['session-git-status', sessionId],
-    queryFn: () => api.getSessionGitStatus(sessionId),
+    queryKey: ['session-git-status', sessionId, gitProjectId],
+    queryFn: () => api.getSessionGitStatus(sessionId, gitProjectId),
     refetchInterval: 3000,
   });
 
@@ -92,8 +105,8 @@ export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProp
 
   // Fetch full diff when no file selected
   const { data: fullDiff } = useQuery({
-    queryKey: ['session-git-diff', sessionId],
-    queryFn: () => api.getSessionGitDiff(sessionId),
+    queryKey: ['session-git-diff', sessionId, gitProjectId],
+    queryFn: () => api.getSessionGitDiff(sessionId, false, gitProjectId),
     enabled: !selectedFile && !!(gitStatus?.modified?.length || gitStatus?.staged?.length),
   });
 
@@ -190,6 +203,13 @@ export function GitDiffView({ sessionId, className, onProceed }: GitDiffViewProp
         {/* Compact Header */}
         <div className="flex items-center justify-between px-3 py-2 border-b bg-card/30 shrink-0">
           <div className="flex items-center gap-2">
+            {project?.isMultiProject && projectLinks && projectLinks.length > 0 && (
+              <ProjectSelector
+                links={projectLinks}
+                selectedProjectId={selectedProjectId}
+                onSelect={setSelectedProjectId}
+              />
+            )}
             <GitBranch className="h-4 w-4 text-primary" />
             {gitStatus?.branch && (
               <span className="font-mono text-xs text-muted-foreground">

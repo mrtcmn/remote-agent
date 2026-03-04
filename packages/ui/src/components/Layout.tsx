@@ -1,124 +1,102 @@
-import { Link, useLocation } from 'react-router-dom';
-import { Home, FolderGit2, Settings, Menu, X, LogOut, LayoutGrid } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { Menu, X, LogOut } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { NotificationInbox } from '@/components/NotificationInbox';
+import { AppSidebar } from '@/components/AppSidebar';
+import { ResizeHandle } from '@/components/ResizeHandle';
+import { useSidebar } from '@/hooks/useSidebar';
 import { cn } from '@/lib/utils';
-
-const navItems = [
-  { path: '/', label: 'Sessions', icon: Home },
-  { path: '/kanban', label: 'Kanban', icon: LayoutGrid },
-  { path: '/projects', label: 'Projects', icon: FolderGit2 },
-  { path: '/settings', label: 'Settings', icon: Settings },
-];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const { user, logout } = useAuth();
+  const { width, resize, sidebarData, isLoading } = useSidebar();
 
   const isSessionPage = location.pathname.startsWith('/sessions/');
   const isFullHeightPage = isSessionPage || location.pathname === '/kanban';
 
   return (
-    <div className={cn('flex flex-col', isFullHeightPage ? 'h-dvh' : 'min-h-dvh')}>
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur safe-area-top">
-        <div className="flex h-14 items-center px-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="md:hidden"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          >
-            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </Button>
-
-          <Link to="/" className="flex items-center gap-2 ml-2 md:ml-0">
-            <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">RA</span>
-            </div>
-            <span className="font-semibold hidden sm:inline">Remote Agent</span>
-          </Link>
-
-          {/* Desktop Nav */}
-          <nav className="hidden md:flex items-center gap-1 ml-8">
-            {navItems.map((item) => (
-              <Link key={item.path} to={item.path}>
-                <Button
-                  variant={location.pathname === item.path ? 'secondary' : 'ghost'}
-                  size="sm"
-                  className="gap-2"
-                >
-                  <item.icon className="h-4 w-4" />
-                  {item.label}
-                </Button>
-              </Link>
-            ))}
-          </nav>
-
-          <div className="ml-auto flex items-center gap-2">
-            {user && (
-              <>
-                <NotificationInbox />
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={user.image} alt={user.name} />
-                  <AvatarFallback>{user.name?.charAt(0).toUpperCase()}</AvatarFallback>
-                </Avatar>
-                <Button variant="ghost" size="icon" onClick={logout} className="hidden md:flex">
-                  <LogOut className="h-4 w-4" />
-                </Button>
-              </>
-            )}
-          </div>
+    <div className={cn('flex', isFullHeightPage ? 'h-dvh' : 'min-h-dvh')}>
+      {/* Desktop Sidebar */}
+      <aside
+        className="hidden md:flex shrink-0 border-r border-sidebar-border"
+        style={{ width }}
+      >
+        <div className="flex-1 min-w-0">
+          <AppSidebar data={sidebarData} isLoading={isLoading} />
         </div>
+        <ResizeHandle onResize={resize} currentWidth={width} />
+      </aside>
 
-        {/* Mobile Nav */}
-        {mobileMenuOpen && (
-          <nav className="md:hidden border-t bg-background p-2">
-            {navItems.map((item) => (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <Button
-                  variant={location.pathname === item.path ? 'secondary' : 'ghost'}
-                  className="w-full justify-start gap-2 mb-1"
-                >
-                  <item.icon className="h-4 w-4" />
-                  {item.label}
-                </Button>
-              </Link>
-            ))}
+      {/* Mobile Sidebar Overlay */}
+      {mobileMenuOpen && (
+        <>
+          <div
+            className="md:hidden fixed inset-0 z-40 bg-black/50"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <aside className="md:hidden fixed inset-y-0 left-0 z-50 w-72">
+            <AppSidebar data={sidebarData} isLoading={isLoading} />
+          </aside>
+        </>
+      )}
+
+      {/* Right side: header + content */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Slim Header */}
+        <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur safe-area-top">
+          <div className="flex h-12 items-center px-4">
             <Button
               variant="ghost"
-              className="w-full justify-start gap-2 text-destructive"
-              onClick={logout}
+              size="icon"
+              className="md:hidden mr-2"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
-              <LogOut className="h-4 w-4" />
-              Sign Out
+              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </Button>
-          </nav>
+
+            <div className="md:hidden flex items-center gap-2">
+              <div className="h-6 w-6 rounded-md bg-primary flex items-center justify-center">
+                <span className="text-primary-foreground font-bold text-[10px]">RA</span>
+              </div>
+            </div>
+
+            <div className="ml-auto flex items-center gap-2">
+              {user && (
+                <>
+                  <NotificationInbox />
+                  <Avatar className="h-7 w-7">
+                    <AvatarImage src={user.image} alt={user.name} />
+                    <AvatarFallback className="text-xs">{user.name?.charAt(0).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <Button variant="ghost" size="icon" onClick={logout} className="hidden md:flex h-8 w-8">
+                    <LogOut className="h-3.5 w-3.5" />
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </header>
+
+        {/* Update Banner */}
+        <UpdateBanner />
+
+        {/* Main Content */}
+        {isSessionPage ? (
+          <main className="flex-1 flex flex-col overflow-hidden min-h-0">{children}</main>
+        ) : isFullHeightPage ? (
+          <main className="flex-1 flex flex-col overflow-hidden min-h-0 p-4 md:p-6">{children}</main>
+        ) : (
+          <main className="flex-1 p-4 md:p-6 safe-area-bottom">
+            <div className="max-w-6xl mx-auto">{children}</div>
+          </main>
         )}
-      </header>
-
-      {/* Update Banner */}
-      <UpdateBanner />
-
-      {/* Main Content */}
-      {isSessionPage ? (
-        <main className="flex-1 flex flex-col overflow-hidden min-h-0">{children}</main>
-      ) : isFullHeightPage ? (
-        <main className="flex-1 flex flex-col overflow-hidden min-h-0 p-4 md:p-6">{children}</main>
-      ) : (
-        <main className="flex-1 p-4 md:p-6 safe-area-bottom">
-          <div className="max-w-6xl mx-auto">{children}</div>
-        </main>
-      )}
+      </div>
     </div>
   );
 }

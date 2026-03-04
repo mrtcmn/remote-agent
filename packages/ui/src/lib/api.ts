@@ -38,9 +38,19 @@ export const api = {
   getSession: (id: string) => request<Session>(`/sessions/${id}`),
   createSession: (projectId?: string) => request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ projectId }) }),
   terminateSession: (id: string) => request(`/sessions/${id}`, { method: 'DELETE' }),
-  getSessionGitStatus: (sessionId: string) => request<GitStatus>(`/sessions/${sessionId}/git/status`),
-  getSessionGitDiff: (sessionId: string, cached = false) =>
-    request<{ diff: string }>(`/sessions/${sessionId}/git/diff${cached ? '?cached=true' : ''}`),
+  getSessionGitStatus: (sessionId: string, projectId?: string) => {
+    const params = new URLSearchParams();
+    if (projectId) params.set('projectId', projectId);
+    const query = params.toString();
+    return request<GitStatus>(`/sessions/${sessionId}/git/status${query ? `?${query}` : ''}`);
+  },
+  getSessionGitDiff: (sessionId: string, cached = false, projectId?: string) => {
+    const params = new URLSearchParams();
+    if (cached) params.set('cached', 'true');
+    if (projectId) params.set('projectId', projectId);
+    const query = params.toString();
+    return request<{ diff: string }>(`/sessions/${sessionId}/git/diff${query ? `?${query}` : ''}`);
+  },
   getSessionFileDiff: (sessionId: string, file: string) =>
     request<{ diff: string; file: string }>(`/sessions/${sessionId}/git/diff/${encodeURIComponent(file)}`),
 
@@ -374,6 +384,21 @@ export const api = {
     request<{ success: boolean }>(`/preview/${id}/stop`, { method: 'POST' }),
   getActivePreviews: () =>
     request<{ previews: BrowserPreview[] }>('/preview/active'),
+
+  // ─── Sidebar ──────────────────────────────────────────────────────────────
+
+  getSidebarData: () => request<SidebarData>('/sessions/sidebar'),
+
+  // ─── Multi-Project ────────────────────────────────────────────────────────
+
+  createMultiProject: (data: CreateMultiProjectInput) =>
+    request<Project>('/projects/multi', { method: 'POST', body: JSON.stringify(data) }),
+  getProjectLinks: (projectId: string) =>
+    request<ProjectLink[]>(`/projects/${projectId}/links`),
+  addProjectLink: (projectId: string, data: { projectId: string; alias: string }) =>
+    request<ProjectLink>(`/projects/${projectId}/links`, { method: 'POST', body: JSON.stringify(data) }),
+  removeProjectLink: (projectId: string, linkId: string) =>
+    request<{ success: boolean }>(`/projects/${projectId}/links/${linkId}`, { method: 'DELETE' }),
 };
 
 // Types
@@ -404,9 +429,11 @@ export interface Project {
   repoUrl?: string;
   localPath: string;
   defaultBranch: string;
+  isMultiProject: boolean;
   createdAt: string;
   updatedAt: string;
   git?: GitStatus;
+  childLinks?: ProjectLink[];
 }
 
 export interface GitStatus {
@@ -829,4 +856,43 @@ export interface BrowserPreview {
   url: string;
   viewport: ViewportPreset;
   status: 'starting' | 'running' | 'stopped' | 'error';
+}
+
+// ─── Multi-Project & Sidebar Types ──────────────────────────────────────────
+
+export interface ProjectLink {
+  id: string;
+  parentProjectId: string;
+  childProjectId: string;
+  alias: string;
+  position: number;
+  createdAt: string;
+  childProject?: Project;
+}
+
+export interface CreateMultiProjectInput {
+  name: string;
+  links: Array<{ projectId: string; alias: string }>;
+}
+
+export interface SidebarSession {
+  id: string;
+  status: string;
+  liveStatus: string;
+  branchName: string;
+  diffStats: { additions: number; deletions: number } | null;
+  commentCount: number;
+}
+
+export interface SidebarProject {
+  id: string;
+  name: string;
+  isMultiProject: boolean;
+  linkedProjects?: Array<{ id: string; alias: string; name: string }>;
+  sessions: SidebarSession[];
+}
+
+export interface SidebarData {
+  projects: SidebarProject[];
+  unassignedSessions: SidebarSession[];
 }

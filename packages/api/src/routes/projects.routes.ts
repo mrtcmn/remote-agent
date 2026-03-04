@@ -1,9 +1,9 @@
 import { Elysia, t } from 'elysia';
 import { nanoid } from 'nanoid';
 import { eq, and } from 'drizzle-orm';
-import { db, projects, sshKeys } from '../db';
+import { db, projects, projectLinks } from '../db';
 import { gitService } from '../services/git';
-import { workspaceService } from '../services/workspace';
+import { workspaceService, multiProjectService } from '../services/workspace';
 import { requireAuth, requirePin } from '../auth/middleware';
 
 export const projectRoutes = new Elysia({ prefix: '/projects' })
@@ -31,7 +31,16 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
       return { error: 'Project not found' };
     }
 
-    // Get git status
+    // For multi-project, load child links instead of git status
+    if (project.isMultiProject) {
+      const childLinks = await db.query.projectLinks.findMany({
+        where: eq(projectLinks.parentProjectId, project.id),
+        with: { childProject: true },
+      });
+      return { ...project, git: null, childLinks };
+    }
+
+    // Get git status for regular projects
     try {
       const status = await gitService.status(project.localPath);
       return { ...project, git: status };
@@ -305,6 +314,182 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
         t.Literal('rebase'),
       ])),
     })),
+  })
+
+  // ─── Multi-project endpoints ──────────────────────────────────────────────
+
+  // Create multi-project workspace
+  .post('/multi', async ({ user, body, set }) => {
+    const projectId = nanoid();
+
+    try {
+      // Validate all linked projects belong to user
+      const childProjects = await Promise.all(
+        body.links.map(async (link) => {
+          const p = await db.query.projects.findFirst({
+            where: and(eq(projects.id, link.projectId), eq(projects.userId, user!.id)),
+          });
+          if (!p) throw new Error(`Project ${link.projectId} not found`);
+          return { ...link, project: p };
+        })
+      );
+
+      // Create workspace directory with symlinks
+      const localPath = await multiProjectService.createMultiProjectWorkspace(
+        user!.id,
+        body.name,
+        childProjects.map(l => ({ alias: l.alias, targetPath: l.project.localPath }))
+      );
+
+      // Insert multi-project record
+      await db.insert(projects).values({
+        id: projectId,
+        userId: user!.id,
+        name: body.name,
+        localPath,
+        isMultiProject: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Insert project link records
+      for (let i = 0; i < childProjects.length; i++) {
+        await db.insert(projectLinks).values({
+          id: nanoid(),
+          parentProjectId: projectId,
+          childProjectId: childProjects[i].projectId,
+          alias: childProjects[i].alias,
+          position: i,
+          createdAt: new Date(),
+        });
+      }
+
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.id, projectId),
+      });
+      const links = await db.query.projectLinks.findMany({
+        where: eq(projectLinks.parentProjectId, projectId),
+        with: { childProject: true },
+      });
+
+      return { ...project, childLinks: links };
+    } catch (error) {
+      set.status = 500;
+      return { error: (error as Error).message };
+    }
+  }, {
+    body: t.Object({
+      name: t.String(),
+      links: t.Array(t.Object({
+        projectId: t.String(),
+        alias: t.String(),
+      })),
+    }),
+  })
+
+  // Get linked projects for a multi-project
+  .get('/:id/links', async ({ user, params, set }) => {
+    const project = await db.query.projects.findFirst({
+      where: and(eq(projects.id, params.id), eq(projects.userId, user!.id)),
+    });
+
+    if (!project) {
+      set.status = 404;
+      return { error: 'Project not found' };
+    }
+
+    const links = await db.query.projectLinks.findMany({
+      where: eq(projectLinks.parentProjectId, params.id),
+      with: { childProject: true },
+    });
+
+    return links;
+  }, {
+    params: t.Object({ id: t.String() }),
+  })
+
+  // Add a link to a multi-project
+  .post('/:id/links', async ({ user, params, body, set }) => {
+    const project = await db.query.projects.findFirst({
+      where: and(eq(projects.id, params.id), eq(projects.userId, user!.id)),
+    });
+
+    if (!project || !project.isMultiProject) {
+      set.status = 404;
+      return { error: 'Multi-project not found' };
+    }
+
+    const childProject = await db.query.projects.findFirst({
+      where: and(eq(projects.id, body.projectId), eq(projects.userId, user!.id)),
+    });
+
+    if (!childProject) {
+      set.status = 404;
+      return { error: 'Child project not found' };
+    }
+
+    try {
+      await multiProjectService.addLink(project.localPath, body.alias, childProject.localPath);
+
+      const linkId = nanoid();
+      await db.insert(projectLinks).values({
+        id: linkId,
+        parentProjectId: params.id,
+        childProjectId: body.projectId,
+        alias: body.alias,
+        position: 0,
+        createdAt: new Date(),
+      });
+
+      return db.query.projectLinks.findFirst({
+        where: eq(projectLinks.id, linkId),
+        with: { childProject: true },
+      });
+    } catch (error) {
+      set.status = 500;
+      return { error: (error as Error).message };
+    }
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({
+      projectId: t.String(),
+      alias: t.String(),
+    }),
+  })
+
+  // Remove a link from a multi-project
+  .delete('/:id/links/:linkId', async ({ user, params, set }) => {
+    const project = await db.query.projects.findFirst({
+      where: and(eq(projects.id, params.id), eq(projects.userId, user!.id)),
+    });
+
+    if (!project || !project.isMultiProject) {
+      set.status = 404;
+      return { error: 'Multi-project not found' };
+    }
+
+    const link = await db.query.projectLinks.findFirst({
+      where: and(
+        eq(projectLinks.id, params.linkId),
+        eq(projectLinks.parentProjectId, params.id)
+      ),
+    });
+
+    if (!link) {
+      set.status = 404;
+      return { error: 'Link not found' };
+    }
+
+    try {
+      await multiProjectService.removeLink(project.localPath, link.alias);
+      await db.delete(projectLinks).where(eq(projectLinks.id, params.linkId));
+      return { success: true };
+    } catch (error) {
+      set.status = 500;
+      return { error: (error as Error).message };
+    }
+  }, {
+    params: t.Object({ id: t.String(), linkId: t.String() }),
   })
 
   .get('/:id/pr', async ({ user, params, query, set }) => {
