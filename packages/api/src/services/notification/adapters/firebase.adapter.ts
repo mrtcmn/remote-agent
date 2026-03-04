@@ -133,7 +133,7 @@ export class FirebaseAdapter extends BaseNotificationAdapter {
       webpush: {
         fcmOptions: {
           link: payload.terminalId
-            ? `/sessions/${payload.sessionId}?terminalId=${payload.terminalId}`
+            ? `/sessions/${payload.sessionId}/${payload.terminalId}`
             : `/sessions/${payload.sessionId}`,
         },
         notification: {

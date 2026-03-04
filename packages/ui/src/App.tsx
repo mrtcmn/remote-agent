@@ -42,6 +42,7 @@ export default function App() {
                 <Routes>
                   <Route path="/" element={<DashboardPage />} />
                   <Route path="/sessions/:id" element={<SessionPage />} />
+                  <Route path="/sessions/:id/:terminalId" element={<SessionPage />} />
                   <Route path="/projects" element={<ProjectsPage />} />
                   <Route path="/kanban" element={<KanbanPage />} />
                   <Route path="/settings" element={<SettingsPage />} />

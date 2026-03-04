@@ -30,12 +30,13 @@ import { toast } from '@/components/ui/Toaster';
 type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'preview';
 
 export function SessionPage() {
-  const { id } = useParams<{ id: string }>();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const { id, terminalId: terminalIdFromRoute } = useParams<{ id: string; terminalId?: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const terminalIdFromUrl = searchParams.get('terminalId');
+  // Support both route param and legacy query param
+  const terminalIdFromUrl = terminalIdFromRoute || searchParams.get('terminalId');
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(terminalIdFromUrl);
   const [viewMode, setViewMode] = useState<ViewMode>('terminal');
   const [showSidebar, setShowSidebar] = useState(true);
@@ -76,6 +77,7 @@ export function SessionPage() {
       queryClient.invalidateQueries({ queryKey: ['terminals', id] });
       setActiveTerminalId(terminal.id);
       setViewMode('terminal');
+      navigate(`/sessions/${id}/${terminal.id}`, { replace: true });
     },
   });
 
@@ -121,13 +123,17 @@ export function SessionPage() {
     setActiveTerminalId(activeTerminals[0].id);
   }
 
-  // Clean up terminalId from URL after terminals load
-  if (terminalIdFromUrl && terminals.length > 0 && !isLoading) {
-    setSearchParams((prev) => {
-      prev.delete('terminalId');
-      return prev;
-    }, { replace: true });
+  // Clean up legacy query param and migrate to route param
+  if (searchParams.get('terminalId') && terminals.length > 0 && !isLoading) {
+    const tid = searchParams.get('terminalId');
+    navigate(`/sessions/${id}/${tid}`, { replace: true });
   }
+
+  // Helper to update URL when switching terminals
+  const selectTerminal = (terminalId: string) => {
+    setActiveTerminalId(terminalId);
+    navigate(`/sessions/${id}/${terminalId}`, { replace: true });
+  };
 
   const activeTerminal = terminals.find((t) => t.id === activeTerminalId);
 
@@ -276,7 +282,7 @@ export function SessionPage() {
                   terminal={terminal}
                   isActive={activeTerminalId === terminal.id && viewMode === 'terminal'}
                   onClick={() => {
-                    setActiveTerminalId(terminal.id);
+                    selectTerminal(terminal.id);
                     setViewMode('terminal');
                   }}
                   onClose={() => closeMutation.mutate(terminal.id)}
@@ -297,7 +303,7 @@ export function SessionPage() {
                   terminal={terminal}
                   isActive={activeTerminalId === terminal.id && viewMode === 'terminal'}
                   onClick={() => {
-                    setActiveTerminalId(terminal.id);
+                    selectTerminal(terminal.id);
                     setViewMode('terminal');
                   }}
                   onClose={() => closeMutation.mutate(terminal.id)}
@@ -314,7 +320,7 @@ export function SessionPage() {
                     terminal={terminal}
                     isActive={activeTerminalId === terminal.id && viewMode === 'terminal'}
                     onClick={() => {
-                      setActiveTerminalId(terminal.id);
+                      selectTerminal(terminal.id);
                       setViewMode('terminal');
                     }}
                     onClose={() => closeMutation.mutate(terminal.id)}
@@ -423,7 +429,7 @@ export function SessionPage() {
                         activeTerminalId === terminal.id && 'bg-accent'
                       )}
                       onClick={() => {
-                        setActiveTerminalId(terminal.id);
+                        selectTerminal(terminal.id);
                         setViewMode('terminal');
                         setShowTerminalDropdown(false);
                       }}
@@ -514,7 +520,7 @@ export function SessionPage() {
                 sessionId={id!}
                 onTerminalCreated={(terminalId) => {
                   queryClient.invalidateQueries({ queryKey: ['terminals', id] });
-                  setActiveTerminalId(terminalId);
+                  selectTerminal(terminalId);
                   setViewMode('terminal');
                 }}
               />

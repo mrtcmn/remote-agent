@@ -74,10 +74,10 @@ export function NotificationPanel() {
     if (isUnread) {
       markSingleReadMutation.mutate(notification.id);
     }
-    const terminalParam = notification.terminalId
-      ? `?terminalId=${notification.terminalId}`
-      : '';
-    navigate(`/sessions/${notification.sessionId}${terminalParam}`);
+    const path = notification.terminalId
+      ? `/sessions/${notification.sessionId}/${notification.terminalId}`
+      : `/sessions/${notification.sessionId}`;
+    navigate(path);
   };
 
   return (

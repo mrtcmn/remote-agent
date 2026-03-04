@@ -115,8 +115,10 @@ function NotificationItem({
     if (isUnread) {
       markReadMutation.mutate();
     }
-    const terminalParam = notification.terminalId ? `?terminalId=${notification.terminalId}` : '';
-    window.location.href = `/sessions/${notification.sessionId}${terminalParam}`;
+    const path = notification.terminalId
+      ? `/sessions/${notification.sessionId}/${notification.terminalId}`
+      : `/sessions/${notification.sessionId}`;
+    window.location.href = path;
     onClose();
   };
 

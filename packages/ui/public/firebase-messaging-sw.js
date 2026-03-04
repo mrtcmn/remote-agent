@@ -39,7 +39,7 @@ self.addEventListener('notificationclick', (event) => {
   const data = notification.data || {};
   const { sessionId, terminalId, notificationId } = data;
   const sessionUrl = terminalId
-    ? `/sessions/${sessionId}?terminalId=${terminalId}`
+    ? `/sessions/${sessionId}/${terminalId}`
     : `/sessions/${sessionId}`;
 
   notification.close();
