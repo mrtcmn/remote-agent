@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Plus, FolderGit2, GitBranch, RefreshCw, Loader2, Terminal, Key } from 'lucide-react';
+import { Plus, FolderGit2, GitBranch, RefreshCw, Loader2, Terminal, Key, Layers, Check } from 'lucide-react';
 import { api, type Project, type SSHKey } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -11,6 +11,7 @@ import { formatRelativeTime } from '@/lib/utils';
 
 export function ProjectsPage() {
   const [showCreate, setShowCreate] = useState(false);
+  const [showMultiCreate, setShowMultiCreate] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: projects, isLoading } = useQuery({
@@ -25,10 +26,20 @@ export function ProjectsPage() {
           <h1 className="text-2xl font-bold">Projects</h1>
           <p className="text-muted-foreground">Manage your git repositories</p>
         </div>
-        <Button onClick={() => setShowCreate(true)} className="gap-2">
-          <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">Add Project</span>
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowMultiCreate(true)}
+            className="gap-2"
+          >
+            <Layers className="h-4 w-4" />
+            <span className="hidden sm:inline">Multi-Project</span>
+          </Button>
+          <Button onClick={() => setShowCreate(true)} className="gap-2">
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">Add Project</span>
+          </Button>
+        </div>
       </div>
 
       {showCreate && (
@@ -37,6 +48,18 @@ export function ProjectsPage() {
           onSuccess={() => {
             setShowCreate(false);
             queryClient.invalidateQueries({ queryKey: ['projects'] });
+          }}
+        />
+      )}
+
+      {showMultiCreate && projects && (
+        <CreateMultiProjectForm
+          projects={projects.filter(p => !p.isMultiProject)}
+          onClose={() => setShowMultiCreate(false)}
+          onSuccess={() => {
+            setShowMultiCreate(false);
+            queryClient.invalidateQueries({ queryKey: ['projects'] });
+            queryClient.invalidateQueries({ queryKey: ['sidebar-data'] });
           }}
         />
       )}
@@ -185,6 +208,156 @@ function CreateProjectForm({
   );
 }
 
+function CreateMultiProjectForm({
+  projects,
+  onClose,
+  onSuccess,
+}: {
+  projects: Project[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [selectedProjects, setSelectedProjects] = useState<
+    Map<string, string>
+  >(new Map()); // projectId -> alias
+
+  const toggleProject = (project: Project) => {
+    setSelectedProjects(prev => {
+      const next = new Map(prev);
+      if (next.has(project.id)) {
+        next.delete(project.id);
+      } else {
+        // Auto-suggest alias from project name
+        const alias = project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        next.set(project.id, alias);
+      }
+      return next;
+    });
+  };
+
+  const updateAlias = (projectId: string, alias: string) => {
+    setSelectedProjects(prev => {
+      const next = new Map(prev);
+      next.set(projectId, alias);
+      return next;
+    });
+  };
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      api.createMultiProject({
+        name,
+        links: Array.from(selectedProjects.entries()).map(([projectId, alias]) => ({
+          projectId,
+          alias,
+        })),
+      }),
+    onSuccess: () => {
+      toast({ title: 'Multi-project workspace created' });
+      onSuccess();
+    },
+    onError: (error) => {
+      toast({ title: 'Error', description: (error as Error).message, variant: 'destructive' });
+    },
+  });
+
+  const canSubmit = name.trim() && selectedProjects.size >= 2;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Layers className="h-5 w-5 text-primary" />
+          <CardTitle>Create Multi-Project Workspace</CardTitle>
+        </div>
+        <CardDescription>
+          Combine multiple repositories into a single workspace with symlinked directories
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium">Workspace Name</label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="fullstack-app"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium mb-2 block">
+              Select Projects (min 2)
+            </label>
+            <div className="space-y-2 max-h-64 overflow-y-auto border rounded-md p-2">
+              {projects.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No single projects available. Create projects first.
+                </p>
+              ) : (
+                projects.map(project => {
+                  const isSelected = selectedProjects.has(project.id);
+                  const alias = selectedProjects.get(project.id) || '';
+
+                  return (
+                    <div key={project.id} className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => toggleProject(project)}
+                        className={`flex items-center gap-2 w-full px-3 py-2 rounded text-left text-sm transition-colors ${
+                          isSelected
+                            ? 'bg-primary/10 border border-primary/30'
+                            : 'hover:bg-accent border border-transparent'
+                        }`}
+                      >
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                          isSelected ? 'bg-primary border-primary' : 'border-muted-foreground/30'
+                        }`}>
+                          {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
+                        </div>
+                        <FolderGit2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="flex-1 truncate">{project.name}</span>
+                      </button>
+
+                      {isSelected && (
+                        <div className="ml-9">
+                          <Input
+                            value={alias}
+                            onChange={(e) => updateAlias(project.id, e.target.value)}
+                            placeholder="directory alias"
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            {selectedProjects.size > 0 && selectedProjects.size < 2 && (
+              <p className="text-xs text-destructive mt-1">Select at least 2 projects</p>
+            )}
+          </div>
+
+          <div className="flex gap-2 justify-end">
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => createMutation.mutate()}
+              disabled={!canSubmit || createMutation.isPending}
+            >
+              {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Create Workspace
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ProjectCard({ project }: { project: Project }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -193,6 +366,7 @@ function ProjectCard({ project }: { project: Project }) {
     mutationFn: () => api.createSession(project.id),
     onSuccess: (session) => {
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['sidebar-data'] });
       navigate(`/sessions/${session.id}`);
     },
     onError: (error) => {
@@ -229,14 +403,33 @@ function ProjectCard({ project }: { project: Project }) {
           <div className="flex items-center gap-2">
             <FolderGit2 className="h-5 w-5 text-muted-foreground" />
             <CardTitle className="text-base">{project.name}</CardTitle>
+            {project.isMultiProject && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/20">
+                Multi
+              </span>
+            )}
           </div>
         </div>
         <CardDescription>
-          {project.repoUrl || project.localPath}
+          {project.isMultiProject
+            ? `${project.childLinks?.length || 0} linked projects`
+            : project.repoUrl || project.localPath}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {project.git && (
+        {project.isMultiProject && project.childLinks && (
+          <div className="flex flex-wrap gap-1 mb-3">
+            {project.childLinks.map(link => (
+              <span
+                key={link.id}
+                className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent text-accent-foreground"
+              >
+                {link.alias}
+              </span>
+            ))}
+          </div>
+        )}
+        {!project.isMultiProject && project.git && (
           <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
             <div className="flex items-center gap-1">
               <GitBranch className="h-4 w-4" />
@@ -267,26 +460,30 @@ function ProjectCard({ project }: { project: Project }) {
             )}
             Open
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => fetchMutation.mutate()}
-            disabled={fetchMutation.isPending}
-          >
-            {fetchMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => pullMutation.mutate()}
-            disabled={pullMutation.isPending}
-          >
-            Pull
-          </Button>
+          {!project.isMultiProject && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => fetchMutation.mutate()}
+                disabled={fetchMutation.isPending}
+              >
+                {fetchMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => pullMutation.mutate()}
+                disabled={pullMutation.isPending}
+              >
+                Pull
+              </Button>
+            </>
+          )}
         </div>
         <p className="text-xs text-muted-foreground mt-3">
           Updated {formatRelativeTime(project.updatedAt)}

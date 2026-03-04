@@ -288,6 +288,23 @@ export class GitService {
   async reset(projectPath: string, mode: 'soft' | 'mixed' | 'hard' = 'mixed', ref = 'HEAD~1'): Promise<void> {
     await $`git reset --${mode} ${ref}`.cwd(projectPath).quiet();
   }
+
+  async diffStats(projectPath: string): Promise<{ additions: number; deletions: number }> {
+    try {
+      const result = await $`git diff --shortstat`.cwd(projectPath).quiet();
+      const output = result.stdout.toString().trim();
+      if (!output) return { additions: 0, deletions: 0 };
+
+      const addMatch = output.match(/(\d+) insertion/);
+      const delMatch = output.match(/(\d+) deletion/);
+      return {
+        additions: addMatch ? parseInt(addMatch[1]) : 0,
+        deletions: delMatch ? parseInt(delMatch[1]) : 0,
+      };
+    } catch {
+      return { additions: 0, deletions: 0 };
+    }
+  }
 }
 
 // Singleton instance

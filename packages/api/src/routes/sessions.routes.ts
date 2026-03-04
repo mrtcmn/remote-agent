@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { nanoid } from 'nanoid';
-import { eq, and } from 'drizzle-orm';
-import { db, claudeSessions, projects } from '../db';
+import { eq, and, sql } from 'drizzle-orm';
+import { db, claudeSessions, projects, projectLinks, reviewComments } from '../db';
 import { terminalService } from '../services/terminal';
 import { gitService } from '../services/git';
 import { notificationService } from '../services/notification';
@@ -103,7 +103,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   })
 
   // Get git status for session's project
-  .get('/:id/git/status', async ({ user, params, set }) => {
+  .get('/:id/git/status', async ({ user, params, query, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(
         eq(claudeSessions.id, params.id),
@@ -121,8 +121,28 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       return { branch: '', ahead: 0, behind: 0, staged: [], modified: [], untracked: [] };
     }
 
+    // If projectId query param provided, resolve linked project path
+    let targetPath = session.project.localPath;
+    if (query.projectId && session.project.isMultiProject) {
+      const link = await db.query.projectLinks.findFirst({
+        where: and(
+          eq(projectLinks.parentProjectId, session.project.id),
+          eq(projectLinks.childProjectId, query.projectId)
+        ),
+        with: { childProject: true },
+      });
+      if (link && (link as any).childProject) {
+        targetPath = (link as any).childProject.localPath;
+      } else {
+        return { branch: '', ahead: 0, behind: 0, staged: [], modified: [], untracked: [] };
+      }
+    } else if (!query.projectId && session.project.isMultiProject) {
+      // Multi-project root is not a git repo
+      return { branch: '', ahead: 0, behind: 0, staged: [], modified: [], untracked: [] };
+    }
+
     try {
-      const status = await gitService.status(session.project.localPath);
+      const status = await gitService.status(targetPath);
       return status;
     } catch (error) {
       set.status = 500;
@@ -131,6 +151,9 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   }, {
     params: t.Object({
       id: t.String(),
+    }),
+    query: t.Object({
+      projectId: t.Optional(t.String()),
     }),
   })
 
@@ -153,8 +176,27 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       return { diff: '' };
     }
 
+    // If projectId query param provided, resolve linked project path
+    let targetPath = session.project.localPath;
+    if (query.projectId && session.project.isMultiProject) {
+      const link = await db.query.projectLinks.findFirst({
+        where: and(
+          eq(projectLinks.parentProjectId, session.project.id),
+          eq(projectLinks.childProjectId, query.projectId)
+        ),
+        with: { childProject: true },
+      });
+      if (link && (link as any).childProject) {
+        targetPath = (link as any).childProject.localPath;
+      } else {
+        return { diff: '' };
+      }
+    } else if (!query.projectId && session.project.isMultiProject) {
+      return { diff: '' };
+    }
+
     try {
-      const diff = await gitService.diff(session.project.localPath, query.cached === 'true');
+      const diff = await gitService.diff(targetPath, query.cached === 'true');
       return { diff };
     } catch (error) {
       set.status = 500;
@@ -166,6 +208,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     }),
     query: t.Object({
       cached: t.Optional(t.String()),
+      projectId: t.Optional(t.String()),
     }),
   })
 
@@ -338,6 +381,126 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       return { ...branches, current: status.branch };
     } catch (error) { set.status = 500; return { error: (error as Error).message }; }
   }, { params: t.Object({ id: t.String() }) })
+  // Get sidebar tree data (projects with nested sessions)
+  .get('/sidebar', async ({ user }) => {
+    // Load all projects and sessions for the user
+    const [userProjects, allSessions] = await Promise.all([
+      db.query.projects.findMany({
+        where: eq(projects.userId, user!.id),
+        orderBy: (p, { asc }) => [asc(p.name)],
+      }),
+      db.query.claudeSessions.findMany({
+        where: eq(claudeSessions.userId, user!.id),
+        orderBy: (s, { desc }) => [desc(s.lastActiveAt)],
+      }),
+    ]);
+
+    // Load child links for multi-projects
+    const multiProjectIds = userProjects.filter(p => p.isMultiProject).map(p => p.id);
+    const allLinks = multiProjectIds.length > 0
+      ? await db.query.projectLinks.findMany({
+          with: { childProject: true },
+        })
+      : [];
+
+    // Count review comments per session
+    const commentCounts: Record<string, number> = {};
+    const sessionIds = allSessions.map(s => s.id);
+    if (sessionIds.length > 0) {
+      const counts = await db
+        .select({
+          sessionId: reviewComments.sessionId,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(reviewComments)
+        .where(sql`${reviewComments.sessionId} IN ${sessionIds}`)
+        .groupBy(reviewComments.sessionId);
+
+      for (const row of counts) {
+        commentCounts[row.sessionId] = row.count;
+      }
+    }
+
+    // Build session data with live status and git stats
+    const sessionDataMap = new Map<string, any>();
+    for (const session of allSessions) {
+      const terminals = terminalService.getSessionTerminals(session.id);
+      const hasActiveTerminals = terminals.some(t => t.status === 'running');
+      const liveStatus = hasActiveTerminals ? 'active' : session.status;
+
+      let diffStats = null;
+      let branchName = '';
+
+      // Only compute git stats for active sessions with a non-multi project
+      if (liveStatus === 'active' && session.projectId) {
+        const project = userProjects.find(p => p.id === session.projectId);
+        if (project && !project.isMultiProject) {
+          try {
+            const [status, stats] = await Promise.all([
+              gitService.status(project.localPath),
+              gitService.diffStats(project.localPath),
+            ]);
+            branchName = status.branch;
+            if (stats.additions > 0 || stats.deletions > 0) {
+              diffStats = stats;
+            }
+          } catch {
+            // Git operations may fail
+          }
+        }
+      }
+
+      sessionDataMap.set(session.id, {
+        id: session.id,
+        status: session.status,
+        liveStatus,
+        branchName,
+        diffStats,
+        commentCount: commentCounts[session.id] || 0,
+      });
+    }
+
+    // Group sessions by project
+    const projectSessionsMap = new Map<string, any[]>();
+    const unassignedSessions: any[] = [];
+
+    for (const session of allSessions) {
+      const data = sessionDataMap.get(session.id);
+      if (session.projectId) {
+        const list = projectSessionsMap.get(session.projectId) || [];
+        list.push(data);
+        projectSessionsMap.set(session.projectId, list);
+      } else {
+        unassignedSessions.push(data);
+      }
+    }
+
+    // Build sidebar projects
+    const sidebarProjects = userProjects.map(p => {
+      const linkedProjects = p.isMultiProject
+        ? allLinks
+            .filter(l => l.parentProjectId === p.id)
+            .map(l => ({
+              id: (l as any).childProject?.id,
+              alias: l.alias,
+              name: (l as any).childProject?.name || l.alias,
+            }))
+        : undefined;
+
+      return {
+        id: p.id,
+        name: p.name,
+        isMultiProject: p.isMultiProject,
+        linkedProjects,
+        sessions: projectSessionsMap.get(p.id) || [],
+      };
+    });
+
+    return {
+      projects: sidebarProjects,
+      unassignedSessions,
+    };
+  })
 
   // Terminate session (close all terminals)
   .delete('/:id', async ({ user, params, set }) => {

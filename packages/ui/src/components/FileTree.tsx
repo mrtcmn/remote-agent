@@ -13,6 +13,7 @@ interface FileTreeProps {
   sessionId: string;
   selectedFile: string | null;
   onFileSelect: (path: string) => void;
+  basePath?: string;
 }
 
 interface ContextActionState {
@@ -21,7 +22,7 @@ interface ContextActionState {
   entryType: 'file' | 'directory';
 }
 
-export function FileTree({ sessionId, selectedFile, onFileSelect }: FileTreeProps) {
+export function FileTree({ sessionId, selectedFile, onFileSelect, basePath = '.' }: FileTreeProps) {
   const [contextAction, setContextAction] = useState<ContextActionState | null>(null);
   const queryClient = useQueryClient();
 
@@ -87,7 +88,7 @@ export function FileTree({ sessionId, selectedFile, onFileSelect }: FileTreeProp
     <div className="h-full overflow-y-auto py-2 text-sm font-mono">
       <TreeDirectory
         sessionId={sessionId}
-        path="."
+        path={basePath}
         depth={0}
         selectedFile={selectedFile}
         onFileSelect={onFileSelect}

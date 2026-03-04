@@ -43,6 +43,13 @@
       "when": 1772335145020,
       "tag": "0005_ambitious_devos",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1772636482291,
+      "tag": "0006_familiar_wasp",
+      "breakpoints": true
     }
   ]
 }

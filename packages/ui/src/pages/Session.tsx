@@ -482,6 +482,7 @@ export function SessionPage() {
             ) : viewMode === 'git' ? (
               <GitPanel
                 sessionId={id!}
+                project={session?.project}
                 onProceed={(message) => {
                   createMutation.mutate(
                     {
@@ -532,7 +533,7 @@ export function SessionPage() {
                 className="h-full"
               />
             ) : (
-              <FileExplorer sessionId={id!} className="h-full" />
+              <FileExplorer sessionId={id!} project={session?.project} className="h-full" />
             )}
           </div>
         </div>

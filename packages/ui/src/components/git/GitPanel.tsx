@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import type { Project } from '@/lib/api';
 import { GitToolbar } from './GitToolbar';
 import { GitChangesTab } from './GitChangesTab';
 import { GitLogTab } from './GitLogTab';
@@ -9,11 +10,12 @@ type GitTab = 'changes' | 'log' | 'branches';
 
 interface GitPanelProps {
   sessionId: string;
+  project?: Project;
   className?: string;
   onProceed?: (message: string) => void;
 }
 
-export function GitPanel({ sessionId, className, onProceed }: GitPanelProps) {
+export function GitPanel({ sessionId, project: _project, className, onProceed }: GitPanelProps) {
   const [activeTab, setActiveTab] = useState<GitTab>('changes');
 
   const tabs: { id: GitTab; label: string }[] = [
