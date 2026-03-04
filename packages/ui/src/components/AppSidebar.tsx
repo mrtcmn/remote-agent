@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import {
   FolderGit2,
   ChevronRight,
@@ -11,10 +11,15 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { SessionRow } from '@/components/SessionRow';
+import { NewSessionModal } from '@/components/NewSessionModal';
 import { cn } from '@/lib/utils';
-import { api } from '@/lib/api';
-import type { SidebarData, SidebarProject } from '@/lib/api';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { SidebarData, SidebarProject, SidebarSession } from '@/lib/api';
+
+const ACTIVE_STATUSES = new Set(['active', 'waiting_input', 'paused']);
+
+function isActiveSession(session: SidebarSession): boolean {
+  return ACTIVE_STATUSES.has(session.status);
+}
 
 interface AppSidebarProps {
   data: SidebarData | undefined;
@@ -23,6 +28,26 @@ interface AppSidebarProps {
 
 export function AppSidebar({ data, isLoading }: AppSidebarProps) {
   const location = useLocation();
+
+  // Filter projects and sessions to only show non-terminated (active) sessions
+  const { activeProjects, activeUnassigned, hasAnySessions } = useMemo(() => {
+    if (!data) return { activeProjects: [], activeUnassigned: [], hasAnySessions: false };
+
+    const filteredProjects = data.projects
+      .map((project) => ({
+        ...project,
+        sessions: project.sessions.filter(isActiveSession),
+      }))
+      .filter((project) => project.sessions.length > 0);
+
+    const filteredUnassigned = data.unassignedSessions.filter(isActiveSession);
+
+    return {
+      activeProjects: filteredProjects,
+      activeUnassigned: filteredUnassigned,
+      hasAnySessions: filteredProjects.length > 0 || filteredUnassigned.length > 0,
+    };
+  }, [data]);
 
   return (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
@@ -42,20 +67,29 @@ export function AppSidebar({ data, isLoading }: AppSidebarProps) {
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           </div>
+        ) : !hasAnySessions ? (
+          <div className="px-3 py-8 text-center">
+            <p className="text-xs text-muted-foreground">No active sessions</p>
+          </div>
         ) : (
           <>
-            {data?.projects.map((project) => (
+            {/* Active Sessions label */}
+            <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+              Active Sessions
+            </div>
+
+            {activeProjects.map((project) => (
               <ProjectGroup key={project.id} project={project} />
             ))}
 
-            {/* Unassigned sessions */}
-            {data?.unassignedSessions && data.unassignedSessions.length > 0 && (
+            {/* Unassigned sessions (filtered to active only) */}
+            {activeUnassigned.length > 0 && (
               <div className="mt-2">
                 <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
                   Unassigned
                 </div>
                 <div className="px-1">
-                  {data.unassignedSessions.map((session) => (
+                  {activeUnassigned.map((session) => (
                     <SessionRow key={session.id} session={session} />
                   ))}
                 </div>
@@ -140,17 +174,12 @@ function ProjectGroup({ project }: { project: SidebarProject }) {
         )}
       </button>
 
-      {/* Sessions */}
+      {/* Sessions (pre-filtered to active only) */}
       {expanded && (
         <div className="pl-2">
           {project.sessions.map((session) => (
             <SessionRow key={session.id} session={session} />
           ))}
-          {project.sessions.length === 0 && (
-            <p className="px-3 py-1 text-[10px] text-muted-foreground italic">
-              No sessions
-            </p>
-          )}
         </div>
       )}
     </div>
@@ -158,31 +187,20 @@ function ProjectGroup({ project }: { project: SidebarProject }) {
 }
 
 function NewSessionButton() {
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const createMutation = useMutation({
-    mutationFn: () => api.createSession(),
-    onSuccess: (session) => {
-      queryClient.invalidateQueries({ queryKey: ['sidebar-data'] });
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
-      navigate(`/sessions/${session.id}`);
-    },
-  });
+  const [modalOpen, setModalOpen] = useState(false);
 
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="w-full justify-start gap-2 text-sidebar-foreground hover:bg-sidebar-accent"
-      onClick={() => createMutation.mutate()}
-      disabled={createMutation.isPending}
-    >
-      {createMutation.isPending ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full justify-start gap-2 text-sidebar-foreground hover:bg-sidebar-accent"
+        onClick={() => setModalOpen(true)}
+      >
         <Plus className="h-4 w-4" />
-      )}
-      New Session
-    </Button>
+        New Session
+      </Button>
+      <NewSessionModal open={modalOpen} onClose={() => setModalOpen(false)} />
+    </>
   );
 }

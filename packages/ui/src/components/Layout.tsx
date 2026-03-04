@@ -1,21 +1,32 @@
 import { useLocation } from 'react-router-dom';
-import { Menu, X, LogOut } from 'lucide-react';
+import { Menu, X, LogOut, Bell } from 'lucide-react';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { UpdateBanner } from '@/components/UpdateBanner';
-import { NotificationInbox } from '@/components/NotificationInbox';
+import { NotificationPanel } from '@/components/NotificationPanel';
 import { AppSidebar } from '@/components/AppSidebar';
 import { ResizeHandle } from '@/components/ResizeHandle';
 import { useSidebar } from '@/hooks/useSidebar';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
   const location = useLocation();
   const { user, logout } = useAuth();
   const { width, resize, sidebarData, isLoading } = useSidebar();
+
+  const { data: unreadData } = useQuery({
+    queryKey: ['notifications', 'unread-count'],
+    queryFn: api.getUnreadCount,
+    refetchInterval: 30000,
+  });
+
+  const unreadCount = unreadData?.count ?? 0;
 
   const isSessionPage = location.pathname.startsWith('/sessions/');
   const isFullHeightPage = isSessionPage || location.pathname === '/kanban';
@@ -46,7 +57,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </>
       )}
 
-      {/* Right side: header + content */}
+      {/* Middle: header + content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Slim Header */}
         <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur safe-area-top">
@@ -69,7 +80,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <div className="ml-auto flex items-center gap-2">
               {user && (
                 <>
-                  <NotificationInbox />
+                  {/* Mobile notification bell - visible below lg breakpoint */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="lg:hidden relative h-8 w-8"
+                    onClick={() => setNotificationPanelOpen(!notificationPanelOpen)}
+                  >
+                    <Bell className="h-4 w-4" />
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-medium flex items-center justify-center">
+                        {unreadCount > 9 ? '9+' : unreadCount}
+                      </span>
+                    )}
+                  </Button>
                   <Avatar className="h-7 w-7">
                     <AvatarImage src={user.image} alt={user.name} />
                     <AvatarFallback className="text-xs">{user.name?.charAt(0).toUpperCase()}</AvatarFallback>
@@ -97,6 +121,39 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </main>
         )}
       </div>
+
+      {/* Desktop Right Sidebar - Notification Panel */}
+      <aside className="hidden lg:flex shrink-0 w-[300px] border-l border-border overflow-hidden">
+        <div className="flex-1 min-w-0">
+          <NotificationPanel />
+        </div>
+      </aside>
+
+      {/* Mobile Notification Panel Overlay */}
+      {notificationPanelOpen && (
+        <>
+          <div
+            className="lg:hidden fixed inset-0 z-40 bg-black/50"
+            onClick={() => setNotificationPanelOpen(false)}
+          />
+          <aside className="lg:hidden fixed inset-y-0 right-0 z-50 w-[300px] max-w-[85vw] bg-background shadow-xl animate-in slide-in-from-right duration-200">
+            <div className="flex items-center justify-between px-4 py-2 border-b">
+              <span className="text-sm font-medium">Notifications</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setNotificationPanelOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="h-[calc(100%-44px)]">
+              <NotificationPanel />
+            </div>
+          </aside>
+        </>
+      )}
     </div>
   );
 }

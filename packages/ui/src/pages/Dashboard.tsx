@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Terminal, Play, Square, Clock, Loader2 } from 'lucide-react';
 import { api, type Session } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
+import { NewSessionModal } from '@/components/NewSessionModal';
 import { toast } from '@/components/ui/Toaster';
 import { formatRelativeTime, cn } from '@/lib/utils';
 
@@ -19,22 +21,12 @@ const statusColors: Record<string, string> = {
 export function DashboardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [newSessionModalOpen, setNewSessionModalOpen] = useState(false);
 
   const { data: sessions, isLoading } = useQuery({
     queryKey: ['sessions'],
     queryFn: api.getSessions,
     refetchInterval: 5000,
-  });
-
-  const createSessionMutation = useMutation({
-    mutationFn: api.createSession,
-    onSuccess: (session) => {
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
-      navigate(`/sessions/${session.id}`);
-    },
-    onError: (error) => {
-      toast({ title: 'Error', description: (error as Error).message, variant: 'destructive' });
-    },
   });
 
   const terminateMutation = useMutation({
@@ -56,15 +48,10 @@ export function DashboardPage() {
           <p className="text-muted-foreground">Manage your Claude Code sessions</p>
         </div>
         <Button
-          onClick={() => createSessionMutation.mutate(undefined)}
-          disabled={createSessionMutation.isPending}
+          onClick={() => setNewSessionModalOpen(true)}
           className="gap-2"
         >
-          {createSessionMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Plus className="h-4 w-4" />
-          )}
+          <Plus className="h-4 w-4" />
           <span className="hidden sm:inline">New Session</span>
         </Button>
       </div>
@@ -101,7 +88,7 @@ export function DashboardPage() {
                 <p className="text-muted-foreground text-center mb-4">
                   Start a new session to begin coding with Claude
                 </p>
-                <Button onClick={() => createSessionMutation.mutate(undefined)}>
+                <Button onClick={() => setNewSessionModalOpen(true)}>
                   <Plus className="h-4 w-4 mr-2" />
                   New Session
                 </Button>
@@ -142,6 +129,11 @@ export function DashboardPage() {
           )}
         </>
       )}
+
+      <NewSessionModal
+        open={newSessionModalOpen}
+        onClose={() => setNewSessionModalOpen(false)}
+      />
     </div>
   );
 }
