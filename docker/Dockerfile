@@ -119,7 +119,7 @@ RUN chmod 1777 /tmp && mkdir -p /var/tmp && chmod 1777 /var/tmp
 WORKDIR /app
 
 # ── Dependencies ──
-COPY --chown=agent:agent package.json bun.lockb* ./
+COPY --chown=agent:agent package.json bun.lock* ./
 COPY --chown=agent:agent packages/api/package.json ./packages/api/
 COPY --chown=agent:agent packages/ui/package.json ./packages/ui/
 
