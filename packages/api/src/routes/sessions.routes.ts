@@ -426,7 +426,23 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     for (const session of allSessions) {
       const terminals = terminalService.getSessionTerminals(session.id);
       const hasActiveTerminals = terminals.some(t => t.status === 'running');
-      const liveStatus = hasActiveTerminals ? 'active' : session.status;
+      let liveStatus = hasActiveTerminals ? 'active' : session.status;
+
+      // Auto-detect stale sessions: if status is 'active' or 'waiting_input' but
+      // no terminals are running and last activity was > 2 minutes ago, treat as terminated
+      if (!hasActiveTerminals && (session.status === 'active' || session.status === 'waiting_input')) {
+        const staleThreshold = 2 * 60 * 1000; // 2 minutes
+        const lastActive = new Date(session.lastActiveAt).getTime();
+        if (Date.now() - lastActive > staleThreshold) {
+          liveStatus = 'terminated';
+          // Also update the DB so this doesn't keep showing up
+          db.update(claudeSessions)
+            .set({ status: 'terminated' })
+            .where(eq(claudeSessions.id, session.id))
+            .then(() => {})
+            .catch(() => {});
+        }
+      }
 
       let diffStats = null;
       let branchName = '';

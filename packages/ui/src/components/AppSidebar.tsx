@@ -18,7 +18,9 @@ import type { SidebarData, SidebarProject, SidebarSession } from '@/lib/api';
 const ACTIVE_STATUSES = new Set(['active', 'waiting_input', 'paused']);
 
 function isActiveSession(session: SidebarSession): boolean {
-  return ACTIVE_STATUSES.has(session.status);
+  // Use liveStatus (which accounts for stale sessions) over stored status
+  const effectiveStatus = session.liveStatus || session.status;
+  return ACTIVE_STATUSES.has(effectiveStatus);
 }
 
 interface AppSidebarProps {

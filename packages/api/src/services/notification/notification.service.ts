@@ -7,6 +7,10 @@ import { notificationRepository } from './notification.repository';
 export class NotificationService {
   private adapters = new Map<string, NotificationAdapter>();
   private initialized = false;
+  // Debounce: track recently sent notification content per user to avoid duplicates
+  // Key: `${userId}:${hash}`, Value: timestamp
+  private recentNotifications = new Map<string, number>();
+  private static DEBOUNCE_WINDOW_MS = 2 * 60 * 1000; // 2 minutes
 
   constructor() {
     // Register default adapters
@@ -105,6 +109,18 @@ export class NotificationService {
     notification: NotificationRecord;
     sendResult: { success: boolean; results: Record<string, boolean> };
   }> {
+    // Debounce: skip if same content was sent to same user within 2 minutes
+    if (this.isDuplicateNotification(input.userId, input.body, input.type)) {
+      console.log(`Skipping duplicate notification for user ${input.userId}: "${input.body.slice(0, 50)}..."`);
+      // Still create the DB record but don't send
+      const notification = await notificationRepository.create(input);
+      await notificationRepository.updateStatus(notification.id, 'dismissed');
+      return { notification, sendResult: { success: false, results: {} } };
+    }
+
+    // Mark this content as recently sent
+    this.markNotificationSent(input.userId, input.body, input.type);
+
     // Create notification record
     const notification = await notificationRepository.create(input);
 
@@ -146,6 +162,35 @@ export class NotificationService {
 
   async dismissByTerminal(terminalId: string): Promise<number> {
     return notificationRepository.dismissByTerminal(terminalId);
+  }
+
+  private getContentKey(userId: string, body: string, type: string): string {
+    // Simple hash: userId + type + normalized body content
+    return `${userId}:${type}:${body.trim().toLowerCase()}`;
+  }
+
+  private isDuplicateNotification(userId: string, body: string, type: string): boolean {
+    // Clean up expired entries periodically
+    const now = Date.now();
+    if (this.recentNotifications.size > 100) {
+      for (const [key, timestamp] of this.recentNotifications) {
+        if (now - timestamp > NotificationService.DEBOUNCE_WINDOW_MS) {
+          this.recentNotifications.delete(key);
+        }
+      }
+    }
+
+    const key = this.getContentKey(userId, body, type);
+    const lastSent = this.recentNotifications.get(key);
+    if (lastSent && now - lastSent < NotificationService.DEBOUNCE_WINDOW_MS) {
+      return true;
+    }
+    return false;
+  }
+
+  private markNotificationSent(userId: string, body: string, type: string): void {
+    const key = this.getContentKey(userId, body, type);
+    this.recentNotifications.set(key, Date.now());
   }
 
   private async getUserPreferences(userId: string) {

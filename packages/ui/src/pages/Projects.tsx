@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Plus, FolderGit2, GitBranch, RefreshCw, Loader2, Terminal, Key, Layers, Check } from 'lucide-react';
+import { Plus, FolderGit2, GitBranch, RefreshCw, Loader2, Terminal, Key, Layers, Check, Trash2 } from 'lucide-react';
 import { api, type Project, type SSHKey } from '@/lib/api';
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -361,6 +362,23 @@ function CreateMultiProjectForm({
 function ProjectCard({ project }: { project: Project }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletePin, setDeletePin] = useState('');
+
+  const deleteMutation = useMutation({
+    mutationFn: () => api.deleteProject(project.id, deletePin),
+    onSuccess: () => {
+      toast({ title: 'Project deleted' });
+      setShowDeleteConfirm(false);
+      setDeletePin('');
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['sidebar-data'] });
+    },
+    onError: (error) => {
+      toast({ title: 'Error', description: (error as Error).message, variant: 'destructive' });
+    },
+  });
 
   const openSessionMutation = useMutation({
     mutationFn: () => api.createSession(project.id),
@@ -409,6 +427,14 @@ function ProjectCard({ project }: { project: Project }) {
               </span>
             )}
           </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+            onClick={() => setShowDeleteConfirm(true)}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
         </div>
         <CardDescription>
           {project.isMultiProject
@@ -488,6 +514,42 @@ function ProjectCard({ project }: { project: Project }) {
         <p className="text-xs text-muted-foreground mt-3">
           Updated {formatRelativeTime(project.updatedAt)}
         </p>
+        {showDeleteConfirm && (
+          <div className="mt-3 p-3 border border-destructive/30 rounded-md bg-destructive/5 space-y-2">
+            <p className="text-sm font-medium text-destructive">Delete "{project.name}"?</p>
+            <p className="text-xs text-muted-foreground">This will permanently remove the project and its files.</p>
+            {user?.hasPin ? (
+              <Input
+                type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={deletePin}
+                onChange={(e) => setDeletePin(e.target.value.replace(/\D/g, ''))}
+                maxLength={8}
+                placeholder="Enter PIN to confirm"
+                className="h-8 text-sm"
+              />
+            ) : null}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending || (user?.hasPin && !deletePin)}
+              >
+                {deleteMutation.isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                Delete
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => { setShowDeleteConfirm(false); setDeletePin(''); }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
