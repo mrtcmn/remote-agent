@@ -33,8 +33,6 @@ services:
       # Persistent data
       - workspaces:/app/workspaces
       - ssh-keys:/app/ssh-keys
-      # Custom config (read-only)
-      - ./config:/app/config:ro
       # Docker socket for container management
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
