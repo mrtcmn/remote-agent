@@ -81,6 +81,24 @@ export function FileTree({ sessionId, selectedFile, onFileSelect, basePath = '.'
   });
 
   const handleContextAction = useCallback((type: ContextAction, path: string, entryType: 'file' | 'directory') => {
+    const fileName = path.split('/').pop() || path;
+    switch (type) {
+      case 'docker-build':
+        api.dockerBuild(path, '.')
+          .then(() => toast({ title: 'Build started', description: fileName }))
+          .catch((err: Error) => toast({ title: 'Build failed', description: err.message, variant: 'destructive' }));
+        return;
+      case 'compose-up':
+        api.dockerComposeUp(path)
+          .then(() => toast({ title: 'Compose Up', description: fileName }))
+          .catch((err: Error) => toast({ title: 'Compose Up failed', description: err.message, variant: 'destructive' }));
+        return;
+      case 'compose-down':
+        api.dockerComposeDown(path)
+          .then(() => toast({ title: 'Compose Down', description: fileName }))
+          .catch((err: Error) => toast({ title: 'Compose Down failed', description: err.message, variant: 'destructive' }));
+        return;
+    }
     setContextAction({ type, path, entryType });
   }, []);
 
@@ -185,6 +203,7 @@ function TreeDirectory({ sessionId, path, depth, selectedFile, onFileSelect, onC
       {directoryButton && (
         <FileContextMenu
           entryType="directory"
+          fileName={path.split('/').pop() || path}
           onAction={(action) => onContextAction(action, path, 'directory')}
         >
           {directoryButton}
@@ -238,6 +257,7 @@ function TreeFile({ entry, depth, isSelected, onSelect, onContextAction }: TreeF
   return (
     <FileContextMenu
       entryType="file"
+      fileName={entry.name}
       onAction={(action) => onContextAction(action, entry.path, 'file')}
     >
       <button
