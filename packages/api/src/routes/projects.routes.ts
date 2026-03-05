@@ -53,6 +53,52 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
     }),
   })
 
+  // Get project environment variables
+  .get('/:id/env', async ({ user, params, set }) => {
+    const project = await db.query.projects.findFirst({
+      where: and(
+        eq(projects.id, params.id),
+        eq(projects.userId, user!.id)
+      ),
+      columns: { env: true },
+    });
+
+    if (!project) {
+      set.status = 404;
+      return { error: 'Project not found' };
+    }
+
+    return { env: project.env ? JSON.parse(project.env) : {} };
+  }, {
+    params: t.Object({ id: t.String() }),
+  })
+
+  // Update project environment variables
+  .put('/:id/env', async ({ user, params, body, set }) => {
+    const project = await db.query.projects.findFirst({
+      where: and(
+        eq(projects.id, params.id),
+        eq(projects.userId, user!.id)
+      ),
+    });
+
+    if (!project) {
+      set.status = 404;
+      return { error: 'Project not found' };
+    }
+
+    await db.update(projects)
+      .set({ env: JSON.stringify(body.env), updatedAt: new Date() })
+      .where(eq(projects.id, params.id));
+
+    return { success: true };
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({
+      env: t.Record(t.String(), t.String()),
+    }),
+  })
+
   // Create/Clone project
   .post('/', async ({ user, body, set }) => {
     const projectId = nanoid();
