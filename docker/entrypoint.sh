@@ -3,6 +3,18 @@ set -e
 
 echo "Starting Remote Agent..."
 
+# Fix Docker socket permissions — match host socket GID to container docker group
+if [ -S /var/run/docker.sock ]; then
+  SOCK_GID=$(stat -c '%g' /var/run/docker.sock)
+  if getent group docker > /dev/null 2>&1; then
+    groupmod -g "$SOCK_GID" docker 2>/dev/null || true
+  else
+    groupadd -g "$SOCK_GID" docker 2>/dev/null || true
+  fi
+  usermod -aG docker agent 2>/dev/null || true
+  echo "Docker socket configured (GID: $SOCK_GID)"
+fi
+
 # Fix ownership of mounted volumes (runs as root)
 chown -R agent:agent /app/workspaces /app/ssh-keys /app/data 2>/dev/null || true
 chown -R agent:agent /app/config 2>/dev/null || true
