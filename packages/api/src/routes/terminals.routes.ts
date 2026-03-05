@@ -4,6 +4,7 @@ import { eq, and } from 'drizzle-orm';
 import { db, claudeSessions, terminals } from '../db';
 import { terminalService } from '../services/terminal';
 import { workspaceService } from '../services/workspace';
+import { resolveProjectEnv } from '../services/workspace/env.service';
 import { requireAuth } from '../auth/middleware';
 
 export const terminalRoutes = new Elysia({ prefix: '/terminals' })
@@ -67,11 +68,17 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     const cwd = session.project?.localPath || userWorkspace;
     const type = body.type || 'shell';
 
+    // Resolve project-level env vars
+    const projectEnv = session.project
+      ? await resolveProjectEnv(session.project.id)
+      : {};
+
     // Build command based on type
     let command: string[];
     let name: string;
     let env: Record<string, string> = {
       HOME: '/home/agent',
+      ...projectEnv,
     };
 
     if (type === 'claude') {
