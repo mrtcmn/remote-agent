@@ -50,6 +50,13 @@
       "when": 1772636482291,
       "tag": "0006_familiar_wasp",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1772754406831,
+      "tag": "0007_square_dust",
+      "breakpoints": true
     }
   ]
 }

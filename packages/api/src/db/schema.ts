@@ -95,6 +95,7 @@ export const projects = pgTable('projects', {
   defaultBranch: text('default_branch').default('main'),
   sshKeyId: text('ssh_key_id').references(() => sshKeys.id),
   isMultiProject: boolean('is_multi_project').notNull().default(false),
+  env: text('env'), // JSON — Record<string, string>
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
