@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readFile, rm, chmod, copyFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, readdir, rm, chmod, copyFile, cp } from 'node:fs/promises';
 import { join } from 'node:path';
 import { $ } from 'bun';
 import { nanoid } from 'nanoid';
@@ -59,18 +59,21 @@ export class WorkspaceService {
       await this.storeSSHKey(userId, opts.sshPrivateKey, opts.sshPublicKey);
     }
 
-    // 2. Store custom skills
+    // 2. Deploy config-based skills (from /app/config/claude/skills/)
+    await this.deploySkills(userId);
+
+    // 3. Store custom API-provided skills (on top of config-based ones)
     if (opts.skills?.length) {
       await this.storeSkills(userId, opts.skills);
     }
 
-    // 3. Deploy global CLAUDE.md
+    // 4. Deploy global CLAUDE.md
     await this.deployCLAUDEmd(userId);
 
-    // 4. Store custom hooks (merged with notification hooks)
+    // 5. Store custom hooks (merged with notification hooks)
     await this.storeHooks(userId, undefined, undefined, opts.hooks);
 
-    // 5. Store Claude settings
+    // 6. Store Claude settings
     if (opts.claudeSettings) {
       await this.storeSettings(userId, opts.claudeSettings);
     }
@@ -166,6 +169,28 @@ export class WorkspaceService {
       await copyFile(sourcePath, destPath);
     } catch {
       // CLAUDE.md template not found, skip silently
+    }
+  }
+
+  async deploySkills(userId: string): Promise<void> {
+    const sourceDir = join(this.configRoot, 'claude', 'skills');
+    const destDir = join(this.workspacesRoot, userId, '.claude', 'skills');
+
+    try {
+      const entries = await readdir(sourceDir, { withFileTypes: true });
+      const skillDirs = entries.filter(e => e.isDirectory() && !e.name.startsWith('.'));
+
+      if (skillDirs.length === 0) return;
+
+      await mkdir(destDir, { recursive: true });
+
+      for (const dir of skillDirs) {
+        const src = join(sourceDir, dir.name);
+        const dest = join(destDir, dir.name);
+        await cp(src, dest, { recursive: true, force: true });
+      }
+    } catch {
+      // Skills directory not found, skip silently
     }
   }
 
