@@ -17,6 +17,7 @@ import {
   Play,
   Monitor,
   Box,
+  Settings2,
 } from 'lucide-react';
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -26,10 +27,11 @@ import { FileExplorer } from '@/components/FileExplorer';
 import { RunConfigPanel } from '@/components/RunConfigPanel';
 import { BrowserPreview } from '@/components/BrowserPreview';
 import { DockerPanel } from '@/components/DockerPanel';
+import { EnvEditor } from '@/components/EnvEditor';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/Toaster';
 
-type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'preview' | 'docker';
+type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'preview' | 'docker' | 'env';
 
 export function SessionPage() {
   const { id, terminalId: terminalIdFromRoute } = useParams<{ id: string; terminalId?: string }>();
@@ -234,6 +236,19 @@ export function SessionPage() {
           >
             <Play className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Run</span>
+          </Button>
+        )}
+
+        {/* Env Toggle */}
+        {session?.project && (
+          <Button
+            variant={viewMode === 'env' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="gap-1.5 h-8 px-2.5 font-mono text-xs"
+            onClick={() => setViewMode(viewMode === 'env' ? 'terminal' : 'env')}
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Env</span>
           </Button>
         )}
 
@@ -550,6 +565,22 @@ export function SessionPage() {
                   setViewMode('terminal');
                 }}
               />
+            ) : viewMode === 'env' && session?.project ? (
+              <div className="p-4">
+                <EnvEditor projectId={session.project.id} />
+                {session.project.isMultiProject && session.project.childLinks && (
+                  <div className="mt-6 space-y-4">
+                    {session.project.childLinks.map((link: any) => (
+                      <div key={link.id} className="border rounded-lg p-3">
+                        <p className="text-xs font-medium text-muted-foreground mb-2">
+                          {link.alias || link.name}
+                        </p>
+                        <EnvEditor projectId={link.id} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : viewMode === 'preview' && previewId ? (
               <BrowserPreview
                 previewId={previewId}
