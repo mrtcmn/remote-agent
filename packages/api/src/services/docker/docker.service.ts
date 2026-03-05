@@ -1,0 +1,198 @@
+import { spawn } from 'bun';
+
+export interface DockerContainer {
+  id: string;
+  names: string;
+  image: string;
+  status: string;
+  state: string;
+  ports: string;
+  createdAt: string;
+}
+
+export interface DockerFile {
+  path: string;
+  type: 'dockerfile' | 'compose';
+  name: string;
+}
+
+const DOCKERFILE_PATTERN = /^Dockerfile(\..+)?$/i;
+const COMPOSE_PATTERN = /^(docker-)?compose(\..+)?\.(yml|yaml)$/i;
+
+class DockerService {
+  /**
+   * Run a docker CLI command and return stdout.
+   * Throws on non-zero exit.
+   */
+  private async exec(args: string[]): Promise<string> {
+    const proc = spawn(['docker', ...args], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+
+    if (exitCode !== 0) {
+      throw new Error(stderr.trim() || `docker ${args[0]} failed with exit code ${exitCode}`);
+    }
+
+    return stdout.trim();
+  }
+
+  async listContainers(): Promise<DockerContainer[]> {
+    const format = '{{json .}}';
+    const output = await this.exec(['ps', '-a', '--format', format]);
+    if (!output) return [];
+
+    return output
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const raw = JSON.parse(line);
+        return {
+          id: raw.ID,
+          names: raw.Names,
+          image: raw.Image,
+          status: raw.Status,
+          state: raw.State,
+          ports: raw.Ports,
+          createdAt: raw.CreatedAt,
+        };
+      });
+  }
+
+  async startContainer(id: string): Promise<void> {
+    await this.exec(['start', id]);
+  }
+
+  async stopContainer(id: string): Promise<void> {
+    await this.exec(['stop', id]);
+  }
+
+  async restartContainer(id: string): Promise<void> {
+    await this.exec(['restart', id]);
+  }
+
+  async removeContainer(id: string, force = false): Promise<void> {
+    const args = ['rm'];
+    if (force) args.push('-f');
+    args.push(id);
+    await this.exec(args);
+  }
+
+  getLogsCommand(containerId: string): string[] {
+    return ['docker', 'logs', '--tail', '200', '-f', containerId];
+  }
+
+  async buildImage(dockerfilePath: string, contextDir: string, tag?: string): Promise<string> {
+    const args = ['build', '-f', dockerfilePath];
+    if (tag) args.push('-t', tag);
+    args.push(contextDir);
+    return this.exec(args);
+  }
+
+  async runContainer(opts: {
+    image: string;
+    name?: string;
+    ports?: string[];
+    env?: Record<string, string>;
+    detach?: boolean;
+  }): Promise<string> {
+    const args = ['run'];
+    if (opts.detach !== false) args.push('-d');
+    if (opts.name) args.push('--name', opts.name);
+    if (opts.ports) {
+      for (const port of opts.ports) {
+        args.push('-p', port);
+      }
+    }
+    if (opts.env) {
+      for (const [key, val] of Object.entries(opts.env)) {
+        args.push('-e', `${key}=${val}`);
+      }
+    }
+    args.push(opts.image);
+    return this.exec(args);
+  }
+
+  async composeUp(composePath: string): Promise<string> {
+    return this.exec(['compose', '-f', composePath, 'up', '-d']);
+  }
+
+  async composeDown(composePath: string): Promise<string> {
+    return this.exec(['compose', '-f', composePath, 'down']);
+  }
+
+  async composePs(composePath: string): Promise<DockerContainer[]> {
+    const format = '{{json .}}';
+    const output = await this.exec(['compose', '-f', composePath, 'ps', '--format', format]);
+    if (!output) return [];
+
+    return output
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const raw = JSON.parse(line);
+        return {
+          id: raw.ID,
+          names: raw.Name || raw.Names,
+          image: raw.Image,
+          status: raw.Status,
+          state: raw.State,
+          ports: raw.Ports || raw.Publishers || '',
+          createdAt: raw.CreatedAt || '',
+        };
+      });
+  }
+
+  async detectFiles(projectPath: string, maxDepth = 3): Promise<DockerFile[]> {
+    const { readdir } = await import('fs/promises');
+    const { join, relative } = await import('path');
+    const results: DockerFile[] = [];
+
+    const scan = async (dir: string, depth: number) => {
+      if (depth > maxDepth) return;
+      try {
+        const entries = await readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            if (['node_modules', '.git', 'dist', 'build', '.next', 'vendor'].includes(entry.name)) continue;
+            await scan(join(dir, entry.name), depth + 1);
+          } else if (entry.isFile()) {
+            if (DOCKERFILE_PATTERN.test(entry.name)) {
+              results.push({
+                path: relative(projectPath, join(dir, entry.name)),
+                type: 'dockerfile',
+                name: entry.name,
+              });
+            } else if (COMPOSE_PATTERN.test(entry.name)) {
+              results.push({
+                path: relative(projectPath, join(dir, entry.name)),
+                type: 'compose',
+                name: entry.name,
+              });
+            }
+          }
+        }
+      } catch {
+        // Permission denied or other fs error — skip
+      }
+    };
+
+    await scan(projectPath, 0);
+    return results;
+  }
+
+  async isAvailable(): Promise<boolean> {
+    try {
+      await this.exec(['info', '--format', '{{.ServerVersion}}']);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+export const dockerService = new DockerService();
