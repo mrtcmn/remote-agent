@@ -8,6 +8,7 @@ import {
 } from '@/lib/firebase';
 import { toast } from '@/components/ui/Toaster';
 import { useActivityHeartbeat } from '@/hooks/useActivityHeartbeat';
+import { getActiveTerminalIdFromUrl } from '@/lib/url-utils';
 
 /**
  * Global notification listener component.
@@ -82,8 +83,7 @@ export function NotificationListener() {
       // Show toast (skip if user is viewing the notification's terminal)
       if (notification.notification) {
         const notifTerminalId = notification.data?.terminalId;
-        const urlMatch = window.location.pathname.match(/\/sessions\/[^/]+\/([^/]+)/);
-        const activeTerminalId = urlMatch?.[1];
+        const activeTerminalId = getActiveTerminalIdFromUrl();
 
         const isViewingTerminal = notifTerminalId && activeTerminalId && notifTerminalId === activeTerminalId;
 

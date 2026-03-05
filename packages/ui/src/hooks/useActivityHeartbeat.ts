@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
+import { getActiveTerminalIdFromUrl } from '@/lib/url-utils';
 
 const HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
 const IDLE_TIMEOUT_MS = 60_000; // 1 minute
@@ -29,9 +30,7 @@ export function useActivityHeartbeat() {
       if (document.visibilityState !== 'visible') return;
       if (Date.now() - lastActivityRef.current > IDLE_TIMEOUT_MS) return;
 
-      // Extract terminalId from URL: /sessions/:id/:terminalId
-      const match = window.location.pathname.match(/\/sessions\/[^/]+\/([^/]+)/);
-      const terminalId = match?.[1] || undefined;
+      const terminalId = getActiveTerminalIdFromUrl();
 
       api.sendHeartbeat(terminalId).catch(() => {
         // Silently ignore heartbeat failures

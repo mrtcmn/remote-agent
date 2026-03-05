@@ -303,13 +303,14 @@ export class TerminalService extends EventEmitter {
     const partialMatch = combined.match(/\x1b\](?:0|2);[^\x07\x1b]*$/);
     instance.titleBuffer = partialMatch ? partialMatch[0] : undefined;
 
-    // Update name if we found a new title
-    if (lastTitle !== null && lastTitle !== instance.name) {
+    // Update name if we found a new non-empty title
+    if (lastTitle !== null && lastTitle.length > 0 && lastTitle !== instance.name) {
       instance.name = lastTitle;
-      // Update DB
-      db.update(terminals)
+      // Update DB (fire-and-forget)
+      void db.update(terminals)
         .set({ name: lastTitle })
         .where(eq(terminals.id, terminalId))
+        .then(() => {})
         .catch(err => console.error('[TerminalService] Failed to update terminal name:', err));
 
       this.emit('title_changed', terminalId, lastTitle);

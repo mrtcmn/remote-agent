@@ -9,6 +9,16 @@ class PresenceManager {
   private static ACTIVE_THRESHOLD_MS = 60 * 1000; // 1 minute
 
   heartbeat(userId: string, terminalId?: string): void {
+    // Prune stale entries to prevent unbounded growth
+    if (this.presence.size > 100) {
+      const now = Date.now();
+      for (const [key, val] of this.presence) {
+        if (now - val.lastHeartbeat > PresenceManager.ACTIVE_THRESHOLD_MS * 10) {
+          this.presence.delete(key);
+        }
+      }
+    }
+
     const activeTerminalIds = new Set<string>();
     if (terminalId) activeTerminalIds.add(terminalId);
 
