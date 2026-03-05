@@ -18,6 +18,7 @@ export interface TerminalInstance {
   terminal: BunTerminal | null;
   scrollback: string[];
   rawScrollback?: Uint8Array[]; // Raw output chunks for session restore
+  titleBuffer?: string; // Buffer for partial OSC title sequences
   createdAt: Date;
 }
 

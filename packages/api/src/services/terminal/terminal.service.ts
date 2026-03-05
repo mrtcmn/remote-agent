@@ -266,6 +266,9 @@ export class TerminalService extends EventEmitter {
       }
     }
 
+    // Parse OSC title sequences
+    this.parseTitle(terminalId, data);
+
     const output: TerminalOutput = {
       terminalId,
       data,
@@ -273,6 +276,44 @@ export class TerminalService extends EventEmitter {
     };
 
     this.emit('output', output);
+  }
+
+  /**
+   * Parse OSC title escape sequences from terminal output.
+   * Handles: \x1b]0;title\x07, \x1b]2;title\x07, \x1b]0;title\x1b\\
+   * Buffers partial sequences across chunks.
+   */
+  private parseTitle(terminalId: string, data: Uint8Array): void {
+    const instance = this.instances.get(terminalId);
+    if (!instance) return;
+
+    const text = new TextDecoder().decode(data);
+    const combined = (instance.titleBuffer || '') + text;
+
+    // Match OSC title sequences: ESC ] 0; title BEL  or  ESC ] 0; title ESC \
+    const oscRegex = /\x1b\](?:0|2);([^\x07\x1b]*?)(?:\x07|\x1b\\)/g;
+    let match: RegExpExecArray | null;
+    let lastTitle: string | null = null;
+
+    while ((match = oscRegex.exec(combined)) !== null) {
+      lastTitle = match[1];
+    }
+
+    // Check if there's an incomplete OSC sequence at the end
+    const partialMatch = combined.match(/\x1b\](?:0|2);[^\x07\x1b]*$/);
+    instance.titleBuffer = partialMatch ? partialMatch[0] : undefined;
+
+    // Update name if we found a new title
+    if (lastTitle !== null && lastTitle !== instance.name) {
+      instance.name = lastTitle;
+      // Update DB
+      db.update(terminals)
+        .set({ name: lastTitle })
+        .where(eq(terminals.id, terminalId))
+        .catch(err => console.error('[TerminalService] Failed to update terminal name:', err));
+
+      this.emit('title_changed', terminalId, lastTitle);
+    }
   }
 
   private async handleExit(
