@@ -5,3 +5,4 @@ export * from './workspace';
 export * from './kanban';
 export * from './cli-adapter';
 export * from './auto-flow';
+export * from './presence';
