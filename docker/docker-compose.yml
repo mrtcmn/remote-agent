@@ -35,6 +35,8 @@ services:
       - ssh-keys:/app/ssh-keys
       # Custom config (read-only)
       - ./config:/app/config:ro
+      # Docker socket for container management
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       # Database
       - DATABASE_URL=postgres://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-remote_agent}
