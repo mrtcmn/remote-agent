@@ -150,6 +150,7 @@ COPY --chown=agent:agent --chmod=755 docker/hooks/ /app/hooks/
 # ── Metadata & environment ──
 ENV APP_VERSION=$VERSION
 ENV NODE_ENV=production
+ENV BUN_TMPDIR=/tmp
 ENV WORKSPACES_ROOT=/app/workspaces
 ENV SSH_KEYS_ROOT=/app/ssh-keys
 ENV CONFIG_ROOT=/app/config

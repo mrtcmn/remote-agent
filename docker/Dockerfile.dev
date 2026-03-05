@@ -34,6 +34,7 @@ RUN bun install && cd packages/api && bun install
 
 # ---- Runtime config ----
 ENV NODE_ENV=development
+ENV BUN_TMPDIR=/tmp
 ENV PATH="/home/agent/.local/bin:/usr/local/bin:${PATH}"
 
 EXPOSE 5100
