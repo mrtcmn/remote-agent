@@ -141,11 +141,14 @@ COPY --chown=agent:agent . .
 RUN bun run build:ui
 
 # Create required directories with agent ownership
-RUN mkdir -p /app/workspaces /app/ssh-keys /app/config/hooks /app/config/skills && \
+RUN mkdir -p /app/workspaces /app/ssh-keys /app/config/hooks /app/config/skills /app/config/claude && \
     chown -R agent:agent /app/workspaces /app/ssh-keys /app/config
 
 # Copy hook scripts (--chmod eliminates ghost layer from separate chmod)
 COPY --chown=agent:agent --chmod=755 docker/hooks/ /app/hooks/
+
+# Copy global CLAUDE.md template
+COPY --chown=agent:agent docker/claude/ /app/config/claude/
 
 # ── Metadata & environment ──
 ENV APP_VERSION=$VERSION

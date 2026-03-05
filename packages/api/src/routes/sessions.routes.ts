@@ -237,7 +237,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
 
       // Check git status to determine the right diff command
       const statusResult = await $`git status --porcelain -- ${filePath}`.cwd(session.project.localPath).quiet();
-      const statusLine = statusResult.stdout.toString().trim();
+      const statusLine = statusResult.stdout.toString().trimEnd();
 
       let diff = '';
 

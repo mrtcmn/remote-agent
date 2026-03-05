@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readFile, rm, chmod } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, rm, chmod, copyFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { $ } from 'bun';
 import { nanoid } from 'nanoid';
@@ -64,10 +64,13 @@ export class WorkspaceService {
       await this.storeSkills(userId, opts.skills);
     }
 
-    // 3. Store custom hooks (merged with notification hooks)
+    // 3. Deploy global CLAUDE.md
+    await this.deployCLAUDEmd(userId);
+
+    // 4. Store custom hooks (merged with notification hooks)
     await this.storeHooks(userId, undefined, undefined, opts.hooks);
 
-    // 4. Store Claude settings
+    // 5. Store Claude settings
     if (opts.claudeSettings) {
       await this.storeSettings(userId, opts.claudeSettings);
     }
@@ -153,6 +156,16 @@ export class WorkspaceService {
     for (const skill of skills) {
       const skillPath = join(skillsDir, `${skill.name}.md`);
       await writeFile(skillPath, skill.content);
+    }
+  }
+
+  async deployCLAUDEmd(userId: string): Promise<void> {
+    const sourcePath = join(this.configRoot, 'claude', 'CLAUDE.md');
+    const destPath = join(this.workspacesRoot, userId, 'CLAUDE.md');
+    try {
+      await copyFile(sourcePath, destPath);
+    } catch {
+      // CLAUDE.md template not found, skip silently
     }
   }
 
