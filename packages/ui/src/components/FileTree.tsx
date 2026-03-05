@@ -84,23 +84,23 @@ export function FileTree({ sessionId, selectedFile, onFileSelect, basePath = '.'
     const fileName = path.split('/').pop() || path;
     switch (type) {
       case 'docker-build':
-        api.dockerBuild(path, '.')
+        api.dockerBuild(path, '.', undefined, sessionId)
           .then(() => toast({ title: 'Build started', description: fileName }))
           .catch((err: Error) => toast({ title: 'Build failed', description: err.message, variant: 'destructive' }));
         return;
       case 'compose-up':
-        api.dockerComposeUp(path)
+        api.dockerComposeUp(path, sessionId)
           .then(() => toast({ title: 'Compose Up', description: fileName }))
           .catch((err: Error) => toast({ title: 'Compose Up failed', description: err.message, variant: 'destructive' }));
         return;
       case 'compose-down':
-        api.dockerComposeDown(path)
+        api.dockerComposeDown(path, sessionId)
           .then(() => toast({ title: 'Compose Down', description: fileName }))
           .catch((err: Error) => toast({ title: 'Compose Down failed', description: err.message, variant: 'destructive' }));
         return;
     }
     setContextAction({ type, path, entryType });
-  }, []);
+  }, [sessionId]);
 
   return (
     <div className="h-full overflow-y-auto py-2 text-sm font-mono">

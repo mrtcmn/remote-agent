@@ -3,8 +3,76 @@ import { requireAuth } from '../auth/middleware';
 import { dockerService } from '../services/docker';
 import { terminalService } from '../services/terminal';
 import { nanoid } from 'nanoid';
-import { db, projects } from '../db';
+import { db, projects, claudeSessions, projectLinks } from '../db';
 import { eq, and } from 'drizzle-orm';
+import { resolve } from 'path';
+import { realpath } from 'fs/promises';
+
+/** Resolve a relative file path to an absolute path using the session's project root.
+ *  Validates path stays within project boundaries (including multi-project symlinks). */
+async function resolveSessionFilePath(
+  sessionId: string,
+  userId: string,
+  relativePath: string,
+  set: { status?: number | string }
+): Promise<string | null> {
+  const session = await db.query.claudeSessions.findFirst({
+    where: and(
+      eq(claudeSessions.id, sessionId),
+      eq(claudeSessions.userId, userId)
+    ),
+    with: { project: true },
+  });
+
+  if (!session?.project) {
+    set.status = 404;
+    return null;
+  }
+
+  const projectRoot = resolve(session.project.localPath);
+  const fullPath = resolve(projectRoot, relativePath);
+
+  // Traversal check: resolved path must be within project root
+  if (fullPath !== projectRoot && !fullPath.startsWith(projectRoot + '/')) {
+    set.status = 403;
+    return null;
+  }
+
+  // Resolve symlinks and re-check (handles multi-project workspaces)
+  try {
+    const realFullPath = await realpath(fullPath);
+    const realProjectRoot = await realpath(projectRoot);
+    if (realFullPath === realProjectRoot || realFullPath.startsWith(realProjectRoot + '/')) {
+      return realFullPath;
+    }
+
+    // For multi-project sessions, check allowed child project paths
+    if (session.project.isMultiProject) {
+      const links = await db.query.projectLinks.findMany({
+        where: eq(projectLinks.parentProjectId, session.project.id),
+        with: { childProject: true },
+      });
+      for (const link of links) {
+        const childPath = (link as any).childProject?.localPath;
+        if (!childPath) continue;
+        try {
+          const realAllowed = await realpath(childPath);
+          if (realFullPath === realAllowed || realFullPath.startsWith(realAllowed + '/')) {
+            return realFullPath;
+          }
+        } catch {
+          // Skip invalid child paths
+        }
+      }
+    }
+
+    set.status = 403;
+    return null;
+  } catch {
+    // Path doesn't exist yet but resolved path was within bounds
+    return fullPath;
+  }
+}
 
 export const dockerRoutes = new Elysia({ prefix: '/docker' })
   .use(requireAuth)
@@ -103,9 +171,20 @@ export const dockerRoutes = new Elysia({ prefix: '/docker' })
   })
 
   // Build image from Dockerfile
-  .post('/build', async ({ body, set }) => {
+  .post('/build', async ({ user, body, set }) => {
     try {
-      const output = await dockerService.buildImage(body.dockerfilePath, body.contextDir, body.tag);
+      let dockerfilePath = body.dockerfilePath;
+      let contextDir = body.contextDir;
+      if (body.sessionId) {
+        const resolved = await resolveSessionFilePath(body.sessionId, user!.id, dockerfilePath, set);
+        if (!resolved) return { error: 'Session not found' };
+        dockerfilePath = resolved;
+        // Resolve contextDir relative to session project root too
+        const resolvedCtx = await resolveSessionFilePath(body.sessionId, user!.id, contextDir, set);
+        if (!resolvedCtx) return { error: 'Session not found' };
+        contextDir = resolvedCtx;
+      }
+      const output = await dockerService.buildImage(dockerfilePath, contextDir, body.tag);
       return { success: true, output };
     } catch (error) {
       set.status = 500;
@@ -116,6 +195,7 @@ export const dockerRoutes = new Elysia({ prefix: '/docker' })
       dockerfilePath: t.String(),
       contextDir: t.String(),
       tag: t.Optional(t.String()),
+      sessionId: t.Optional(t.String()),
     }),
   })
 
@@ -143,29 +223,41 @@ export const dockerRoutes = new Elysia({ prefix: '/docker' })
   })
 
   // Docker Compose up
-  .post('/compose/up', async ({ body, set }) => {
+  .post('/compose/up', async ({ user, body, set }) => {
     try {
-      const output = await dockerService.composeUp(body.composePath);
+      let composePath = body.composePath;
+      if (body.sessionId) {
+        const resolved = await resolveSessionFilePath(body.sessionId, user!.id, composePath, set);
+        if (!resolved) return { error: 'Session not found' };
+        composePath = resolved;
+      }
+      const output = await dockerService.composeUp(composePath);
       return { success: true, output };
     } catch (error) {
       set.status = 500;
       return { error: (error as Error).message };
     }
   }, {
-    body: t.Object({ composePath: t.String() }),
+    body: t.Object({ composePath: t.String(), sessionId: t.Optional(t.String()) }),
   })
 
   // Docker Compose down
-  .post('/compose/down', async ({ body, set }) => {
+  .post('/compose/down', async ({ user, body, set }) => {
     try {
-      const output = await dockerService.composeDown(body.composePath);
+      let composePath = body.composePath;
+      if (body.sessionId) {
+        const resolved = await resolveSessionFilePath(body.sessionId, user!.id, composePath, set);
+        if (!resolved) return { error: 'Session not found' };
+        composePath = resolved;
+      }
+      const output = await dockerService.composeDown(composePath);
       return { success: true, output };
     } catch (error) {
       set.status = 500;
       return { error: (error as Error).message };
     }
   }, {
-    body: t.Object({ composePath: t.String() }),
+    body: t.Object({ composePath: t.String(), sessionId: t.Optional(t.String()) }),
   })
 
   // Docker Compose ps

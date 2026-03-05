@@ -424,25 +424,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ sessionId }),
     }),
-  dockerBuild: (dockerfilePath: string, contextDir: string, tag?: string) =>
+  dockerBuild: (dockerfilePath: string, contextDir: string, tag?: string, sessionId?: string) =>
     request<{ success: boolean; output: string }>('/docker/build', {
       method: 'POST',
-      body: JSON.stringify({ dockerfilePath, contextDir, tag }),
+      body: JSON.stringify({ dockerfilePath, contextDir, tag, sessionId }),
     }),
   dockerRun: (data: { image: string; name?: string; ports?: string[]; env?: Record<string, string> }) =>
     request<{ success: boolean; containerId: string }>('/docker/run', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  dockerComposeUp: (composePath: string) =>
+  dockerComposeUp: (composePath: string, sessionId?: string) =>
     request<{ success: boolean; output: string }>('/docker/compose/up', {
       method: 'POST',
-      body: JSON.stringify({ composePath }),
+      body: JSON.stringify({ composePath, sessionId }),
     }),
-  dockerComposeDown: (composePath: string) =>
+  dockerComposeDown: (composePath: string, sessionId?: string) =>
     request<{ success: boolean; output: string }>('/docker/compose/down', {
       method: 'POST',
-      body: JSON.stringify({ composePath }),
+      body: JSON.stringify({ composePath, sessionId }),
     }),
   dockerComposePs: (composePath: string) =>
     request<{ containers: DockerContainer[] }>(`/docker/compose/ps?composePath=${encodeURIComponent(composePath)}`),
