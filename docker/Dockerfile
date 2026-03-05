@@ -147,8 +147,8 @@ RUN mkdir -p /app/workspaces /app/ssh-keys /app/config/hooks /app/config/skills 
 # Copy hook scripts (--chmod eliminates ghost layer from separate chmod)
 COPY --chown=agent:agent --chmod=755 docker/hooks/ /app/hooks/
 
-# Copy global CLAUDE.md template
-COPY --chown=agent:agent docker/claude/ /app/config/claude/
+# Copy global CLAUDE.md + skills templates (to /app/templates, NOT /app/config which is volume-mounted)
+COPY --chown=agent:agent docker/claude/ /app/templates/claude/
 
 # ── Metadata & environment ──
 ENV APP_VERSION=$VERSION
@@ -157,6 +157,7 @@ ENV BUN_TMPDIR=/tmp
 ENV WORKSPACES_ROOT=/app/workspaces
 ENV SSH_KEYS_ROOT=/app/ssh-keys
 ENV CONFIG_ROOT=/app/config
+ENV TEMPLATES_ROOT=/app/templates
 ENV NVM_DIR=/home/agent/.nvm
 ENV PATH="/home/agent/.local/bin:/home/agent/.nvm/default_bin:/usr/local/bin:${PATH}"
 

@@ -37,11 +37,13 @@ export class WorkspaceService {
   private workspacesRoot: string;
   private sshKeysRoot: string;
   private configRoot: string;
+  private templatesRoot: string;
 
-  constructor(opts?: { workspacesRoot?: string; sshKeysRoot?: string; configRoot?: string }) {
+  constructor(opts?: { workspacesRoot?: string; sshKeysRoot?: string; configRoot?: string; templatesRoot?: string }) {
     this.workspacesRoot = opts?.workspacesRoot || '/app/workspaces';
     this.sshKeysRoot = opts?.sshKeysRoot || '/app/ssh-keys';
     this.configRoot = opts?.configRoot || '/app/config';
+    this.templatesRoot = opts?.templatesRoot || '/app/templates';
   }
 
   async createUserWorkspace(userId: string): Promise<string> {
@@ -59,21 +61,18 @@ export class WorkspaceService {
       await this.storeSSHKey(userId, opts.sshPrivateKey, opts.sshPublicKey);
     }
 
-    // 2. Deploy config-based skills (from /app/config/claude/skills/)
-    await this.deploySkills(userId);
+    // 2. Deploy global CLAUDE.md + skills from templates
+    await this.deployGlobalTemplates(userId);
 
-    // 3. Store custom API-provided skills (on top of config-based ones)
+    // 3. Store custom API-provided skills (on top of template ones)
     if (opts.skills?.length) {
       await this.storeSkills(userId, opts.skills);
     }
 
-    // 4. Deploy global CLAUDE.md
-    await this.deployCLAUDEmd(userId);
-
-    // 5. Store custom hooks (merged with notification hooks)
+    // 4. Store custom hooks (merged with notification hooks)
     await this.storeHooks(userId, undefined, undefined, opts.hooks);
 
-    // 6. Store Claude settings
+    // 5. Store Claude settings
     if (opts.claudeSettings) {
       await this.storeSettings(userId, opts.claudeSettings);
     }
@@ -162,35 +161,25 @@ export class WorkspaceService {
     }
   }
 
-  async deployCLAUDEmd(userId: string): Promise<void> {
-    const sourcePath = join(this.configRoot, 'claude', 'CLAUDE.md');
-    const destPath = join(this.workspacesRoot, userId, 'CLAUDE.md');
+  async deployGlobalTemplates(userId: string): Promise<void> {
+    const claudeTemplateDir = join(this.templatesRoot, 'claude');
+    const userPath = join(this.workspacesRoot, userId);
+
+    // Deploy CLAUDE.md to workspace root
     try {
-      await copyFile(sourcePath, destPath);
+      await copyFile(join(claudeTemplateDir, 'CLAUDE.md'), join(userPath, 'CLAUDE.md'));
     } catch {
-      // CLAUDE.md template not found, skip silently
+      // CLAUDE.md template not found, skip
     }
-  }
 
-  async deploySkills(userId: string): Promise<void> {
-    const sourceDir = join(this.configRoot, 'claude', 'skills');
-    const destDir = join(this.workspacesRoot, userId, '.claude', 'skills');
-
+    // Deploy skills to .claude/skills/
     try {
-      const entries = await readdir(sourceDir, { withFileTypes: true });
-      const skillDirs = entries.filter(e => e.isDirectory() && !e.name.startsWith('.'));
-
-      if (skillDirs.length === 0) return;
-
-      await mkdir(destDir, { recursive: true });
-
-      for (const dir of skillDirs) {
-        const src = join(sourceDir, dir.name);
-        const dest = join(destDir, dir.name);
-        await cp(src, dest, { recursive: true, force: true });
-      }
+      const skillsSource = join(claudeTemplateDir, 'skills');
+      const skillsDest = join(userPath, '.claude', 'skills');
+      await readdir(skillsSource);
+      await cp(skillsSource, skillsDest, { recursive: true, force: true });
     } catch {
-      // Skills directory not found, skip silently
+      // Skills directory not found, skip
     }
   }
 
@@ -335,4 +324,5 @@ export const workspaceService = new WorkspaceService({
   workspacesRoot: process.env.WORKSPACES_ROOT || '/app/workspaces',
   sshKeysRoot: process.env.SSH_KEYS_ROOT || '/app/ssh-keys',
   configRoot: process.env.CONFIG_ROOT || '/app/config',
+  templatesRoot: process.env.TEMPLATES_ROOT || '/app/templates',
 });

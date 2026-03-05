@@ -82,8 +82,9 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
       }
       name = body.name || 'Claude';
 
-      // Ensure user workspace and .claude directory exist with default hooks
+      // Ensure user workspace, .claude directory, templates, and hooks exist
       await workspaceService.createUserWorkspace(user!.id);
+      await workspaceService.deployGlobalTemplates(user!.id);
       await workspaceService.storeHooks(user!.id, body.sessionId, terminalId);
 
       // Set session and terminal IDs for hook callbacks
