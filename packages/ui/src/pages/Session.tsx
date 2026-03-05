@@ -481,6 +481,9 @@ export function SessionPage() {
                   onExit={() => {
                     queryClient.invalidateQueries({ queryKey: ['terminals', id] });
                   }}
+                  onTitleChanged={() => {
+                    queryClient.invalidateQueries({ queryKey: ['terminals', id] });
+                  }}
                 />
               ) : (
                 <EmptyState isLoading={isLoading} onCreateClaude={() => createMutation.mutate({ type: 'claude' })} />

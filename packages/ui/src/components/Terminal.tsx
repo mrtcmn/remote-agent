@@ -6,12 +6,14 @@ interface TerminalProps {
   terminalId: string;
   className?: string;
   onExit?: (exitCode: number) => void;
+  onTitleChanged?: (name: string) => void;
 }
 
-export function Terminal({ terminalId, className, onExit }: TerminalProps) {
+export function Terminal({ terminalId, className, onExit, onTitleChanged }: TerminalProps) {
   const { terminalRef, status, fit, refresh } = useTerminal({
     terminalId,
     onExit,
+    onTitleChanged,
   });
   const hasRefreshedRef = useRef(false);
 

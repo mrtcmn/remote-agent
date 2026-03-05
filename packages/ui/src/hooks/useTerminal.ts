@@ -29,6 +29,7 @@ interface UseTerminalOptions {
   onConnect?: () => void;
   onDisconnect?: () => void;
   onExit?: (exitCode: number) => void;
+  onTitleChanged?: (name: string) => void;
 }
 
 interface UseTerminalReturn {
@@ -40,7 +41,7 @@ interface UseTerminalReturn {
 }
 
 export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
-  const { terminalId, onConnect, onDisconnect, onExit } = options;
+  const { terminalId, onConnect, onDisconnect, onExit, onTitleChanged } = options;
 
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
@@ -54,9 +55,11 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
   const onConnectRef = useRef(onConnect);
   const onDisconnectRef = useRef(onDisconnect);
   const onExitRef = useRef(onExit);
+  const onTitleChangedRef = useRef(onTitleChanged);
   onConnectRef.current = onConnect;
   onDisconnectRef.current = onDisconnect;
   onExitRef.current = onExit;
+  onTitleChangedRef.current = onTitleChanged;
 
   const resizeDebounceRef = useRef<number>();
 
@@ -248,6 +251,11 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
               }
               // Refresh display to ensure content is visible
               currentXterm.refresh(0, currentXterm.rows - 1);
+              break;
+            }
+
+            case 'title_changed': {
+              onTitleChangedRef.current?.(message.data.name);
               break;
             }
           }
