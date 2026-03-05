@@ -22,7 +22,7 @@ export function EnvEditor({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     if (data?.env) {
-      const parsed = Object.entries(data.env).map(([key, value]) => ({ key, value }));
+      const parsed = Object.entries(data.env).map(([key, value]) => ({ key, value: String(value) }));
       setEntries(parsed.length > 0 ? parsed : [{ key: '', value: '' }]);
       setIsDirty(false);
     } else {
