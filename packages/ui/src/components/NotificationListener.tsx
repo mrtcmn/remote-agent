@@ -7,6 +7,7 @@ import {
   onForegroundMessage,
 } from '@/lib/firebase';
 import { toast } from '@/components/ui/Toaster';
+import { useActivityHeartbeat } from '@/hooks/useActivityHeartbeat';
 
 /**
  * Global notification listener component.
@@ -15,6 +16,9 @@ import { toast } from '@/components/ui/Toaster';
 export function NotificationListener() {
   const queryClient = useQueryClient();
   const [isReady, setIsReady] = useState(false);
+
+  // Track user activity and send heartbeats
+  useActivityHeartbeat();
 
   // Check if we should set up the listener
   useEffect(() => {

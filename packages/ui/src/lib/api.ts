@@ -169,6 +169,13 @@ export const api = {
       body: JSON.stringify(params),
     }),
 
+  // Presence
+  sendHeartbeat: (terminalId?: string) =>
+    request('/presence/heartbeat', {
+      method: 'POST',
+      body: JSON.stringify({ terminalId }),
+    }),
+
   // Version
   getVersion: (force = false) =>
     request<VersionInfo>(`/version${force ? '?force=true' : ''}`),
