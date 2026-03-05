@@ -16,6 +16,7 @@ import {
   Trash2,
   Play,
   Monitor,
+  Box,
 } from 'lucide-react';
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -24,10 +25,11 @@ import { GitPanel } from '@/components/git';
 import { FileExplorer } from '@/components/FileExplorer';
 import { RunConfigPanel } from '@/components/RunConfigPanel';
 import { BrowserPreview } from '@/components/BrowserPreview';
+import { DockerPanel } from '@/components/DockerPanel';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/Toaster';
 
-type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'preview';
+type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'preview' | 'docker';
 
 export function SessionPage() {
   const { id, terminalId: terminalIdFromRoute } = useParams<{ id: string; terminalId?: string }>();
@@ -234,6 +236,17 @@ export function SessionPage() {
             <span className="hidden sm:inline">Run</span>
           </Button>
         )}
+
+        {/* Docker Toggle */}
+        <Button
+          variant={viewMode === 'docker' ? 'secondary' : 'ghost'}
+          size="sm"
+          className="gap-1.5 h-8 px-2.5 font-mono text-xs"
+          onClick={() => setViewMode(viewMode === 'docker' ? 'terminal' : 'docker')}
+        >
+          <Box className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Docker</span>
+        </Button>
 
         {/* Preview Toggle */}
         <Button
@@ -521,6 +534,16 @@ export function SessionPage() {
               <RunConfigPanel
                 projectId={session!.project!.id}
                 sessionId={id!}
+                onTerminalCreated={(terminalId) => {
+                  queryClient.invalidateQueries({ queryKey: ['terminals', id] });
+                  selectTerminal(terminalId);
+                  setViewMode('terminal');
+                }}
+              />
+            ) : viewMode === 'docker' ? (
+              <DockerPanel
+                sessionId={id!}
+                projectId={session?.project?.id}
                 onTerminalCreated={(terminalId) => {
                   queryClient.invalidateQueries({ queryKey: ['terminals', id] });
                   selectTerminal(terminalId);
