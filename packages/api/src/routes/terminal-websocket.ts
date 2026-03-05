@@ -43,6 +43,17 @@ terminalService.on('resized', (terminalId: string, size: { cols: number; rows: n
   }
 });
 
+terminalService.on('title_changed', (terminalId: string, name: string) => {
+  const connections = terminalConnections.get(terminalId);
+  if (connections) {
+    const message = JSON.stringify({
+      type: 'title_changed',
+      data: { name },
+    });
+    connections.forEach(ws => ws.send(message));
+  }
+});
+
 export const terminalWebsocketRoutes = new Elysia()
   .ws('/ws/terminal/:terminalId', {
     body: t.Object({
