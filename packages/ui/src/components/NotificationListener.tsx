@@ -79,12 +79,20 @@ export function NotificationListener() {
       console.log('[NotificationListener] Notification:', notification.notification);
       console.log('[NotificationListener] Data:', notification.data);
 
-      // Show toast
+      // Show toast (skip if user is viewing the notification's terminal)
       if (notification.notification) {
-        toast({
-          title: notification.notification.title || 'Notification',
-          description: notification.notification.body,
-        });
+        const notifTerminalId = notification.data?.terminalId;
+        const urlMatch = window.location.pathname.match(/\/sessions\/[^/]+\/([^/]+)/);
+        const activeTerminalId = urlMatch?.[1];
+
+        const isViewingTerminal = notifTerminalId && activeTerminalId && notifTerminalId === activeTerminalId;
+
+        if (!isViewingTerminal) {
+          toast({
+            title: notification.notification.title || 'Notification',
+            description: notification.notification.body,
+          });
+        }
       }
 
       // Invalidate relevant queries based on notification type
