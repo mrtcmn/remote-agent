@@ -3,6 +3,7 @@ import { db, notificationPrefs } from '../../db';
 import type { NotificationAdapter, NotificationPayload, CreateNotificationInput, NotificationRecord } from './types';
 import { FirebaseAdapter, WebhookAdapter } from './adapters';
 import { notificationRepository } from './notification.repository';
+import { presenceManager } from '../presence';
 
 export class NotificationService {
   private adapters = new Map<string, NotificationAdapter>();
@@ -131,6 +132,13 @@ export class NotificationService {
         input.type,
         notification.id
       );
+    }
+
+    // Skip push notification if user is actively using the app
+    if (presenceManager.isUserActive(input.userId)) {
+      console.log(`Skipping push notification for active user ${input.userId}`);
+      await notificationRepository.updateStatus(notification.id, 'sent');
+      return { notification, sendResult: { success: true, results: { skipped_active_user: true } } };
     }
 
     // Send via adapters
