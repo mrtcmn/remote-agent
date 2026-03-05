@@ -406,6 +406,50 @@ export const api = {
     request<ProjectLink>(`/projects/${projectId}/links`, { method: 'POST', body: JSON.stringify(data) }),
   removeProjectLink: (projectId: string, linkId: string) =>
     request<{ success: boolean }>(`/projects/${projectId}/links/${linkId}`, { method: 'DELETE' }),
+
+  // ─── Docker ──────────────────────────────────────────────────────────────
+
+  getDockerContainers: () =>
+    request<{ containers: DockerContainer[] }>('/docker/containers'),
+  startDockerContainer: (id: string) =>
+    request<{ success: boolean }>(`/docker/containers/${id}/start`, { method: 'POST' }),
+  stopDockerContainer: (id: string) =>
+    request<{ success: boolean }>(`/docker/containers/${id}/stop`, { method: 'POST' }),
+  restartDockerContainer: (id: string) =>
+    request<{ success: boolean }>(`/docker/containers/${id}/restart`, { method: 'POST' }),
+  removeDockerContainer: (id: string, force = false) =>
+    request<{ success: boolean }>(`/docker/containers/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' }),
+  viewContainerLogs: (containerId: string, sessionId: string) =>
+    request<{ success: boolean; terminalId: string }>(`/docker/containers/${containerId}/logs`, {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
+    }),
+  dockerBuild: (dockerfilePath: string, contextDir: string, tag?: string) =>
+    request<{ success: boolean; output: string }>('/docker/build', {
+      method: 'POST',
+      body: JSON.stringify({ dockerfilePath, contextDir, tag }),
+    }),
+  dockerRun: (data: { image: string; name?: string; ports?: string[]; env?: Record<string, string> }) =>
+    request<{ success: boolean; containerId: string }>('/docker/run', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  dockerComposeUp: (composePath: string) =>
+    request<{ success: boolean; output: string }>('/docker/compose/up', {
+      method: 'POST',
+      body: JSON.stringify({ composePath }),
+    }),
+  dockerComposeDown: (composePath: string) =>
+    request<{ success: boolean; output: string }>('/docker/compose/down', {
+      method: 'POST',
+      body: JSON.stringify({ composePath }),
+    }),
+  dockerComposePs: (composePath: string) =>
+    request<{ containers: DockerContainer[] }>(`/docker/compose/ps?composePath=${encodeURIComponent(composePath)}`),
+  detectDockerFiles: (projectId: string) =>
+    request<{ files: DockerFile[] }>(`/docker/detect/${projectId}`),
+  getDockerStatus: () =>
+    request<{ available: boolean }>('/docker/status'),
 };
 
 // Types
@@ -902,4 +946,22 @@ export interface SidebarProject {
 export interface SidebarData {
   projects: SidebarProject[];
   unassignedSessions: SidebarSession[];
+}
+
+// ─── Docker Types ────────────────────────────────────────────────────────────
+
+export interface DockerContainer {
+  id: string;
+  names: string;
+  image: string;
+  status: string;
+  state: string;
+  ports: string;
+  createdAt: string;
+}
+
+export interface DockerFile {
+  path: string;
+  type: 'dockerfile' | 'compose';
+  name: string;
 }
