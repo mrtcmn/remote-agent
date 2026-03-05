@@ -129,6 +129,13 @@ export const api = {
   createProject: (data: CreateProjectInput) => request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
   deleteProject: (id: string, pin: string) =>
     request(`/projects/${id}`, { method: 'DELETE', headers: { 'X-Pin': pin } }),
+  getProjectEnv: (projectId: string) =>
+    request<{ env: Record<string, string> }>(`/projects/${projectId}/env`),
+  updateProjectEnv: (projectId: string, env: Record<string, string>) =>
+    request<{ success: boolean }>(`/projects/${projectId}/env`, {
+      method: 'PUT',
+      body: JSON.stringify({ env }),
+    }),
   gitFetch: (projectId: string) => request(`/projects/${projectId}/fetch`, { method: 'POST' }),
   gitPull: (projectId: string, branch?: string) =>
     request(`/projects/${projectId}/pull`, { method: 'POST', body: JSON.stringify({ branch }) }),
@@ -481,6 +488,7 @@ export interface Project {
   localPath: string;
   defaultBranch: string;
   isMultiProject: boolean;
+  env?: Record<string, string> | null;
   createdAt: string;
   updatedAt: string;
   git?: GitStatus;
