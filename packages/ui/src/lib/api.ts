@@ -52,7 +52,7 @@ export const api = {
     return request<{ diff: string }>(`/sessions/${sessionId}/git/diff${query ? `?${query}` : ''}`);
   },
   getSessionFileDiff: (sessionId: string, file: string) =>
-    request<{ diff: string; file: string }>(`/sessions/${sessionId}/git/diff/${encodeURIComponent(file)}`),
+    request<{ diff: string; file: string }>(`/sessions/${sessionId}/git/file-diff?file=${encodeURIComponent(file)}`),
 
   // Git operations (session-level)
   gitStage: (sessionId: string, files: string[]) =>

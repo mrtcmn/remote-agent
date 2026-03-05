@@ -213,7 +213,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   })
 
   // Get diff for a specific file
-  .get('/:id/git/diff/:file', async ({ user, params, set }) => {
+  .get('/:id/git/file-diff', async ({ user, params, query, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(
         eq(claudeSessions.id, params.id),
@@ -232,11 +232,37 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     }
 
     try {
-      // Use git diff for specific file
       const { $ } = await import('bun');
-      const filePath = decodeURIComponent(params.file);
-      const result = await $`git diff -- ${filePath}`.cwd(session.project.localPath).quiet();
-      return { diff: result.stdout.toString(), file: filePath };
+      const filePath = query.file;
+
+      // Check git status to determine the right diff command
+      const statusResult = await $`git status --porcelain -- ${filePath}`.cwd(session.project.localPath).quiet();
+      const statusLine = statusResult.stdout.toString().trim();
+
+      let diff = '';
+
+      if (statusLine) {
+        const indexStatus = statusLine[0];
+        const workingStatus = statusLine[1];
+
+        if (indexStatus === '?' && workingStatus === '?') {
+          // Untracked file: show full content as addition
+          const result = await $`git diff --no-index /dev/null ${filePath}`.cwd(session.project.localPath).nothrow().quiet();
+          diff = result.stdout.toString();
+        } else if (workingStatus !== ' ' && workingStatus !== '?') {
+          // Has working tree changes: show unstaged diff
+          const result = await $`git diff -- ${filePath}`.cwd(session.project.localPath).quiet();
+          diff = result.stdout.toString();
+        }
+
+        if (!diff && indexStatus !== ' ' && indexStatus !== '?') {
+          // Has staged changes (and no working tree diff, or working tree diff was empty)
+          const result = await $`git diff --cached -- ${filePath}`.cwd(session.project.localPath).quiet();
+          diff = result.stdout.toString();
+        }
+      }
+
+      return { diff, file: filePath };
     } catch (error) {
       set.status = 500;
       return { error: (error as Error).message };
@@ -244,6 +270,8 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   }, {
     params: t.Object({
       id: t.String(),
+    }),
+    query: t.Object({
       file: t.String(),
     }),
   })
