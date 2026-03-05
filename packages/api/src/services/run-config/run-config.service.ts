@@ -5,6 +5,7 @@ import { db, runConfigs, runConfigInstances, projects, terminals } from '../../d
 import { terminalService } from '../terminal';
 import { spawnAdapterRegistry } from '../spawn-adapter';
 import type { NewRunConfig } from '../../db/schema';
+import { resolveProjectEnv } from '../workspace/env.service';
 
 export class RunConfigService extends EventEmitter {
   private autoRestartTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -153,8 +154,10 @@ export class RunConfigService extends EventEmitter {
 
     const terminalId = nanoid();
     const cwd = config.cwd || resolved.cwd || projectPath;
+    const projectEnv = await resolveProjectEnv(config.projectId);
     const env: Record<string, string> = {
       HOME: '/home/agent',
+      ...projectEnv,
       ...resolved.env,
       ...(config.env ? JSON.parse(config.env) : {}),
     };
