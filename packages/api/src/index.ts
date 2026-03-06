@@ -1,12 +1,13 @@
 import { Elysia } from 'elysia';
 import { cors } from '@elysiajs/cors';
 import { staticPlugin } from '@elysiajs/static';
-import { api, internalRoutes } from './routes';
+import { api, internalRoutes, editorProxyRoutes } from './routes';
 import { terminalWebsocketRoutes } from './routes/terminal-websocket';
 import { previewWebsocketRoutes } from './routes/preview-websocket';
 import { notificationService } from './services/notification';
 import { terminalService } from './services/terminal';
 import { browserPreviewService } from './services/browser-preview';
+import { codeEditorService } from './services/code-editor';
 import { originsService } from './services/origins';
 import { seedTestUser } from './auth/seed';
 
@@ -43,6 +44,7 @@ const indexHtml = rawHtml.replace('<head>', `<head>\n    ${buildEnvScript()}`);
 await originsService.initialize();
 await notificationService.initialize();
 await terminalService.initialize();
+await codeEditorService.initialize();
 
 // Seed test user
 await seedTestUser();
@@ -70,6 +72,9 @@ const app = new Elysia()
 
   // Browser preview WebSocket routes
   .use(previewWebsocketRoutes)
+
+  // Code editor proxy (outside /api prefix)
+  .use(editorProxyRoutes)
 
   // Health check
   .get('/health', () => ({
@@ -123,6 +128,7 @@ Endpoints:
   - API:        http://localhost:${PORT}/api
   - Terminal:   ws://localhost:${PORT}/ws/terminal/:terminalId
   - Preview:    ws://localhost:${PORT}/ws/preview/:previewId
+  - Editor:     http://localhost:${PORT}/editor-proxy/:editorId/
   - Health:     http://localhost:${PORT}/health
   - UI:         http://localhost:${PORT}
 `);
@@ -130,6 +136,7 @@ Endpoints:
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('Shutting down...');
+  await codeEditorService.shutdown();
   await browserPreviewService.shutdown();
   await notificationService.shutdown();
   process.exit(0);
@@ -137,6 +144,7 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('Shutting down...');
+  await codeEditorService.shutdown();
   await browserPreviewService.shutdown();
   await notificationService.shutdown();
   process.exit(0);
