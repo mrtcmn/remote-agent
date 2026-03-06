@@ -163,10 +163,13 @@ export class GitService {
 
       if (index === '?' && working === '?') {
         untracked.push(file);
-      } else if (index !== ' ' && index !== '?') {
-        staged.push(file);
-      } else if (working !== ' ') {
-        modified.push(file);
+      } else {
+        if (index !== ' ' && index !== '?') {
+          staged.push(file);
+        }
+        if (working !== ' ' && working !== '?') {
+          modified.push(file);
+        }
       }
     }
 
@@ -214,9 +217,23 @@ export class GitService {
   }
 
   async diff(projectPath: string, cached = false): Promise<string> {
-    const args = cached ? ['git', 'diff', '--cached'] : ['git', 'diff'];
-    const result = await $`${args}`.cwd(projectPath).quiet();
-    return result.stdout.toString();
+    if (cached) {
+      const result = await $`git diff --cached`.cwd(projectPath).nothrow().quiet();
+      return result.stdout.toString();
+    }
+
+    // Show all changes (staged + unstaged) relative to HEAD
+    const headResult = await $`git diff HEAD`.cwd(projectPath).nothrow().quiet();
+    if (headResult.exitCode === 0) {
+      return headResult.stdout.toString();
+    }
+
+    // Fallback for repos with no commits: combine cached + unstaged
+    const [cachedResult, unstagedResult] = await Promise.all([
+      $`git diff --cached`.cwd(projectPath).nothrow().quiet(),
+      $`git diff`.cwd(projectPath).nothrow().quiet(),
+    ]);
+    return cachedResult.stdout.toString() + unstagedResult.stdout.toString();
   }
 
   async getFileSha(projectPath: string, filePath: string): Promise<string | null> {
@@ -291,8 +308,16 @@ export class GitService {
 
   async diffStats(projectPath: string): Promise<{ additions: number; deletions: number }> {
     try {
-      const result = await $`git diff --shortstat`.cwd(projectPath).quiet();
-      const output = result.stdout.toString().trim();
+      // Use HEAD to include both staged + unstaged changes
+      const result = await $`git diff HEAD --shortstat`.cwd(projectPath).nothrow().quiet();
+      let output = result.stdout.toString().trim();
+
+      // Fallback for repos with no commits
+      if (!output && result.exitCode !== 0) {
+        const cachedResult = await $`git diff --cached --shortstat`.cwd(projectPath).nothrow().quiet();
+        output = cachedResult.stdout.toString().trim();
+      }
+
       if (!output) return { additions: 0, deletions: 0 };
 
       const addMatch = output.match(/(\d+) insertion/);

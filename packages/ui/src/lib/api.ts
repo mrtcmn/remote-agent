@@ -51,8 +51,11 @@ export const api = {
     const query = params.toString();
     return request<{ diff: string }>(`/sessions/${sessionId}/git/diff${query ? `?${query}` : ''}`);
   },
-  getSessionFileDiff: (sessionId: string, file: string) =>
-    request<{ diff: string; file: string }>(`/sessions/${sessionId}/git/file-diff?file=${encodeURIComponent(file)}`),
+  getSessionFileDiff: (sessionId: string, file: string, projectId?: string) => {
+    const params = new URLSearchParams({ file });
+    if (projectId) params.set('projectId', projectId);
+    return request<{ diff: string; file: string }>(`/sessions/${sessionId}/git/file-diff?${params.toString()}`);
+  },
 
   // Git operations (session-level)
   gitStage: (sessionId: string, files: string[]) =>

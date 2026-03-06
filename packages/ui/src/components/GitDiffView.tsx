@@ -98,8 +98,8 @@ export function GitDiffView({ sessionId, project, className, onProceed }: GitDif
 
   // Fetch diff for selected file
   const { data: diffData, isLoading: diffLoading } = useQuery({
-    queryKey: ['session-file-diff', sessionId, selectedFile],
-    queryFn: () => api.getSessionFileDiff(sessionId, selectedFile!),
+    queryKey: ['session-file-diff', sessionId, selectedFile, gitProjectId],
+    queryFn: () => api.getSessionFileDiff(sessionId, selectedFile!, gitProjectId),
     enabled: !!selectedFile,
   });
 

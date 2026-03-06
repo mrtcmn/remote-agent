@@ -237,12 +237,31 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       return { diff: '' };
     }
 
+    // Resolve target path for multi-project support
+    let targetPath = session.project.localPath;
+    if (query.projectId && session.project.isMultiProject) {
+      const link = await db.query.projectLinks.findFirst({
+        where: and(
+          eq(projectLinks.parentProjectId, session.project.id),
+          eq(projectLinks.childProjectId, query.projectId)
+        ),
+        with: { childProject: true },
+      });
+      if (link && (link as any).childProject) {
+        targetPath = (link as any).childProject.localPath;
+      } else {
+        return { diff: '', file: query.file };
+      }
+    } else if (!query.projectId && session.project.isMultiProject) {
+      return { diff: '', file: query.file };
+    }
+
     try {
       const { $ } = await import('bun');
       const filePath = query.file;
 
       // Check git status to determine the right diff command
-      const statusResult = await $`git status --porcelain -- ${filePath}`.cwd(session.project.localPath).quiet();
+      const statusResult = await $`git status --porcelain -- ${filePath}`.cwd(targetPath).nothrow().quiet();
       const statusLine = statusResult.stdout.toString().trimEnd();
 
       let diff = '';
@@ -253,18 +272,20 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
 
         if (indexStatus === '?' && workingStatus === '?') {
           // Untracked file: show full content as addition
-          const result = await $`git diff --no-index /dev/null ${filePath}`.cwd(session.project.localPath).nothrow().quiet();
+          const result = await $`git diff --no-index /dev/null ${filePath}`.cwd(targetPath).nothrow().quiet();
           diff = result.stdout.toString();
-        } else if (workingStatus !== ' ' && workingStatus !== '?') {
-          // Has working tree changes: show unstaged diff
-          const result = await $`git diff -- ${filePath}`.cwd(session.project.localPath).quiet();
-          diff = result.stdout.toString();
-        }
+        } else {
+          // Show all changes relative to HEAD (combines staged + unstaged)
+          const headResult = await $`git diff HEAD -- ${filePath}`.cwd(targetPath).nothrow().quiet();
+          if (headResult.exitCode === 0) {
+            diff = headResult.stdout.toString();
+          }
 
-        if (!diff && indexStatus !== ' ' && indexStatus !== '?') {
-          // Has staged changes (and no working tree diff, or working tree diff was empty)
-          const result = await $`git diff --cached -- ${filePath}`.cwd(session.project.localPath).quiet();
-          diff = result.stdout.toString();
+          // Fallback for repos with no commits (HEAD doesn't exist)
+          if (!diff && headResult.exitCode !== 0) {
+            const cachedResult = await $`git diff --cached -- ${filePath}`.cwd(targetPath).nothrow().quiet();
+            diff = cachedResult.stdout.toString();
+          }
         }
       }
 
@@ -279,6 +300,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     }),
     query: t.Object({
       file: t.String(),
+      projectId: t.Optional(t.String()),
     }),
   })
 
