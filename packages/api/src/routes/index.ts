@@ -15,6 +15,7 @@ import { runConfigRoutes } from './run-configs.routes';
 import { presenceRoutes } from './presence.routes';
 import { previewRoutes } from './preview.routes';
 import { dockerRoutes } from './docker.routes';
+import { editorRoutes } from './editor.routes';
 
 export const api = new Elysia({ prefix: '/api' })
   .use(authRoutes)
@@ -30,8 +31,10 @@ export const api = new Elysia({ prefix: '/api' })
   .use(runConfigRoutes)
   .use(previewRoutes)
   .use(dockerRoutes)
+  .use(editorRoutes)
   .use(presenceRoutes)
   .use(versionRoutes);
 
 export { internalRoutes };
 export { terminalRoutes } from './terminals.routes';
+export { editorProxyRoutes } from './editor-proxy.routes';

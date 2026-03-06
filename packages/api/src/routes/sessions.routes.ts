@@ -5,6 +5,7 @@ import { db, claudeSessions, projects, projectLinks, reviewComments } from '../d
 import { terminalService } from '../services/terminal';
 import { gitService } from '../services/git';
 import { notificationService } from '../services/notification';
+import { codeEditorService } from '../services/code-editor';
 import { requireAuth } from '../auth/middleware';
 
 export const sessionRoutes = new Elysia({ prefix: '/sessions' })
@@ -587,6 +588,9 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       set.status = 404;
       return { error: 'Session not found' };
     }
+
+    // Stop code-server editor if running
+    await codeEditorService.stopSessionEditor(params.id);
 
     // Close all terminals for this session
     await terminalService.closeSessionTerminals(params.id);
