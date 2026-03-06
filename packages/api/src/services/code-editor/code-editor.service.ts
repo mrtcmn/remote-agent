@@ -79,18 +79,24 @@ export class CodeEditorService extends EventEmitter {
     });
 
     instance.process = proc;
-    instance.status = 'running';
-
-    await db.update(codeEditors)
-      .set({ status: 'running' })
-      .where(eq(codeEditors.id, editorId));
 
     // Handle process exit
     proc.exited.then(async (exitCode) => {
       this.handleExit(editorId, exitCode);
     });
 
-    this.emit('started', editorId, instance);
+    // Wait for code-server to be ready (poll port)
+    this.waitForReady(editorId, port).then(async () => {
+      const inst = this.instances.get(editorId);
+      if (inst && inst.status === 'starting') {
+        inst.status = 'running';
+        await db.update(codeEditors)
+          .set({ status: 'running' })
+          .where(eq(codeEditors.id, editorId));
+        this.emit('started', editorId, inst);
+      }
+    });
+
     return instance;
   }
 
@@ -136,9 +142,25 @@ export class CodeEditorService extends EventEmitter {
     }
   }
 
+  private async waitForReady(editorId: string, port: number): Promise<void> {
+    const maxAttempts = 30; // 30 seconds max
+    for (let i = 0; i < maxAttempts; i++) {
+      const instance = this.instances.get(editorId);
+      if (!instance || instance.status === 'stopped') return;
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/healthz`, { signal: AbortSignal.timeout(1000) });
+        if (res.ok) return;
+      } catch {
+        // Not ready yet
+      }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    console.warn(`[CodeEditorService] Editor ${editorId} did not become ready in 30s`);
+  }
+
   private async handleExit(editorId: string, exitCode: number): Promise<void> {
     const instance = this.instances.get(editorId);
-    if (!instance) return;
+    if (!instance || instance.status === 'stopped') return;
 
     console.log(`[CodeEditorService] Editor ${editorId} exited with code ${exitCode}`);
     instance.status = 'stopped';

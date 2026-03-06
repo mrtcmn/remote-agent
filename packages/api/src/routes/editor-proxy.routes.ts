@@ -1,11 +1,14 @@
 import { Elysia } from 'elysia';
 import { codeEditorService } from '../services/code-editor';
+import { requireAuth } from '../auth/middleware';
 
 export const editorProxyRoutes = new Elysia()
+  .use(requireAuth)
+
   // Proxy all HTTP requests to code-server
   .all('/editor-proxy/:editorId/*', async ({ params, request, set }) => {
     const editor = codeEditorService.getEditor(params.editorId);
-    if (!editor || editor.status !== 'running') {
+    if (!editor || (editor.status !== 'running' && editor.status !== 'starting')) {
       set.status = 502;
       return { error: 'Editor not running' };
     }
@@ -34,8 +37,8 @@ export const editorProxyRoutes = new Elysia()
         statusText: proxyResponse.statusText,
         headers: responseHeaders,
       });
-    } catch (error) {
+    } catch {
       set.status = 502;
-      return { error: 'Failed to proxy to code-server' };
+      return { error: 'Editor is starting up, please retry' };
     }
   });

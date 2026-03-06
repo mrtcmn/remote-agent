@@ -28,7 +28,6 @@ export const editorRoutes = new Elysia({ prefix: '/sessions' })
       return {
         id: live.id,
         sessionId: live.sessionId,
-        port: live.port,
         status: live.status,
         createdAt: live.createdAt.toISOString(),
       };
@@ -46,7 +45,6 @@ export const editorRoutes = new Elysia({ prefix: '/sessions' })
     return {
       id: dbEditor.id,
       sessionId: dbEditor.sessionId,
-      port: dbEditor.port,
       status: dbEditor.status,
       createdAt: dbEditor.createdAt?.toISOString(),
       stoppedAt: dbEditor.stoppedAt?.toISOString(),
@@ -83,7 +81,6 @@ export const editorRoutes = new Elysia({ prefix: '/sessions' })
       return {
         id: editor.id,
         sessionId: editor.sessionId,
-        port: editor.port,
         status: editor.status,
         createdAt: editor.createdAt.toISOString(),
       };
