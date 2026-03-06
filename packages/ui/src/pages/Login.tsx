@@ -44,9 +44,7 @@ export function LoginPage() {
     <div className="min-h-screen flex items-center justify-center p-4 bg-background">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <div className="mx-auto h-16 w-16 rounded-2xl bg-primary flex items-center justify-center mb-4">
-            <span className="text-primary-foreground font-bold text-2xl">RA</span>
-          </div>
+          <img src="/logo.svg" alt="Remote Agent" className="mx-auto h-16 w-16 mb-4" />
           <CardTitle className="text-2xl">Remote Agent</CardTitle>
           <CardDescription>
             Run Claude Code from anywhere. Control your development environment from any device.

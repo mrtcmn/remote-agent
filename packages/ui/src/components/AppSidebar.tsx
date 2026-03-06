@@ -56,9 +56,7 @@ export function AppSidebar({ data, isLoading }: AppSidebarProps) {
       {/* Logo section */}
       <div className="px-3 py-3 border-b border-sidebar-border">
         <Link to="/" className="flex items-center gap-2">
-          <div className="h-7 w-7 rounded-md bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-xs">RA</span>
-          </div>
+          <img src="/logo.svg" alt="Remote Agent" className="h-7 w-7" />
           <span className="font-semibold text-sm">Remote Agent</span>
         </Link>
       </div>

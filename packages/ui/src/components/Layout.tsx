@@ -72,9 +72,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </Button>
 
             <div className="md:hidden flex items-center gap-2">
-              <div className="h-6 w-6 rounded-md bg-primary flex items-center justify-center">
-                <span className="text-primary-foreground font-bold text-[10px]">RA</span>
-              </div>
+              <img src="/logo.svg" alt="Remote Agent" className="h-6 w-6" />
             </div>
 
             <div className="ml-auto flex items-center gap-2">
