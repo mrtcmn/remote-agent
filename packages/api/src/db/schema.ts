@@ -9,6 +9,7 @@ export const terminalStatusEnum = pgEnum('terminal_status', ['running', 'exited'
 export const terminalTypeEnum = pgEnum('terminal_type', ['shell', 'claude', 'process']);
 export const reviewCommentStatusEnum = pgEnum('review_comment_status', ['pending', 'running', 'resolved']);
 export const lineSideEnum = pgEnum('line_side', ['additions', 'deletions']);
+export const codeEditorStatusEnum = pgEnum('code_editor_status', ['starting', 'running', 'stopped']);
 
 export const notificationTypeEnum = pgEnum('notification_type', [
   'user_input_required',
@@ -202,6 +203,16 @@ export const terminals = pgTable('terminals', {
   exitCode: text('exit_code'),
   scrollback: text('scrollback'), // Only populated if persist=true
   createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+// Code editors (code-server instances per session)
+export const codeEditors = pgTable('code_editors', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').references(() => claudeSessions.id, { onDelete: 'cascade' }).notNull().unique(),
+  port: integer('port').notNull(),
+  status: codeEditorStatusEnum('status').notNull().default('starting'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  stoppedAt: timestamp('stopped_at'),
 });
 
 // ─── Kanban Enums ───────────────────────────────────────────────────────────
@@ -448,6 +459,7 @@ export const claudeSessionsRelations = relations(claudeSessions, ({ one, many })
   }),
   messages: many(messages),
   terminals: many(terminals),
+  codeEditors: many(codeEditors),
   reviewComments: many(reviewComments),
   notifications: many(notifications),
 }));
@@ -495,6 +507,13 @@ export const messagesRelations = relations(messages, ({ one }) => ({
 export const terminalsRelations = relations(terminals, ({ one }) => ({
   session: one(claudeSessions, {
     fields: [terminals.sessionId],
+    references: [claudeSessions.id],
+  }),
+}));
+
+export const codeEditorsRelations = relations(codeEditors, ({ one }) => ({
+  session: one(claudeSessions, {
+    fields: [codeEditors.sessionId],
     references: [claudeSessions.id],
   }),
 }));
@@ -669,5 +688,7 @@ export type AppSetting = typeof appSettings.$inferSelect;
 export type RunConfig = typeof runConfigs.$inferSelect;
 export type NewRunConfig = typeof runConfigs.$inferInsert;
 export type RunConfigInstance = typeof runConfigInstances.$inferSelect;
+export type CodeEditor = typeof codeEditors.$inferSelect;
+export type NewCodeEditor = typeof codeEditors.$inferInsert;
 export type ProjectLink = typeof projectLinks.$inferSelect;
 export type NewProjectLink = typeof projectLinks.$inferInsert;
