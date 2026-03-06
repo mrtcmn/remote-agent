@@ -39,7 +39,13 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
         eq(claudeSessions.userId, user!.id)
       ),
       with: {
-        project: true,
+        project: {
+          with: {
+            childLinks: {
+              with: { childProject: true },
+            },
+          },
+        },
       },
     });
 

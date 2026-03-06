@@ -573,9 +573,9 @@ export function SessionPage() {
                     {session.project.childLinks.map((link: any) => (
                       <div key={link.id} className="border rounded-lg p-3">
                         <p className="text-xs font-medium text-muted-foreground mb-2">
-                          {link.alias || link.name}
+                          {link.alias || link.childProject?.name}
                         </p>
-                        <EnvEditor projectId={link.id} />
+                        <EnvEditor projectId={link.childProjectId} />
                       </div>
                     ))}
                   </div>
