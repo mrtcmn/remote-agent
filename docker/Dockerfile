@@ -41,6 +41,9 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
     apt-get install -y docker-ce-cli docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
 
+# Install code-server (VS Code in the browser)
+RUN curl -fsSL https://code-server.dev/install.sh | sh
+
 # Create app user (no sudo access for security)
 RUN useradd -m -s /bin/bash agent
 
