@@ -7,6 +7,10 @@ import { workspaceService } from '../services/workspace';
 import { resolveProjectEnv } from '../services/workspace/env.service';
 import { requireAuth } from '../auth/middleware';
 
+const SHARED_DEFAULT_ENV: Record<string, string> = {
+  NODE_ENV: 'development',
+};
+
 export const terminalRoutes = new Elysia({ prefix: '/terminals' })
   .use(requireAuth)
 
@@ -77,6 +81,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     let command: string[];
     let name: string;
     let env: Record<string, string> = {
+      ...SHARED_DEFAULT_ENV,
       HOME: '/home/agent',
       ...projectEnv,
     };
