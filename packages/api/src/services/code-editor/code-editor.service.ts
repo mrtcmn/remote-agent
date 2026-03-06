@@ -65,7 +65,7 @@ export class CodeEditorService extends EventEmitter {
       'code-server',
       '--auth', 'none',
       '--bind-addr', `127.0.0.1:${port}`,
-      '--idle-timeout', String(IDLE_TIMEOUT_SECONDS),
+      '--idle-timeout-seconds', String(IDLE_TIMEOUT_SECONDS),
       '--disable-telemetry',
       projectPath,
     ], {
@@ -79,6 +79,22 @@ export class CodeEditorService extends EventEmitter {
     });
 
     instance.process = proc;
+
+    // Log stderr for diagnostics
+    if (proc.stderr) {
+      const reader = proc.stderr.getReader();
+      const decoder = new TextDecoder();
+      (async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const text = decoder.decode(value, { stream: true }).trim();
+            if (text) console.error(`[CodeEditorService] Editor ${editorId} stderr: ${text}`);
+          }
+        } catch { /* stream closed */ }
+      })();
+    }
 
     // Handle process exit
     proc.exited.then(async (exitCode) => {
