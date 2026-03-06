@@ -402,6 +402,15 @@ export const api = {
   getActivePreviews: () =>
     request<{ previews: BrowserPreview[] }>('/preview/active'),
 
+  // ─── Code Editor ──────────────────────────────────────────────────────────
+
+  getEditor: (sessionId: string) =>
+    request<CodeEditorInfo>(`/sessions/${sessionId}/editor`),
+  startEditor: (sessionId: string) =>
+    request<CodeEditorInfo>(`/sessions/${sessionId}/editor`, { method: 'POST' }),
+  stopEditor: (sessionId: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/editor`, { method: 'DELETE' }),
+
   // ─── Sidebar ──────────────────────────────────────────────────────────────
 
   getSidebarData: () => request<SidebarData>('/sessions/sidebar'),
@@ -918,6 +927,19 @@ export interface BrowserPreview {
   url: string;
   viewport: ViewportPreset;
   status: 'starting' | 'running' | 'stopped' | 'error';
+}
+
+// ─── Code Editor Types ──────────────────────────────────────────────────────
+
+export type CodeEditorStatus = 'none' | 'starting' | 'running' | 'stopped';
+
+export interface CodeEditorInfo {
+  id?: string;
+  sessionId?: string;
+  port?: number;
+  status: CodeEditorStatus;
+  createdAt?: string;
+  stoppedAt?: string;
 }
 
 // ─── Multi-Project & Sidebar Types ──────────────────────────────────────────
