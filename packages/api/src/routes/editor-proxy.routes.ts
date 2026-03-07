@@ -43,15 +43,24 @@ async function proxyToEditor(editorId: string, request: Request, set: any) {
   }
 }
 
-export const editorProxyRoutes = new Elysia()
-  .use(requireAuth)
+// Elysia's .all() in plugins loses priority to .get('*') catch-all on the main app.
+// Register each HTTP method explicitly so the proxy routes match before the SPA catch-all.
+const handler = async ({ params, request, set }: any) => {
+  return proxyToEditor(params.editorId, request, set);
+};
 
-  // Handle exact /editor-proxy/:editorId (no trailing path)
-  .all('/editor-proxy/:editorId', async ({ params, request, set }) => {
-    return proxyToEditor(params.editorId, request, set);
-  })
+const paths = ['/editor-proxy/:editorId', '/editor-proxy/:editorId/*'] as const;
 
-  // Handle /editor-proxy/:editorId/* (with sub-paths)
-  .all('/editor-proxy/:editorId/*', async ({ params, request, set }) => {
-    return proxyToEditor(params.editorId, request, set);
-  });
+const base = new Elysia().use(requireAuth);
+for (const path of paths) {
+  base
+    .get(path, handler)
+    .post(path, handler)
+    .put(path, handler)
+    .delete(path, handler)
+    .patch(path, handler)
+    .options(path, handler)
+    .head(path, handler);
+}
+
+export const editorProxyRoutes = base;
