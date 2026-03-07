@@ -21,9 +21,14 @@ function stripProxyPrefix(pathname: string, editorId: string): string {
 // Minimal valid WebAssembly module (magic + version, no sections)
 const VSDA_WASM_STUB = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
 
+// VS Code loads vsda.js via its AMD loader, so the stub must use define().
 const VSDA_JS_STUB = `\
-export default function init() { return Promise.resolve(); }
-export function get_machine_id() { return "00000000000000000000000000000000"; }
+define([], function() {
+  return {
+    default: function init() { return Promise.resolve(); },
+    get_machine_id: function() { return "00000000000000000000000000000000"; }
+  };
+});
 `;
 
 function serveVsdaStub(path: string): Response | null {
