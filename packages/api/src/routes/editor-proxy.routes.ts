@@ -31,6 +31,36 @@ define([], function() {
 });
 `;
 
+// ---------------------------------------------------------------------------
+// Response compression — code-server responses are auto-decompressed by fetch()
+// so we re-compress before sending to the client to avoid huge transfers.
+// ---------------------------------------------------------------------------
+
+const COMPRESSIBLE_RE = /^(text\/|application\/(javascript|json|xml|wasm|xhtml\+xml|x-javascript)|image\/svg\+xml)/;
+
+function compressResponse(request: Request, response: Response): Response {
+  const acceptEncoding = request.headers.get('accept-encoding');
+  if (!acceptEncoding?.includes('gzip')) return response;
+
+  const contentType = response.headers.get('content-type');
+  if (!contentType || !COMPRESSIBLE_RE.test(contentType)) return response;
+  if (!response.body) return response;
+
+  const headers = new Headers(response.headers);
+  headers.set('content-encoding', 'gzip');
+  headers.set('vary', 'Accept-Encoding');
+  headers.delete('content-length');
+
+  return new Response(
+    response.body.pipeThrough(new CompressionStream('gzip')),
+    {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    },
+  );
+}
+
 function serveVsdaStub(path: string): Response | null {
   if (path.endsWith('/vsda_bg.wasm')) {
     return new Response(VSDA_WASM_STUB, {
@@ -82,11 +112,13 @@ async function proxyToEditor(editorId: string, request: Request, set: any) {
     responseHeaders.delete('content-encoding');
     responseHeaders.delete('content-length');
 
-    return new Response(proxyResponse.body, {
+    const rawResponse = new Response(proxyResponse.body, {
       status: proxyResponse.status,
       statusText: proxyResponse.statusText,
       headers: responseHeaders,
     });
+
+    return compressResponse(request, rawResponse);
   } catch {
     set.status = 502;
     return { error: 'Editor is starting up, please retry' };
@@ -222,7 +254,10 @@ base.resolve(({ request }) => ({
 }));
 
 for (const path of paths) {
-  base.ws(path, wsHandler);
+  base.ws(path, {
+    ...wsHandler,
+    idleTimeout: 960,   // 16 min — default 120s is too short for VS Code
+  });
 }
 
 export const editorProxyRoutes = base;
