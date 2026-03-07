@@ -31,6 +31,8 @@ async function proxyToEditor(editorId: string, request: Request, set: any) {
 
     const responseHeaders = new Headers(proxyResponse.headers);
     responseHeaders.delete('transfer-encoding');
+    responseHeaders.delete('content-encoding');
+    responseHeaders.delete('content-length');
 
     return new Response(proxyResponse.body, {
       status: proxyResponse.status,
