@@ -61,12 +61,10 @@ export class CodeEditorService extends EventEmitter {
       },
     });
 
-    const basePath = `/editor-proxy/${editorId}`;
     const proc = spawn([
       'code-server',
       '--auth', 'none',
       '--bind-addr', `127.0.0.1:${port}`,
-      '--base-path', basePath,
       '--idle-timeout-seconds', String(IDLE_TIMEOUT_SECONDS),
       '--disable-telemetry',
       projectPath,
@@ -166,7 +164,7 @@ export class CodeEditorService extends EventEmitter {
       const instance = this.instances.get(editorId);
       if (!instance || instance.status === 'stopped') return;
       try {
-        const res = await fetch(`http://127.0.0.1:${port}/editor-proxy/${editorId}/healthz`, { signal: AbortSignal.timeout(1000) });
+        const res = await fetch(`http://127.0.0.1:${port}/healthz`, { signal: AbortSignal.timeout(1000) });
         if (res.ok) return;
       } catch {
         // Not ready yet

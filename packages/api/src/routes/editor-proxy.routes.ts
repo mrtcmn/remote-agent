@@ -10,8 +10,12 @@ async function proxyToEditor(editorId: string, request: Request, set: any) {
   }
 
   const url = new URL(request.url);
-  // Forward the full path as-is — code-server uses --base-path /editor-proxy/<id>
-  const targetUrl = `http://127.0.0.1:${editor.port}${url.pathname}${url.search}`;
+  // Strip the /editor-proxy/<id> prefix — code-server serves from /
+  const prefix = `/editor-proxy/${editorId}`;
+  const strippedPath = url.pathname.startsWith(prefix)
+    ? url.pathname.slice(prefix.length) || '/'
+    : url.pathname;
+  const targetUrl = `http://127.0.0.1:${editor.port}${strippedPath}${url.search}`;
 
   try {
     const headers = new Headers(request.headers);
