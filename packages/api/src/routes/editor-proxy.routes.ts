@@ -14,6 +14,33 @@ function stripProxyPrefix(pathname: string, editorId: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// vsda stubs — code-server doesn't ship Microsoft's proprietary vsda module.
+// Serving stubs prevents 404 console noise; VS Code falls back gracefully.
+// ---------------------------------------------------------------------------
+
+// Minimal valid WebAssembly module (magic + version, no sections)
+const VSDA_WASM_STUB = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+
+const VSDA_JS_STUB = `\
+export default function init() { return Promise.resolve(); }
+export function get_machine_id() { return "00000000000000000000000000000000"; }
+`;
+
+function serveVsdaStub(path: string): Response | null {
+  if (path.endsWith('/vsda_bg.wasm')) {
+    return new Response(VSDA_WASM_STUB, {
+      headers: { 'content-type': 'application/wasm' },
+    });
+  }
+  if (path.endsWith('/vsda.js')) {
+    return new Response(VSDA_JS_STUB, {
+      headers: { 'content-type': 'application/javascript' },
+    });
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // HTTP reverse-proxy
 // ---------------------------------------------------------------------------
 
@@ -26,6 +53,11 @@ async function proxyToEditor(editorId: string, request: Request, set: any) {
 
   const url = new URL(request.url);
   const strippedPath = stripProxyPrefix(url.pathname, editorId);
+
+  // Intercept vsda requests before hitting code-server
+  const vsdaResponse = serveVsdaStub(strippedPath);
+  if (vsdaResponse) return vsdaResponse;
+
   const targetUrl = `http://127.0.0.1:${editor.port}${strippedPath}${url.search}`;
 
   try {
@@ -122,7 +154,9 @@ function wsOpen(ws: any) {
       if (typeof event.data === 'string') {
         ws.send(event.data);
       } else {
-        ws.send(new Uint8Array(event.data as ArrayBuffer));
+        // Must use ws.raw.send() for binary data — Elysia's ws.send()
+        // JSON-stringifies objects (including Uint8Array), corrupting binary frames.
+        ws.raw.send(new Uint8Array(event.data as ArrayBuffer));
       }
     } catch {
       // Client already disconnected
@@ -176,8 +210,11 @@ function wsClose(ws: any) {
 
 const wsHandler = { open: wsOpen, message: wsMessage, close: wsClose };
 
-// .resolve() captures the request URL for the ws open handler (runs before upgrade).
-base.resolve(({ request }) => ({ requestUrl: request.url }));
+// .resolve() captures request URL and headers for the ws open handler (runs before upgrade).
+base.resolve(({ request }) => ({
+  requestUrl: request.url,
+  headers: Object.fromEntries(request.headers.entries()),
+}));
 
 for (const path of paths) {
   base.ws(path, wsHandler);
