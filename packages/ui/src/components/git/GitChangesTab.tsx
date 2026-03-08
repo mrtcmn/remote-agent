@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, Component, type ReactNode, type ErrorInfo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PatchDiff, WorkerPoolContextProvider } from '@pierre/diffs/react';
 import type { DiffLineAnnotation } from '@pierre/diffs';
@@ -22,6 +22,66 @@ import { ReviewCommentInput } from '../ReviewCommentInput';
 import { ReviewCommentAnnotation } from '../ReviewCommentAnnotation';
 import { ReviewBatchPanel } from '../ReviewBatchPanel';
 import { toast } from '@/components/ui/Toaster';
+
+/** Error boundary for diff rendering failures */
+class DiffErrorBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode; fallback: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Diff rendering error:', error, info);
+  }
+  render() {
+    if (this.state.hasError) return this.props.fallback;
+    return this.props.children;
+  }
+}
+
+/** Fallback raw diff view */
+function RawDiffView({ diff, fileName }: { diff: string; fileName?: string }) {
+  const lines = diff.split('\n');
+  return (
+    <div className="font-mono text-xs leading-relaxed">
+      {fileName && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-card/30 border-b border-border/30 text-muted-foreground sticky top-0">
+          <FileCode className="h-3.5 w-3.5" />
+          <span className="truncate">{fileName}</span>
+        </div>
+      )}
+      <div className="overflow-auto">
+        {lines.map((line, i) => {
+          let bg = '';
+          let color = 'text-muted-foreground';
+          if (line.startsWith('+') && !line.startsWith('+++')) {
+            bg = 'bg-green-500/10';
+            color = 'text-green-400';
+          } else if (line.startsWith('-') && !line.startsWith('---')) {
+            bg = 'bg-red-500/10';
+            color = 'text-red-400';
+          } else if (line.startsWith('@@')) {
+            bg = 'bg-blue-500/10';
+            color = 'text-blue-400';
+          } else if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) {
+            color = 'text-muted-foreground/70';
+          }
+          return (
+            <div key={i} className={cn('px-3 py-0 whitespace-pre', bg, color)}>
+              <span className="inline-block w-10 text-right mr-3 text-muted-foreground/50 select-none">{i + 1}</span>
+              {line}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 const workerFactory = () =>
   new Worker(new URL('../../workers/diff-worker.js', import.meta.url), { type: 'module' });
@@ -304,25 +364,27 @@ export function GitChangesTab({ sessionId, onProceed }: GitChangesTabProps) {
           </div>
         </div>
 
-        {/* Right Diff Area */}
-        <div className="flex-1 overflow-auto bg-[#0d1117]">
+        {/* Right Diff Area - Full Width */}
+        <div className="flex-1 min-w-0 overflow-auto bg-[#0d1117]">
           {diffLoading ? (
             <div className="flex items-center justify-center h-full">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : selectedFile && diffData?.diff ? (
-            <div className="p-2">
-              <div className="mb-2 px-2 flex items-center gap-2 font-mono text-xs text-muted-foreground">
+            <div className="w-full">
+              <div className="mb-1 px-3 py-2 flex items-center gap-2 font-mono text-xs text-muted-foreground border-b border-border/20 sticky top-0 bg-[#0d1117] z-10">
                 <FileCode className="h-3.5 w-3.5" />
                 <span className="truncate">{selectedFile}</span>
               </div>
-              <PatchDiff
-                patch={diffData.diff}
-                options={{ theme: DIFF_THEME, diffStyle: 'unified', enableHoverUtility: true }}
-                lineAnnotations={lineAnnotations}
-                renderAnnotation={renderAnnotation}
-                renderHoverUtility={createRenderHoverUtility(selectedFile)}
-              />
+              <DiffErrorBoundary fallback={<RawDiffView diff={diffData.diff} fileName={selectedFile} />}>
+                <PatchDiff
+                  patch={diffData.diff}
+                  options={{ theme: DIFF_THEME, diffStyle: 'unified', enableHoverUtility: true }}
+                  lineAnnotations={lineAnnotations}
+                  renderAnnotation={renderAnnotation}
+                  renderHoverUtility={createRenderHoverUtility(selectedFile)}
+                />
+              </DiffErrorBoundary>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">

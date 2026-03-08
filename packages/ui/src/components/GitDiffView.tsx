@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, Component, type ReactNode, type ErrorInfo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { PatchDiff, FileDiff, WorkerPoolContextProvider } from '@pierre/diffs/react';
 import type { DiffLineAnnotation } from '@pierre/diffs';
@@ -32,6 +32,98 @@ const LARGE_DIFF_LINE_THRESHOLD = 500;
 
 const workerFactory = () =>
   new Worker(new URL('../workers/diff-worker.js', import.meta.url), { type: 'module' });
+
+/** Error boundary that catches @pierre/diffs rendering failures */
+class DiffErrorBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode; fallback: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Diff rendering error:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) return this.props.fallback;
+    return this.props.children;
+  }
+}
+
+/** Fallback raw diff view when @pierre/diffs fails */
+function RawDiffView({ diff, fileName }: { diff: string; fileName?: string }) {
+  const lines = diff.split('\n');
+  return (
+    <div className="font-mono text-xs leading-relaxed">
+      {fileName && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-card/30 border-b border-border/30 text-muted-foreground sticky top-0">
+          <FileCode className="h-3.5 w-3.5" />
+          <span className="truncate">{fileName}</span>
+        </div>
+      )}
+      <div className="overflow-auto">
+        {lines.map((line, i) => {
+          let bg = '';
+          let color = 'text-muted-foreground';
+          if (line.startsWith('+') && !line.startsWith('+++')) {
+            bg = 'bg-green-500/10';
+            color = 'text-green-400';
+          } else if (line.startsWith('-') && !line.startsWith('---')) {
+            bg = 'bg-red-500/10';
+            color = 'text-red-400';
+          } else if (line.startsWith('@@')) {
+            bg = 'bg-blue-500/10';
+            color = 'text-blue-400';
+          } else if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) {
+            color = 'text-muted-foreground/70';
+          }
+          return (
+            <div key={i} className={cn('px-3 py-0 whitespace-pre', bg, color)}>
+              <span className="inline-block w-10 text-right mr-3 text-muted-foreground/50 select-none">{i + 1}</span>
+              {line}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Wraps PatchDiff with error boundary and fallback */
+function SafePatchDiff({
+  patch,
+  fileName,
+  options,
+  lineAnnotations,
+  renderAnnotation,
+  renderHoverUtility,
+}: {
+  patch: string;
+  fileName?: string;
+  options: any;
+  lineAnnotations?: DiffLineAnnotation<string>[];
+  renderAnnotation?: (annotation: DiffLineAnnotation<string>) => ReactNode;
+  renderHoverUtility?: (getHoveredLine: () => { lineNumber: number; side: 'additions' | 'deletions' } | undefined) => ReactNode;
+}) {
+  return (
+    <DiffErrorBoundary fallback={<RawDiffView diff={patch} fileName={fileName} />}>
+      <PatchDiff
+        patch={patch}
+        options={options}
+        lineAnnotations={lineAnnotations}
+        renderAnnotation={renderAnnotation}
+        renderHoverUtility={renderHoverUtility}
+      />
+    </DiffErrorBoundary>
+  );
+}
 
 /** Count total diff lines (additions + deletions) from a FileDiffMetadata */
 function countDiffLines(fileDiff: FileDiffMetadata): number {
@@ -107,7 +199,7 @@ export function GitDiffView({ sessionId, project, className, onProceed }: GitDif
   const { data: fullDiff } = useQuery({
     queryKey: ['session-git-diff', sessionId, gitProjectId],
     queryFn: () => api.getSessionGitDiff(sessionId, false, gitProjectId),
-    enabled: !selectedFile && !!(gitStatus?.modified?.length || gitStatus?.staged?.length),
+    enabled: !selectedFile && !!(gitStatus?.modified?.length || gitStatus?.staged?.length || gitStatus?.untracked?.length),
   });
 
   const hasChanges =
@@ -341,20 +433,21 @@ export function GitDiffView({ sessionId, project, className, onProceed }: GitDif
             </div>
           )}
 
-          {/* Diff View */}
-          <div className="flex-1 overflow-auto bg-[#0d1117]">
+          {/* Diff View - Full Width */}
+          <div className="flex-1 min-w-0 overflow-auto bg-[#0d1117]">
             {diffLoading ? (
               <div className="flex items-center justify-center h-full">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             ) : selectedFile && diffData?.diff ? (
-              <div className="p-2">
-                <div className="mb-2 px-2 flex items-center gap-2 font-mono text-xs text-muted-foreground">
+              <div className="w-full">
+                <div className="mb-1 px-3 py-2 flex items-center gap-2 font-mono text-xs text-muted-foreground border-b border-border/20 sticky top-0 bg-[#0d1117] z-10">
                   <FileCode className="h-3.5 w-3.5" />
                   <span className="truncate">{selectedFile}</span>
                 </div>
-                <PatchDiff
+                <SafePatchDiff
                   patch={diffData.diff}
+                  fileName={selectedFile}
                   options={{
                     theme: DIFF_THEME,
                     diffStyle: 'unified',
@@ -366,7 +459,7 @@ export function GitDiffView({ sessionId, project, className, onProceed }: GitDif
                 />
               </div>
             ) : fullDiff?.diff ? (
-              <div className="p-2">
+              <div className="w-full">
                 <MultiFileDiffView
                   diff={fullDiff.diff}
                   getLineAnnotationsForFile={getLineAnnotationsForFile}
@@ -499,17 +592,17 @@ interface MultiFileDiffViewProps {
 }
 
 function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, createRenderHoverUtility }: MultiFileDiffViewProps) {
-  const parsedFiles = useMemo(() => {
+  const { parsedFiles, parseError } = useMemo(() => {
     try {
       const patches = parsePatchFiles(diff);
       const files: FileDiffMetadata[] = [];
       for (const patch of patches) {
         files.push(...patch.files);
       }
-      return files;
+      return { parsedFiles: files, parseError: false };
     } catch (error) {
       console.error('Failed to parse diff:', error);
-      return [];
+      return { parsedFiles: [] as FileDiffMetadata[], parseError: true };
     }
   }, [diff]);
 
@@ -528,7 +621,16 @@ function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, 
     });
   }, []);
 
+  // If parsing failed but we have diff data, show raw fallback
+  if (parseError && diff) {
+    return <RawDiffView diff={diff} />;
+  }
+
   if (parsedFiles.length === 0) {
+    // If we have diff text but no parsed files, show raw
+    if (diff && diff.trim()) {
+      return <RawDiffView diff={diff} />;
+    }
     return (
       <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
         No diff to display
@@ -562,7 +664,7 @@ function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, 
                 onExpand={() => toggleExpand(fileKey)}
               />
             ) : (
-              <>
+              <DiffErrorBoundary fallback={<RawDiffView diff={diff} fileName={fileDiff.name} />}>
                 {isLarge && isExpanded && (
                   <button
                     onClick={() => toggleExpand(fileKey)}
@@ -583,7 +685,7 @@ function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, 
                   renderAnnotation={renderAnnotation}
                   renderHoverUtility={createRenderHoverUtility(fileDiff.name)}
                 />
-              </>
+              </DiffErrorBoundary>
             )}
           </div>
         );
