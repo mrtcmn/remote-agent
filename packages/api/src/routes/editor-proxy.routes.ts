@@ -202,39 +202,40 @@ function wsOpen(ws: any) {
     const buffer: (string | ArrayBuffer)[] = [];
     messageBuffers.set(ws, buffer);
 
-    upstream.addEventListener('open', () => {
-      console.log(`[EditorProxy] WS upstream connected: editor=${editorId}`);
+    // Use property-based handlers (more reliable than addEventListener in Bun)
+    upstream.onopen = () => {
+      console.log(`[EditorProxy] WS upstream connected: editor=${editorId}, flushing ${buffer.length} buffered msgs`);
       for (const msg of buffer) upstream.send(msg);
       buffer.length = 0;
-    });
+    };
 
-    upstream.addEventListener('message', (event: MessageEvent) => {
+    upstream.onmessage = (event: MessageEvent) => {
       try {
+        // Always use ws.raw.send() to bypass Elysia's JSON serialization —
+        // ws.send() would corrupt both text and binary protocol messages.
         if (typeof event.data === 'string') {
-          ws.send(event.data);
+          ws.raw.send(event.data);
         } else {
-          // Must use ws.raw.send() for binary data — Elysia's ws.send()
-          // JSON-stringifies objects (including Uint8Array), corrupting binary frames.
           ws.raw.send(new Uint8Array(event.data as ArrayBuffer));
         }
       } catch {
         // Client already disconnected
       }
-    });
+    };
 
-    upstream.addEventListener('close', (event: CloseEvent) => {
+    upstream.onclose = (event: CloseEvent) => {
       console.log(`[EditorProxy] WS upstream closed: editor=${editorId} code=${event.code}`);
       upstreamSockets.delete(ws);
       messageBuffers.delete(ws);
       try { ws.close(); } catch {}
-    });
+    };
 
-    upstream.addEventListener('error', (event: Event) => {
+    upstream.onerror = (event: Event) => {
       console.error(`[EditorProxy] WS upstream error: editor=${editorId}`, event);
       upstreamSockets.delete(ws);
       messageBuffers.delete(ws);
       try { ws.close(); } catch {}
-    });
+    };
 
     // Safety timeout: if upstream never connects, clean up
     setTimeout(() => {
@@ -256,20 +257,21 @@ function wsMessage(ws: any, message: string | Buffer) {
   const upstream = upstreamSockets.get(ws);
   if (!upstream) return;
 
+  // Normalize binary data to Uint8Array for reliable sending across Bun WebSocket APIs
+  const toSend: string | Uint8Array = typeof message === 'string'
+    ? message
+    : new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
+
   if (upstream.readyState === WebSocket.OPEN) {
-    upstream.send(message);
+    upstream.send(toSend);
   } else if (upstream.readyState === WebSocket.CONNECTING) {
     const buffer = messageBuffers.get(ws);
     if (buffer) {
-      if (typeof message === 'string') {
-        buffer.push(message);
+      if (typeof toSend === 'string') {
+        buffer.push(toSend);
       } else {
-        // Store a copy as ArrayBuffer
-        const ab = message.buffer.slice(
-          message.byteOffset,
-          message.byteOffset + message.byteLength,
-        );
-        buffer.push(ab as ArrayBuffer);
+        // Store an owned copy so pooled Buffer memory can't be reused
+        buffer.push(toSend.slice().buffer as ArrayBuffer);
       }
     }
   }
