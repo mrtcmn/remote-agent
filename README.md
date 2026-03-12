@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="packages/ui/public/logo.svg" width="80" height="80" alt="Remote Agent" />
+  <img src="docs/screenshots/cover.jpg" width="800" alt="Remote Agent" />
 </p>
 
 <h1 align="center">Remote Agent</h1>
@@ -7,10 +7,6 @@
 <p align="center">
   A self-hosted platform for running Claude Code from anywhere.<br/>
   Human-in-the-loop AI development — get push notifications when Claude needs you, review and respond from any device.
-</p>
-
-<p align="center">
-  <img src="docs/screenshots/terminal.png" width="800" alt="Remote Agent Terminal" />
 </p>
 
 ## Why Remote Agent?
