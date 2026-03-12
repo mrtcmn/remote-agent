@@ -404,12 +404,15 @@ export const api = {
 
   // ─── Code Editor ──────────────────────────────────────────────────────────
 
-  getEditor: (sessionId: string) =>
-    request<CodeEditorInfo>(`/sessions/${sessionId}/editor`),
-  startEditor: (sessionId: string) =>
-    request<CodeEditorInfo>(`/sessions/${sessionId}/editor`, { method: 'POST' }),
-  stopEditor: (sessionId: string) =>
-    request<{ success: boolean }>(`/sessions/${sessionId}/editor`, { method: 'DELETE' }),
+  openEditor: (folder: string) =>
+    request<{ url: string; status: string }>('/editor/open', {
+      method: 'POST',
+      body: JSON.stringify({ folder }),
+    }),
+  editorStatus: () =>
+    request<{ status: string; configured: boolean }>('/editor/status'),
+  editorHeartbeat: () =>
+    request<{ status: string }>('/editor/heartbeat', { method: 'POST' }),
 
   // ─── Sidebar ──────────────────────────────────────────────────────────────
 
@@ -927,19 +930,6 @@ export interface BrowserPreview {
   url: string;
   viewport: ViewportPreset;
   status: 'starting' | 'running' | 'stopped' | 'error';
-}
-
-// ─── Code Editor Types ──────────────────────────────────────────────────────
-
-export type CodeEditorStatus = 'none' | 'starting' | 'running' | 'stopped';
-
-export interface CodeEditorInfo {
-  id?: string;
-  sessionId?: string;
-  port?: number;
-  status: CodeEditorStatus;
-  createdAt?: string;
-  stoppedAt?: string;
 }
 
 // ─── Multi-Project & Sidebar Types ──────────────────────────────────────────

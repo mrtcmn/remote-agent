@@ -19,8 +19,9 @@ import {
   Box,
   Settings2,
   Code2,
+  ExternalLink,
 } from 'lucide-react';
-import { api, type TerminalType, type CodeEditorInfo } from '@/lib/api';
+import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Terminal } from '@/components/Terminal';
 import { GitPanel } from '@/components/git';
@@ -32,7 +33,7 @@ import { EnvEditor } from '@/components/EnvEditor';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/Toaster';
 
-type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'preview' | 'docker' | 'env' | 'editor';
+type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'preview' | 'docker' | 'env';
 
 export function SessionPage() {
   const { id, terminalId: terminalIdFromRoute } = useParams<{ id: string; terminalId?: string }>();
@@ -120,39 +121,27 @@ export function SessionPage() {
     },
   });
 
-  const { data: editorInfo, isLoading: editorLoading } = useQuery({
-    queryKey: ['editor', id],
-    queryFn: () => api.getEditor(id!),
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      if (status === 'starting') return 1000;
-      if (status === 'running') return 10000;
-      return 5000;
-    },
-    enabled: !!id,
+  const { data: editorStatus } = useQuery({
+    queryKey: ['editor-status'],
+    queryFn: () => api.editorStatus(),
+    staleTime: 60000,
   });
 
-  const startEditorMutation = useMutation({
-    mutationFn: () => api.startEditor(id!),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['editor', id] });
-      setViewMode('editor');
+  const openEditorMutation = useMutation({
+    mutationFn: (folder: string) => api.openEditor(folder),
+    onSuccess: (data) => {
+      window.open(data.url, '_blank');
     },
     onError: (error) => {
       toast({
-        title: 'Failed to start editor',
+        title: 'Failed to open editor',
         description: (error as Error).message,
         variant: 'destructive',
       });
     },
   });
 
-  const stopEditorMutation = useMutation({
-    mutationFn: () => api.stopEditor(id!),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['editor', id] });
-    },
-  });
+  const canOpenEditor = !!editorStatus?.configured && !!session?.project?.localPath;
 
   // Filter out exited terminals, group by type
   const activeTerminals = terminals.filter((t) => (t.liveStatus || t.status) === 'running');
@@ -317,29 +306,22 @@ export function SessionPage() {
           <span className="hidden sm:inline">Preview</span>
         </Button>
 
-        {/* Editor Toggle */}
-        {session?.project && (
+        {/* Editor (starts code-server on demand, opens in new tab) */}
+        {canOpenEditor && (
           <Button
-            variant={viewMode === 'editor' ? 'secondary' : 'ghost'}
+            variant="ghost"
             size="sm"
             className="gap-1.5 h-8 px-2.5 font-mono text-xs"
-            onClick={() => {
-              if (viewMode === 'editor') {
-                setViewMode('terminal');
-              } else if (editorInfo?.status === 'running') {
-                setViewMode('editor');
-              } else {
-                startEditorMutation.mutate();
-              }
-            }}
-            disabled={startEditorMutation.isPending}
+            onClick={() => openEditorMutation.mutate(session!.project!.localPath)}
+            disabled={openEditorMutation.isPending}
           >
-            {startEditorMutation.isPending ? (
+            {openEditorMutation.isPending ? (
               <RefreshCw className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <Code2 className="h-3.5 w-3.5" />
             )}
             <span className="hidden sm:inline">Editor</span>
+            <ExternalLink className="h-3 w-3 opacity-50" />
           </Button>
         )}
 
@@ -475,27 +457,24 @@ export function SessionPage() {
               </button>
             </div>
 
-            {/* Editor Button */}
-            {session?.project && (
+            {/* Editor Button (starts code-server on demand, opens in new tab) */}
+            {canOpenEditor && (
               <div className="flex flex-col items-center py-2 border-t border-border/50">
                 <button
-                  onClick={() => {
-                    if (viewMode === 'editor') {
-                      setViewMode('terminal');
-                    } else if (editorInfo?.status === 'running') {
-                      setViewMode('editor');
-                    } else {
-                      startEditorMutation.mutate();
-                    }
-                  }}
+                  onClick={() => openEditorMutation.mutate(session!.project!.localPath)}
+                  disabled={openEditorMutation.isPending}
                   className={cn(
                     'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
                     'hover:bg-accent',
-                    viewMode === 'editor' && 'bg-primary text-primary-foreground'
+                    openEditorMutation.isPending && 'opacity-50',
                   )}
-                  title="VS Code Editor"
+                  title="Open VS Code Editor"
                 >
-                  <Code2 className="h-4 w-4" />
+                  {openEditorMutation.isPending ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Code2 className="h-4 w-4" />
+                  )}
                 </button>
               </div>
             )}
@@ -681,15 +660,6 @@ export function SessionPage() {
                 }}
                 className="h-full"
               />
-            ) : viewMode === 'editor' ? (
-              <EditorPanel
-                sessionId={id!}
-                editorInfo={editorInfo}
-                isLoading={editorLoading}
-                onStart={() => startEditorMutation.mutate()}
-                onStop={() => stopEditorMutation.mutate()}
-                isStarting={startEditorMutation.isPending}
-              />
             ) : (
               <FileExplorer sessionId={id!} project={session?.project} className="h-full" />
             )}
@@ -839,90 +809,3 @@ function EmptyState({ isLoading, onCreateClaude }: { isLoading: boolean; onCreat
   );
 }
 
-interface EditorPanelProps {
-  sessionId: string;
-  editorInfo?: CodeEditorInfo;
-  isLoading: boolean;
-  onStart: () => void;
-  onStop: () => void;
-  isStarting: boolean;
-}
-
-function EditorPanel({ sessionId: _sessionId, editorInfo, isLoading, onStart, onStop, isStarting }: EditorPanelProps) {
-  if (isLoading) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (!editorInfo || editorInfo.status === 'none' || editorInfo.status === 'stopped') {
-    return (
-      <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-8">
-        <div className="relative mb-6">
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 blur-xl rounded-full" />
-          <div className="relative p-4">
-            <Code2 className="h-10 w-10 text-blue-500" />
-          </div>
-        </div>
-        <p className="text-sm font-mono mb-2">
-          {editorInfo?.status === 'stopped' ? 'Editor stopped (idle timeout)' : 'VS Code Editor'}
-        </p>
-        <p className="text-xs text-muted-foreground mb-4">
-          Launch a full VS Code editor for this project
-        </p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onStart}
-          disabled={isStarting}
-          className="gap-2 font-mono"
-        >
-          {isStarting ? (
-            <RefreshCw className="h-4 w-4 animate-spin" />
-          ) : (
-            <Code2 className="h-4 w-4 text-blue-500" />
-          )}
-          {editorInfo?.status === 'stopped' ? 'Restart Editor' : 'Start Editor'}
-        </Button>
-      </div>
-    );
-  }
-
-  if (editorInfo.status === 'starting') {
-    return (
-      <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
-        <RefreshCw className="h-8 w-8 animate-spin text-blue-500 mb-4" />
-        <p className="text-sm font-mono">Starting VS Code editor...</p>
-      </div>
-    );
-  }
-
-  // Running — show iframe
-  return (
-    <div className="h-full flex flex-col">
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-card/30 shrink-0">
-        <Code2 className="h-3.5 w-3.5 text-blue-500" />
-        <span className="text-xs font-mono text-muted-foreground">VS Code Editor</span>
-        <div className="h-2 w-2 rounded-full bg-green-500" title="Running" />
-        <div className="flex-1" />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs font-mono"
-          onClick={onStop}
-        >
-          <X className="h-3 w-3 mr-1" />
-          Stop
-        </Button>
-      </div>
-      <iframe
-        src={`/editor-proxy/${editorInfo.id}/`}
-        className="flex-1 w-full border-0"
-        title="VS Code Editor"
-        allow="clipboard-read; clipboard-write"
-      />
-    </div>
-  );
-}

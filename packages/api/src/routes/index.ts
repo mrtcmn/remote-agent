@@ -37,4 +37,3 @@ export const api = new Elysia({ prefix: '/api' })
 
 export { internalRoutes };
 export { terminalRoutes } from './terminals.routes';
-export { editorProxyRoutes } from './editor-proxy.routes';

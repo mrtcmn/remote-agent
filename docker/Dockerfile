@@ -170,8 +170,9 @@ LABEL org.opencontainers.image.version=$VERSION
 LABEL org.opencontainers.image.source="https://github.com/mrtcmn/remote-agent"
 LABEL org.opencontainers.image.licenses="MIT"
 
-# Expose port
+# Expose ports (API + code-server)
 EXPOSE 5100
+EXPOSE 8080
 
 # Switch back to root for entrypoint (entrypoint drops to agent after fixing permissions)
 # Entrypoint (--chmod eliminates ghost layer from separate chmod)

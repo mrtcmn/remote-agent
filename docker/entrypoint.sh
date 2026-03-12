@@ -83,5 +83,6 @@ fi
 echo "Environment ready"
 echo ""
 
+
 # Drop privileges and execute command as agent user
 exec gosu agent "$@"
