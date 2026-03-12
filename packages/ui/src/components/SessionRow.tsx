@@ -26,8 +26,8 @@ export function SessionRow({ session }: SessionRowProps) {
     <button
       onClick={() => navigate(`/sessions/${session.id}`)}
       className={cn(
-        'w-full text-left px-3 py-1.5 rounded-sm transition-colors group',
-        'hover:bg-sidebar-accent',
+        'w-full text-left px-3 py-2.5 md:py-1.5 rounded-sm transition-colors group',
+        'hover:bg-sidebar-accent active:bg-sidebar-accent',
         isSelected && 'bg-primary/15 border-l-2 border-primary'
       )}
     >

@@ -8,6 +8,7 @@ import {
   Settings,
   Layers,
   Loader2,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { SessionRow } from '@/components/SessionRow';
@@ -26,9 +27,10 @@ function isActiveSession(session: SidebarSession): boolean {
 interface AppSidebarProps {
   data: SidebarData | undefined;
   isLoading: boolean;
+  onClose?: () => void;
 }
 
-export function AppSidebar({ data, isLoading }: AppSidebarProps) {
+export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
   const location = useLocation();
 
   // Filter projects and sessions to only show non-terminated (active) sessions
@@ -54,11 +56,21 @@ export function AppSidebar({ data, isLoading }: AppSidebarProps) {
   return (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
       {/* Logo section */}
-      <div className="px-3 py-3 border-b border-sidebar-border">
-        <Link to="/" className="flex items-center gap-2">
+      <div className="px-3 py-3 border-b border-sidebar-border flex items-center justify-between">
+        <Link to="/" className="flex items-center gap-2" onClick={onClose}>
           <img src="/logo.svg" alt="Remote Agent" className="h-7 w-7" />
           <span className="font-semibold text-sm">Remote Agent</span>
         </Link>
+        {onClose && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden h-9 w-9 shrink-0"
+            onClick={onClose}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
       {/* Scrollable project tree */}
@@ -101,13 +113,13 @@ export function AppSidebar({ data, isLoading }: AppSidebarProps) {
 
       {/* Bottom actions */}
       <div className="border-t border-sidebar-border p-2 space-y-0.5">
-        <NewSessionButton />
-        <Link to="/kanban">
+        <NewSessionButton onCreated={onClose} />
+        <Link to="/kanban" onClick={onClose}>
           <Button
             variant="ghost"
             size="sm"
             className={cn(
-              'w-full justify-start gap-2 text-sidebar-foreground hover:bg-sidebar-accent',
+              'w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent',
               location.pathname === '/kanban' && 'bg-sidebar-accent'
             )}
           >
@@ -115,12 +127,12 @@ export function AppSidebar({ data, isLoading }: AppSidebarProps) {
             Kanban
           </Button>
         </Link>
-        <Link to="/projects">
+        <Link to="/projects" onClick={onClose}>
           <Button
             variant="ghost"
             size="sm"
             className={cn(
-              'w-full justify-start gap-2 text-sidebar-foreground hover:bg-sidebar-accent',
+              'w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent',
               location.pathname === '/projects' && 'bg-sidebar-accent'
             )}
           >
@@ -128,12 +140,12 @@ export function AppSidebar({ data, isLoading }: AppSidebarProps) {
             Projects
           </Button>
         </Link>
-        <Link to="/settings">
+        <Link to="/settings" onClick={onClose}>
           <Button
             variant="ghost"
             size="sm"
             className={cn(
-              'w-full justify-start gap-2 text-sidebar-foreground hover:bg-sidebar-accent',
+              'w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent',
               location.pathname === '/settings' && 'bg-sidebar-accent'
             )}
           >
@@ -154,7 +166,7 @@ function ProjectGroup({ project }: { project: SidebarProject }) {
       {/* Project header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1.5 w-full px-3 py-1.5 hover:bg-sidebar-accent transition-colors text-left"
+        className="flex items-center gap-1.5 w-full px-3 py-2.5 md:py-1.5 hover:bg-sidebar-accent transition-colors text-left"
       >
         <ChevronRight
           className={cn(
@@ -186,7 +198,7 @@ function ProjectGroup({ project }: { project: SidebarProject }) {
   );
 }
 
-function NewSessionButton() {
+function NewSessionButton({ onCreated }: { onCreated?: () => void }) {
   const [modalOpen, setModalOpen] = useState(false);
 
   return (
@@ -194,13 +206,13 @@ function NewSessionButton() {
       <Button
         variant="ghost"
         size="sm"
-        className="w-full justify-start gap-2 text-sidebar-foreground hover:bg-sidebar-accent"
+        className="w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent"
         onClick={() => setModalOpen(true)}
       >
         <Plus className="h-4 w-4" />
         New Session
       </Button>
-      <NewSessionModal open={modalOpen} onClose={() => setModalOpen(false)} />
+      <NewSessionModal open={modalOpen} onClose={() => { setModalOpen(false); onCreated?.(); }} />
     </>
   );
 }

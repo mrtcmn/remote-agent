@@ -178,166 +178,170 @@ export function SessionPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Top Toolbar */}
-      <div className="flex items-center gap-2 h-11 px-3 md:px-2 border-b bg-card/30 shrink-0">
-        {/* Back + Title */}
-        <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="shrink-0">
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <h1 className="font-mono text-sm font-medium tracking-tight truncate mr-4">
-          {session?.project?.name || 'Session'}
-        </h1>
-
-        {/* Separator */}
-        <div className="h-5 w-px bg-border" />
-
-        {/* Terminal Actions */}
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 h-8 px-2.5 font-mono text-xs"
-            onClick={() => createMutation.mutate({ type: 'claude' })}
-            disabled={createMutation.isPending}
-          >
-            {createMutation.isPending ? (
-              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Bot className="h-3.5 w-3.5 text-orange-500" />
-            )}
-            <span className="hidden sm:inline">Claude</span>
+      <div className="flex items-center h-11 border-b bg-card/30 shrink-0">
+        {/* Fixed: Back + Title */}
+        <div className="flex items-center gap-1 pl-2 md:pl-2 shrink-0">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="shrink-0 h-9 w-9">
+            <ArrowLeft className="h-4 w-4" />
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 h-8 px-2.5 font-mono text-xs"
-            onClick={() => createMutation.mutate({ type: 'shell' })}
-            disabled={createMutation.isPending}
-          >
-            {createMutation.isPending ? (
-              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Plus className="h-3.5 w-3.5" />
-            )}
-            <span className="hidden sm:inline">Shell</span>
-          </Button>
+          <h1 className="font-mono text-sm font-medium tracking-tight truncate max-w-[120px] sm:max-w-none">
+            {session?.project?.name || 'Session'}
+          </h1>
         </div>
 
-        {/* Separator */}
-        <div className="h-5 w-px bg-border" />
+        {/* Scrollable toolbar area on mobile */}
+        <div className="flex-1 flex items-center gap-1 px-2 overflow-x-auto mobile-scroll">
+          {/* Separator */}
+          <div className="h-5 w-px bg-border shrink-0" />
 
-        {/* Git Toggle */}
-        {session?.project && (
-          <>
+          {/* Terminal Actions */}
+          <div className="flex items-center gap-1 shrink-0">
             <Button
-              variant={viewMode === 'git' ? 'secondary' : 'ghost'}
+              variant="ghost"
               size="sm"
-              className="gap-1.5 h-8 px-2.5 font-mono text-xs relative"
-              onClick={() => setViewMode(viewMode === 'git' ? 'terminal' : 'git')}
+              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
+              onClick={() => createMutation.mutate({ type: 'claude' })}
+              disabled={createMutation.isPending}
             >
-              <GitBranch className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Git</span>
-              {changeCount > 0 && (
-                <span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-yellow-500 text-[10px] font-bold text-black flex items-center justify-center">
-                  {changeCount > 99 ? '99+' : changeCount}
+              {createMutation.isPending ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Bot className="h-3.5 w-3.5 text-orange-500" />
+              )}
+              <span className="hidden sm:inline">Claude</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
+              onClick={() => createMutation.mutate({ type: 'shell' })}
+              disabled={createMutation.isPending}
+            >
+              {createMutation.isPending ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Plus className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden sm:inline">Shell</span>
+            </Button>
+          </div>
+
+          {/* Separator */}
+          <div className="h-5 w-px bg-border shrink-0" />
+
+          {/* Git Toggle */}
+          {session?.project && (
+            <>
+              <Button
+                variant={viewMode === 'git' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs relative shrink-0"
+                onClick={() => setViewMode(viewMode === 'git' ? 'terminal' : 'git')}
+              >
+                <GitBranch className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Git</span>
+                {changeCount > 0 && (
+                  <span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-yellow-500 text-[10px] font-bold text-black flex items-center justify-center">
+                    {changeCount > 99 ? '99+' : changeCount}
+                  </span>
+                )}
+              </Button>
+              {gitStatus?.branch && (
+                <span className="font-mono text-[11px] text-muted-foreground bg-accent/50 px-2 py-0.5 rounded hidden sm:inline-block shrink-0">
+                  {gitStatus.branch}
                 </span>
               )}
+            </>
+          )}
+
+          {/* Run Configs Toggle */}
+          {session?.project && (
+            <Button
+              variant={viewMode === 'run' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
+              onClick={() => setViewMode(viewMode === 'run' ? 'terminal' : 'run')}
+            >
+              <Play className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Run</span>
             </Button>
-            {gitStatus?.branch && (
-              <span className="font-mono text-[11px] text-muted-foreground bg-accent/50 px-2 py-0.5 rounded hidden sm:inline-block">
-                {gitStatus.branch}
-              </span>
-            )}
-          </>
-        )}
+          )}
 
-        {/* Run Configs Toggle */}
-        {session?.project && (
+          {/* Env Toggle */}
+          {session?.project && (
+            <Button
+              variant={viewMode === 'env' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
+              onClick={() => setViewMode(viewMode === 'env' ? 'terminal' : 'env')}
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Env</span>
+            </Button>
+          )}
+
+          {/* Docker Toggle */}
           <Button
-            variant={viewMode === 'run' ? 'secondary' : 'ghost'}
+            variant={viewMode === 'docker' ? 'secondary' : 'ghost'}
             size="sm"
-            className="gap-1.5 h-8 px-2.5 font-mono text-xs"
-            onClick={() => setViewMode(viewMode === 'run' ? 'terminal' : 'run')}
+            className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
+            onClick={() => setViewMode(viewMode === 'docker' ? 'terminal' : 'docker')}
           >
-            <Play className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Run</span>
+            <Box className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Docker</span>
           </Button>
-        )}
 
-        {/* Env Toggle */}
-        {session?.project && (
+          {/* Preview Toggle */}
           <Button
-            variant={viewMode === 'env' ? 'secondary' : 'ghost'}
+            variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
             size="sm"
-            className="gap-1.5 h-8 px-2.5 font-mono text-xs"
-            onClick={() => setViewMode(viewMode === 'env' ? 'terminal' : 'env')}
+            className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
+            onClick={() => {
+              if (viewMode === 'preview') {
+                setViewMode('terminal');
+              } else if (previewId) {
+                setViewMode('preview');
+              } else {
+                setShowPreviewDialog(true);
+              }
+            }}
           >
-            <Settings2 className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Env</span>
+            <Monitor className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Preview</span>
           </Button>
-        )}
 
-        {/* Docker Toggle */}
-        <Button
-          variant={viewMode === 'docker' ? 'secondary' : 'ghost'}
-          size="sm"
-          className="gap-1.5 h-8 px-2.5 font-mono text-xs"
-          onClick={() => setViewMode(viewMode === 'docker' ? 'terminal' : 'docker')}
-        >
-          <Box className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Docker</span>
-        </Button>
+          {/* Editor (starts code-server on demand, opens in new tab) */}
+          {canOpenEditor && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
+              onClick={() => openEditorMutation.mutate(session!.project!.localPath)}
+              disabled={openEditorMutation.isPending}
+            >
+              {openEditorMutation.isPending ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Code2 className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden sm:inline">Editor</span>
+              <ExternalLink className="h-3 w-3 opacity-50" />
+            </Button>
+          )}
+        </div>
 
-        {/* Preview Toggle */}
-        <Button
-          variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
-          size="sm"
-          className="gap-1.5 h-8 px-2.5 font-mono text-xs"
-          onClick={() => {
-            if (viewMode === 'preview') {
-              setViewMode('terminal');
-            } else if (previewId) {
-              setViewMode('preview');
-            } else {
-              setShowPreviewDialog(true);
-            }
-          }}
-        >
-          <Monitor className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Preview</span>
-        </Button>
-
-        {/* Editor (starts code-server on demand, opens in new tab) */}
-        {canOpenEditor && (
+        {/* Sidebar Toggle - fixed right */}
+        <div className="shrink-0 pr-2">
           <Button
             variant="ghost"
-            size="sm"
-            className="gap-1.5 h-8 px-2.5 font-mono text-xs"
-            onClick={() => openEditorMutation.mutate(session!.project!.localPath)}
-            disabled={openEditorMutation.isPending}
+            size="icon"
+            className="h-9 w-9 md:h-8 md:w-8 hidden md:flex"
+            onClick={() => setShowSidebar(!showSidebar)}
+            title={showSidebar ? 'Hide sidebar' : 'Show sidebar'}
           >
-            {openEditorMutation.isPending ? (
-              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Code2 className="h-3.5 w-3.5" />
-            )}
-            <span className="hidden sm:inline">Editor</span>
-            <ExternalLink className="h-3 w-3 opacity-50" />
+            {showSidebar ? <PanelRightClose className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
           </Button>
-        )}
-
-        {/* Spacer */}
-        <div className="flex-1" />
-
-        {/* Sidebar Toggle */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 hidden md:flex"
-          onClick={() => setShowSidebar(!showSidebar)}
-          title={showSidebar ? 'Hide sidebar' : 'Show sidebar'}
-        >
-          {showSidebar ? <PanelRightClose className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
-        </Button>
+        </div>
       </div>
 
       {/* Main Content */}
@@ -490,7 +494,7 @@ export function SessionPage() {
               <Button
                 variant="outline"
                 size="sm"
-                className="w-full justify-between h-9 font-mono text-xs"
+                className="w-full justify-between h-10 font-mono text-xs"
                 onClick={() => setShowTerminalDropdown(!showTerminalDropdown)}
               >
                 <span className="flex items-center gap-2 truncate">
@@ -518,7 +522,7 @@ export function SessionPage() {
                     <button
                       key={terminal.id}
                       className={cn(
-                        'flex items-center gap-2 w-full px-3 py-2 text-left text-sm hover:bg-accent',
+                        'flex items-center gap-2 w-full px-3 py-3 text-left text-sm hover:bg-accent',
                         activeTerminalId === terminal.id && 'bg-accent'
                       )}
                       onClick={() => {
@@ -564,7 +568,7 @@ export function SessionPage() {
           </div>
 
           {/* Main content */}
-          <div className="flex-1 min-h-0 px-2 pb-2 md:p-0">
+          <div className="flex-1 min-h-0 px-1 pb-1 md:p-0 safe-area-bottom">
             {viewMode === 'terminal' ? (
               activeTerminal ? (
                 <Terminal
