@@ -9,6 +9,7 @@ import {
   Layers,
   Loader2,
   X,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { SessionRow } from '@/components/SessionRow';
@@ -138,6 +139,19 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
           >
             <FolderGit2 className="h-4 w-4" />
             Projects
+          </Button>
+        </Link>
+        <Link to="/skills" onClick={onClose}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              'w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent',
+              location.pathname === '/skills' && 'bg-sidebar-accent'
+            )}
+          >
+            <Sparkles className="h-4 w-4" />
+            Skills
           </Button>
         </Link>
         <Link to="/settings" onClick={onClose}>

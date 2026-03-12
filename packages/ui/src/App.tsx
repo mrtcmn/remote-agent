@@ -8,6 +8,7 @@ import { SessionPage } from './pages/Session';
 import { ProjectsPage } from './pages/Projects';
 import { SettingsPage } from './pages/Settings';
 import { KanbanPage } from './pages/Kanban';
+import { SkillsPage } from './pages/Skills';
 import { Toaster } from './components/ui/Toaster';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -45,6 +46,7 @@ export default function App() {
                   <Route path="/sessions/:id/:terminalId" element={<SessionPage />} />
                   <Route path="/projects" element={<ProjectsPage />} />
                   <Route path="/kanban" element={<KanbanPage />} />
+                  <Route path="/skills" element={<SkillsPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                 </Routes>
               </Layout>

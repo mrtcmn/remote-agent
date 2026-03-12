@@ -472,6 +472,22 @@ export const api = {
     request<{ files: DockerFile[] }>(`/docker/detect/${projectId}`),
   getDockerStatus: () =>
     request<{ available: boolean }>('/docker/status'),
+
+  // ─── Skills ──────────────────────────────────────────────────────────────
+
+  getInstalledSkills: () =>
+    request<{ skills: InstalledSkill[] }>('/skills'),
+  searchSkills: (query: string) =>
+    request<{ skills: RegistrySkill[]; source: string }>(`/skills/search?q=${encodeURIComponent(query)}`),
+  getTrendingSkills: () =>
+    request<{ skills: RegistrySkill[] }>('/skills/trending'),
+  installSkill: (repo: string, skillName?: string, useCLI?: boolean) =>
+    request<{ success: boolean; installed?: string[]; output?: string }>('/skills/install', {
+      method: 'POST',
+      body: JSON.stringify({ repo, skillName, useCLI }),
+    }),
+  uninstallSkill: (name: string) =>
+    request<{ success: boolean }>(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 };
 
 // Types
@@ -987,4 +1003,26 @@ export interface DockerFile {
   path: string;
   type: 'dockerfile' | 'compose';
   name: string;
+}
+
+// ─── Skills Types ────────────────────────────────────────────────────────────
+
+export interface InstalledSkill {
+  name: string;
+  description: string;
+  license?: string;
+  mode?: boolean;
+  allowedTools?: string[];
+  path: string;
+  isSymlink: boolean;
+  installedAt: string;
+  source?: string;
+}
+
+export interface RegistrySkill {
+  name: string;
+  description: string;
+  repo: string;
+  installs: number;
+  trending?: number;
 }
