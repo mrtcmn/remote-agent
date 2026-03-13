@@ -309,18 +309,14 @@ class SkillsService {
   }
 
   /**
-   * Search the skills.sh registry
+   * Search skills using the skills CLI (npx skills find)
    */
   async search(query: string): Promise<RegistrySkill[]> {
     try {
-      // Try the skills.sh API
-      const response = await fetch(`https://skills.sh/api/skills?q=${encodeURIComponent(query)}&limit=30`);
-      if (response.ok) {
-        const data = await response.json() as { skills?: RegistrySkill[] };
-        if (data.skills) return data.skills;
-      }
+      const results = await this.searchViaCLI(query);
+      if (results.length > 0) return results;
     } catch {
-      // API may not be available
+      // CLI may not be available
     }
 
     // Fallback: search well-known skill repos
@@ -328,20 +324,10 @@ class SkillsService {
   }
 
   /**
-   * Get trending/popular skills from registry
+   * Get trending/popular skills.
+   * skills.sh has no public API, so we use the well-known skills catalog.
    */
   async getTrending(): Promise<RegistrySkill[]> {
-    try {
-      const response = await fetch('https://skills.sh/api/skills?sort=trending&limit=30');
-      if (response.ok) {
-        const data = await response.json() as { skills?: RegistrySkill[] };
-        if (data.skills) return data.skills;
-      }
-    } catch {
-      // API may not be available
-    }
-
-    // Return well-known skills as fallback
     return this.getWellKnownSkills();
   }
 
@@ -354,7 +340,7 @@ class SkillsService {
     const useNpx = npxCheck.exitCode === 0;
 
     if (useNpx) {
-      const args = ['npx', '-y', 'skills', 'add', repo];
+      const args = ['npx', '-y', 'skills', 'add', repo, '-y', '-g'];
       if (skillName) {
         args.push('--skill', skillName);
       }
@@ -387,10 +373,88 @@ class SkillsService {
   }
 
   /**
+   * Search for skills using the npx skills find CLI
+   * Parses output lines like: owner/repo@skill-name  NNK installs
+   */
+  private async searchViaCLI(query: string): Promise<RegistrySkill[]> {
+    if (!query) return []; // Empty query triggers interactive mode
+    const args = ['npx', '-y', 'skills', 'find', query];
+
+    const proc = Bun.spawnSync(args, {
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: { ...process.env, DISABLE_TELEMETRY: '1', NO_COLOR: '1' },
+      timeout: 30000,
+    });
+
+    const output = proc.stdout.toString();
+    if (proc.exitCode !== 0 || !output) return [];
+
+    return this.parseCLIOutput(output);
+  }
+
+  /**
+   * Parse the skills CLI output into RegistrySkill objects.
+   * Each skill appears as two lines:
+   *   owner/repo@skill-name  NNK installs
+   *   └ https://skills.sh/owner/repo/skill-name
+   */
+  private parseCLIOutput(output: string): RegistrySkill[] {
+    const skills: RegistrySkill[] = [];
+    const lines = output.split('\n');
+
+    // Match lines like: owner/repo@skill-name  123K installs
+    // ANSI codes may be present, so strip them
+    const ansiRegex = /\x1b\[[0-9;]*m/g;
+
+    for (const rawLine of lines) {
+      const line = rawLine.replace(ansiRegex, '').trim();
+
+      // Match pattern: owner/repo@skill  NNK installs
+      const match = line.match(/^(.+?)@(.+?)\s+([\d.]+[KMB]?)\s*installs?$/i);
+      if (!match) continue;
+
+      const repo = match[1].trim();
+      const name = match[2].trim();
+      const installStr = match[3].trim();
+
+      // Parse install count (e.g., "56.8K" -> 56800)
+      let installs = 0;
+      const numMatch = installStr.match(/^([\d.]+)([KMB]?)$/i);
+      if (numMatch) {
+        const num = parseFloat(numMatch[1]);
+        const suffix = numMatch[2].toUpperCase();
+        if (suffix === 'K') installs = Math.round(num * 1000);
+        else if (suffix === 'M') installs = Math.round(num * 1000000);
+        else if (suffix === 'B') installs = Math.round(num * 1000000000);
+        else installs = Math.round(num);
+      }
+
+      skills.push({
+        name,
+        description: '',  // CLI doesn't provide descriptions
+        repo,
+        installs,
+      });
+    }
+
+    return skills;
+  }
+
+  /**
    * Find skill directories in a cloned repo
    */
   private async findSkillsInRepo(repoDir: string, filterName?: string): Promise<string[]> {
     const skills: string[] = [];
+
+    // Helper: check if a directory name matches the filter.
+    // skills.sh prefixes skill names (e.g., "vercel-react-best-practices" for dir "react-best-practices"),
+    // so we also match when filterName ends with the directory name.
+    const nameMatches = (dirName: string, filter: string): boolean => {
+      if (dirName === filter) return true;
+      if (filter.endsWith(dirName) && filter[filter.length - dirName.length - 1] === '-') return true;
+      return false;
+    };
 
     // Check for skills/ subdirectory (common layout)
     const skillsSubDir = join(repoDir, 'skills');
@@ -398,7 +462,7 @@ class SkillsService {
       const entries = await readdir(skillsSubDir, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
-        if (filterName && entry.name !== filterName) continue;
+        if (filterName && !nameMatches(entry.name, filterName)) continue;
 
         const skillMd = join(skillsSubDir, entry.name, 'SKILL.md');
         if (existsSync(skillMd)) {
@@ -410,7 +474,7 @@ class SkillsService {
     // Check root level (single-skill repo)
     const rootSkillMd = join(repoDir, 'SKILL.md');
     if (existsSync(rootSkillMd)) {
-      if (!filterName || basename(repoDir) === filterName) {
+      if (!filterName || nameMatches(basename(repoDir), filterName)) {
         skills.push(repoDir);
       }
     }
@@ -420,7 +484,7 @@ class SkillsService {
       const entries = await readdir(repoDir, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-        if (filterName && entry.name !== filterName) continue;
+        if (filterName && !nameMatches(entry.name, filterName)) continue;
 
         const skillMd = join(repoDir, entry.name, 'SKILL.md');
         if (existsSync(skillMd)) {
