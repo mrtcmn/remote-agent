@@ -442,22 +442,25 @@ class SkillsService {
 
   private getWellKnownSkills(): RegistrySkill[] {
     return [
+      // vercel-labs/skills
       { name: 'find-skills', description: 'Discover and install agent skills', repo: 'vercel-labs/skills', installs: 517000 },
+      // vercel-labs/agent-skills
       { name: 'react-best-practices', description: '40+ optimization rules for React/Next.js development', repo: 'vercel-labs/agent-skills', installs: 89000 },
       { name: 'web-design-guidelines', description: '100+ accessibility, performance, and UX rules', repo: 'vercel-labs/agent-skills', installs: 72000 },
-      { name: 'react-native-guidelines', description: 'Mobile development patterns and best practices', repo: 'vercel-labs/agent-skills', installs: 41000 },
+      { name: 'react-native-skills', description: 'Mobile development patterns and best practices', repo: 'vercel-labs/agent-skills', installs: 41000 },
       { name: 'composition-patterns', description: 'Scalable component design patterns', repo: 'vercel-labs/agent-skills', installs: 35000 },
-      { name: 'vercel-deploy-claimable', description: 'Direct deployment to Vercel', repo: 'vercel-labs/agent-skills', installs: 28000 },
-      { name: 'cursor-rules', description: 'Best practices for Cursor AI coding', repo: 'pontusab/cursor.directory', installs: 65000 },
-      { name: 'typescript-strict', description: 'Strict TypeScript coding guidelines', repo: 'anthropics/skills', installs: 52000 },
-      { name: 'testing-best-practices', description: 'Testing patterns and strategies', repo: 'anthropics/skills', installs: 44000 },
-      { name: 'git-workflow', description: 'Git workflow automation and best practices', repo: 'anthropics/skills', installs: 38000 },
-      { name: 'docker-compose', description: 'Docker Compose configuration patterns', repo: 'anthropics/skills', installs: 31000 },
-      { name: 'api-design', description: 'RESTful API design guidelines', repo: 'anthropics/skills', installs: 29000 },
-      { name: 'security-audit', description: 'Security best practices and vulnerability detection', repo: 'anthropics/skills', installs: 27000 },
-      { name: 'performance-optimization', description: 'Code performance optimization patterns', repo: 'anthropics/skills', installs: 25000 },
-      { name: 'database-patterns', description: 'Database design and query optimization', repo: 'anthropics/skills', installs: 22000 },
-      { name: 'ci-cd-pipelines', description: 'CI/CD pipeline configuration and optimization', repo: 'anthropics/skills', installs: 20000 },
+      { name: 'deploy-to-vercel', description: 'Direct deployment to Vercel', repo: 'vercel-labs/agent-skills', installs: 28000 },
+      // anthropics/skills
+      { name: 'pdf', description: 'PDF generation and manipulation', repo: 'anthropics/skills', installs: 52000 },
+      { name: 'claude-api', description: 'Build apps with the Claude API', repo: 'anthropics/skills', installs: 48000 },
+      { name: 'frontend-design', description: 'Frontend design patterns and best practices', repo: 'anthropics/skills', installs: 44000 },
+      { name: 'webapp-testing', description: 'Web application testing strategies', repo: 'anthropics/skills', installs: 38000 },
+      { name: 'mcp-builder', description: 'Build Model Context Protocol servers', repo: 'anthropics/skills', installs: 31000 },
+      { name: 'docx', description: 'Word document generation', repo: 'anthropics/skills', installs: 29000 },
+      { name: 'xlsx', description: 'Excel spreadsheet generation', repo: 'anthropics/skills', installs: 27000 },
+      { name: 'pptx', description: 'PowerPoint presentation generation', repo: 'anthropics/skills', installs: 25000 },
+      { name: 'skill-creator', description: 'Create new agent skills', repo: 'anthropics/skills', installs: 22000 },
+      { name: 'web-artifacts-builder', description: 'Build interactive web artifacts', repo: 'anthropics/skills', installs: 20000 },
     ];
   }
 }
