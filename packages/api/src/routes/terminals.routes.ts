@@ -1,6 +1,8 @@
 import { Elysia, t } from 'elysia';
 import { nanoid } from 'nanoid';
 import { eq, and } from 'drizzle-orm';
+import { mkdir } from 'fs/promises';
+import { join } from 'path';
 import { db, claudeSessions, terminals } from '../db';
 import { terminalService } from '../services/terminal';
 import { workspaceService } from '../services/workspace';
@@ -239,6 +241,62 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     params: t.Object({
       sessionId: t.String(),
     }),
+  })
+
+  // Paste image - save to temp file and return path
+  .post('/:id/paste-image', async ({ user, params, body, set }) => {
+    const terminal = await db.query.terminals.findFirst({
+      where: eq(terminals.id, params.id),
+      with: { session: true },
+    });
+
+    if (!terminal) {
+      set.status = 404;
+      return { error: 'Terminal not found' };
+    }
+
+    if (terminal.session.userId !== user!.id) {
+      set.status = 403;
+      return { error: 'Forbidden' };
+    }
+
+    const file = body.image;
+    if (!(file instanceof File)) {
+      set.status = 400;
+      return { error: 'No image provided' };
+    }
+
+    // Cap at 10MB
+    if (file.size > 10 * 1024 * 1024) {
+      set.status = 400;
+      return { error: 'Image too large (max 10MB)' };
+    }
+
+    // Determine extension from MIME type
+    const extMap: Record<string, string> = {
+      'image/png': 'png',
+      'image/jpeg': 'jpg',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+      'image/svg+xml': 'svg',
+      'image/bmp': 'bmp',
+    };
+    const ext = extMap[file.type] || 'png';
+
+    const pasteDir = '/tmp/terminal-pastes';
+    await mkdir(pasteDir, { recursive: true });
+
+    const filename = `${nanoid()}.${ext}`;
+    const filePath = join(pasteDir, filename);
+    await Bun.write(filePath, file);
+
+    return { filePath };
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({
+      image: t.File(),
+    }),
+    type: 'multipart/form-data',
   })
 
   // Close terminal

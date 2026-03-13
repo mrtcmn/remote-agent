@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { ClipboardAddon } from '@xterm/addon-clipboard';
 import 'xterm/css/xterm.css';
 
 // Proper base64 to UTF-8 decoding (atob doesn't handle multi-byte UTF-8)
@@ -113,6 +114,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
     let fitAddon: FitAddon | null = null;
     let ws: WebSocket | null = null;
     let dataDisposable: { dispose: () => void } | null = null;
+    let pasteCleanup: (() => void) | null = null;
 
     // Function to initialize terminal once container has dimensions
     const initTerminal = () => {
@@ -159,11 +161,93 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
 
       fitAddon = new FitAddon();
       const webLinksAddon = new WebLinksAddon();
+      const clipboardAddon = new ClipboardAddon();
 
       xterm.loadAddon(fitAddon);
       xterm.loadAddon(webLinksAddon);
+      xterm.loadAddon(clipboardAddon);
+
+      // Allow Ctrl+V/Cmd+V to trigger browser paste, and Ctrl+C/Cmd+C to copy selection
+      xterm.attachCustomKeyEventHandler((event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+          return false;
+        }
+        if ((event.ctrlKey || event.metaKey) && event.key === 'c' && xterm!.hasSelection()) {
+          return false;
+        }
+        return true;
+      });
 
       xterm.open(container);
+
+      // Handle paste events (text and image)
+      const handlePaste = async (e: ClipboardEvent) => {
+        if (isDisposed) return;
+        e.preventDefault();
+
+        // Check for image data first
+        const items = e.clipboardData?.items;
+        if (items) {
+          for (const item of Array.from(items)) {
+            if (item.type.startsWith('image/')) {
+              const blob = item.getAsFile();
+              if (blob) {
+                await handleImagePaste(blob);
+                return;
+              }
+            }
+          }
+        }
+
+        // Fall back to text paste
+        const text = e.clipboardData?.getData('text/plain');
+        if (text && ws?.readyState === WebSocket.OPEN) {
+          const base64 = encodeBase64(text);
+          ws.send(JSON.stringify({ type: 'input', data: base64 }));
+        }
+      };
+
+      const handleImagePaste = async (blob: File) => {
+        try {
+          const formData = new FormData();
+          formData.append('image', blob);
+
+          const response = await fetch(`/api/terminals/${terminalId}/paste-image`, {
+            method: 'POST',
+            body: formData,
+          });
+          const result = await response.json();
+
+          if (result.filePath && ws?.readyState === WebSocket.OPEN) {
+            const base64 = encodeBase64(result.filePath + ' ');
+            ws.send(JSON.stringify({ type: 'input', data: base64 }));
+          }
+        } catch (error) {
+          console.error('Failed to upload pasted image:', error);
+        }
+      };
+
+      // Right-click to paste
+      const handleContextMenu = async (e: MouseEvent) => {
+        if (isDisposed) return;
+        e.preventDefault();
+        try {
+          const text = await navigator.clipboard.readText();
+          if (text && ws?.readyState === WebSocket.OPEN) {
+            const base64 = encodeBase64(text);
+            ws.send(JSON.stringify({ type: 'input', data: base64 }));
+          }
+        } catch {
+          // Clipboard API not available or permission denied
+        }
+      };
+
+      container.addEventListener('paste', handlePaste);
+      container.addEventListener('contextmenu', handleContextMenu);
+      pasteCleanup = () => {
+        container.removeEventListener('paste', handlePaste);
+        container.removeEventListener('contextmenu', handleContextMenu);
+      };
 
       xtermRef.current = xterm;
       fitAddonRef.current = fitAddon;
@@ -312,6 +396,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
       disposedRef.current = true;
       initResizeObserver?.disconnect();
       window.removeEventListener('resize', handleResize);
+      pasteCleanup?.();
       if (resizeDebounceRef.current) {
         clearTimeout(resizeDebounceRef.current);
       }
