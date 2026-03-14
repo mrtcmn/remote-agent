@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   FolderGit2,
@@ -41,8 +41,12 @@ interface AppSidebarProps {
 
 export function AppSidebar({ data, isLoading, user, onLogout, onClose }: AppSidebarProps) {
   const location = useLocation();
-  const params = useParams<{ id?: string }>();
-  const currentSessionId = params.id;
+
+  // Extract session ID from URL since sidebar is outside Routes context
+  const currentSessionId = useMemo(() => {
+    const match = location.pathname.match(/^\/sessions\/([^/]+)/);
+    return match ? match[1] : null;
+  }, [location.pathname]);
 
   // Get the current session's project info
   const currentProject = useMemo(() => {
@@ -300,7 +304,7 @@ function TerminalGroup({
   icon: React.ReactNode;
   sessionId: string;
 }) {
-  const params = useParams<{ terminalId?: string }>();
+  const location = useLocation();
 
   return (
     <div className="mb-1">
@@ -311,7 +315,7 @@ function TerminalGroup({
       </div>
       <div className="px-1">
         {terminals.map((terminal) => {
-          const isActive = params.terminalId === terminal.id;
+          const isActive = location.pathname.includes(`/${terminal.id}`);
           return (
             <Link
               key={terminal.id}
