@@ -1,58 +1,84 @@
-import { useMemo, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useMemo } from 'react';
+import { Link, useLocation, useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   FolderGit2,
-  ChevronRight,
   Plus,
   LayoutGrid,
   Settings,
-  Layers,
   Loader2,
   X,
   Sparkles,
+  Bot,
+  TerminalSquare,
+  Play,
+  GitBranch,
+  LogOut,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { SessionRow } from '@/components/SessionRow';
 import { NewSessionModal } from '@/components/NewSessionModal';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/Avatar';
 import { cn } from '@/lib/utils';
-import type { SidebarData, SidebarProject, SidebarSession } from '@/lib/api';
+import { api } from '@/lib/api';
+import type { SidebarData, TerminalInfo } from '@/lib/api';
+import { useState } from 'react';
 
-const ACTIVE_STATUSES = new Set(['active', 'waiting_input', 'paused']);
-
-function isActiveSession(session: SidebarSession): boolean {
-  // Use liveStatus (which accounts for stale sessions) over stored status
-  const effectiveStatus = session.liveStatus || session.status;
-  return ACTIVE_STATUSES.has(effectiveStatus);
+interface User {
+  id: string;
+  email: string;
+  name: string;
+  image?: string;
+  hasPin: boolean;
 }
 
 interface AppSidebarProps {
   data: SidebarData | undefined;
   isLoading: boolean;
+  user: User | null;
+  onLogout: () => void;
   onClose?: () => void;
 }
 
-export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
+export function AppSidebar({ data, isLoading, user, onLogout, onClose }: AppSidebarProps) {
   const location = useLocation();
+  const params = useParams<{ id?: string }>();
+  const currentSessionId = params.id;
 
-  // Filter projects and sessions to only show non-terminated (active) sessions
-  const { activeProjects, activeUnassigned, hasAnySessions } = useMemo(() => {
-    if (!data) return { activeProjects: [], activeUnassigned: [], hasAnySessions: false };
+  // Get the current session's project info
+  const currentProject = useMemo(() => {
+    if (!data || !currentSessionId) return null;
+    for (const project of data.projects) {
+      for (const session of project.sessions) {
+        if (session.id === currentSessionId) {
+          return { project, session };
+        }
+      }
+    }
+    return null;
+  }, [data, currentSessionId]);
 
-    const filteredProjects = data.projects
-      .map((project) => ({
-        ...project,
-        sessions: project.sessions.filter(isActiveSession),
-      }))
-      .filter((project) => project.sessions.length > 0);
+  // Fetch terminals for the current session
+  const { data: terminals = [] } = useQuery({
+    queryKey: ['terminals', currentSessionId],
+    queryFn: () => api.getSessionTerminals(currentSessionId!),
+    refetchInterval: 5000,
+    enabled: !!currentSessionId,
+  });
 
-    const filteredUnassigned = data.unassignedSessions.filter(isActiveSession);
+  // Fetch git status for branch name
+  const { data: gitStatus } = useQuery({
+    queryKey: ['session-git-status', currentSessionId],
+    queryFn: () => api.getSessionGitStatus(currentSessionId!),
+    refetchInterval: 5000,
+    enabled: !!currentSessionId && !!currentProject,
+  });
 
-    return {
-      activeProjects: filteredProjects,
-      activeUnassigned: filteredUnassigned,
-      hasAnySessions: filteredProjects.length > 0 || filteredUnassigned.length > 0,
-    };
-  }, [data]);
+  const activeTerminals = terminals.filter(
+    (t) => (t.liveStatus || t.status) === 'running'
+  );
+  const claudeTerminals = activeTerminals.filter((t) => t.type === 'claude');
+  const shellTerminals = activeTerminals.filter((t) => t.type === 'shell');
+  const processTerminals = activeTerminals.filter((t) => t.type === 'process');
 
   return (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
@@ -74,41 +100,106 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
         )}
       </div>
 
-      {/* Scrollable project tree */}
+      {/* Scrollable content area */}
       <div className="flex-1 overflow-y-auto py-2">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          </div>
-        ) : !hasAnySessions ? (
-          <div className="px-3 py-8 text-center">
-            <p className="text-xs text-muted-foreground">No active sessions</p>
-          </div>
-        ) : (
+        {currentSessionId ? (
+          /* Session context: show project/branch + terminals */
           <>
-            {/* Active Sessions label */}
-            <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-              Active Sessions
-            </div>
-
-            {activeProjects.map((project) => (
-              <ProjectGroup key={project.id} project={project} />
-            ))}
-
-            {/* Unassigned sessions (filtered to active only) */}
-            {activeUnassigned.length > 0 && (
-              <div className="mt-2">
-                <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                  Unassigned
+            {/* Project & Branch info */}
+            {currentProject && (
+              <div className="px-3 py-2 border-b border-sidebar-border/50 mb-2">
+                <div className="flex items-center gap-2 mb-1">
+                  <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-xs font-medium truncate">
+                    {currentProject.project.name}
+                  </span>
                 </div>
-                <div className="px-1">
-                  {activeUnassigned.map((session) => (
-                    <SessionRow key={session.id} session={session} />
-                  ))}
-                </div>
+                {gitStatus?.branch && (
+                  <div className="flex items-center gap-1.5 ml-5.5">
+                    <GitBranch className="h-3 w-3 text-primary/70" />
+                    <span className="text-[11px] font-mono text-primary/70 truncate">
+                      {gitStatus.branch}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
+
+            {/* Terminal listings */}
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            ) : activeTerminals.length === 0 ? (
+              <div className="px-3 py-6 text-center">
+                <p className="text-xs text-muted-foreground">No running terminals</p>
+              </div>
+            ) : (
+              <>
+                {/* Claude Code Terminals */}
+                {claudeTerminals.length > 0 && (
+                  <TerminalGroup
+                    label="Claude Code"
+                    terminals={claudeTerminals}
+                    icon={<Bot className="h-3 w-3" />}
+                    sessionId={currentSessionId}
+                  />
+                )}
+
+                {/* Shell Terminals */}
+                {shellTerminals.length > 0 && (
+                  <TerminalGroup
+                    label="Shells"
+                    terminals={shellTerminals}
+                    icon={<TerminalSquare className="h-3 w-3" />}
+                    sessionId={currentSessionId}
+                  />
+                )}
+
+                {/* Process Terminals */}
+                {processTerminals.length > 0 && (
+                  <TerminalGroup
+                    label="Processes"
+                    terminals={processTerminals}
+                    icon={<Play className="h-3 w-3" />}
+                    sessionId={currentSessionId}
+                  />
+                )}
+              </>
+            )}
           </>
+        ) : (
+          /* Dashboard context: show quick info */
+          <div className="px-3 py-4">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-2">
+                  Projects
+                </div>
+                {data?.projects.map((project) => (
+                  <div
+                    key={project.id}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-foreground/80"
+                  >
+                    <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="truncate">{project.name}</span>
+                    {project.sessions.length > 0 && (
+                      <span className="ml-auto text-[10px] text-muted-foreground bg-sidebar-accent px-1.5 py-0.5 rounded-full">
+                        {project.sessions.length}
+                      </span>
+                    )}
+                  </div>
+                ))}
+                {(!data?.projects || data.projects.length === 0) && (
+                  <p className="text-xs text-muted-foreground text-center py-4">No projects yet</p>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -120,7 +211,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
             variant="ghost"
             size="sm"
             className={cn(
-              'w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent',
+              'w-full justify-start gap-2 h-8 text-sidebar-foreground hover:bg-sidebar-accent',
               location.pathname === '/kanban' && 'bg-sidebar-accent'
             )}
           >
@@ -133,7 +224,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
             variant="ghost"
             size="sm"
             className={cn(
-              'w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent',
+              'w-full justify-start gap-2 h-8 text-sidebar-foreground hover:bg-sidebar-accent',
               location.pathname === '/projects' && 'bg-sidebar-accent'
             )}
           >
@@ -146,7 +237,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
             variant="ghost"
             size="sm"
             className={cn(
-              'w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent',
+              'w-full justify-start gap-2 h-8 text-sidebar-foreground hover:bg-sidebar-accent',
               location.pathname === '/skills' && 'bg-sidebar-accent'
             )}
           >
@@ -159,7 +250,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
             variant="ghost"
             size="sm"
             className={cn(
-              'w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent',
+              'w-full justify-start gap-2 h-8 text-sidebar-foreground hover:bg-sidebar-accent',
               location.pathname === '/settings' && 'bg-sidebar-accent'
             )}
           >
@@ -168,49 +259,87 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
           </Button>
         </Link>
       </div>
-    </div>
-  );
-}
 
-function ProjectGroup({ project }: { project: SidebarProject }) {
-  const [expanded, setExpanded] = useState(true);
-
-  return (
-    <div className="mb-1">
-      {/* Project header */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1.5 w-full px-3 py-2.5 md:py-1.5 hover:bg-sidebar-accent transition-colors text-left"
-      >
-        <ChevronRight
-          className={cn(
-            'h-3 w-3 text-muted-foreground transition-transform shrink-0',
-            expanded && 'rotate-90'
-          )}
-        />
-        <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        <span className="text-xs font-medium truncate flex-1">{project.name}</span>
-        {project.isMultiProject && (
-          <Layers className="h-3 w-3 text-primary/60 shrink-0" />
-        )}
-        {project.sessions.length > 0 && (
-          <span className="text-[10px] text-muted-foreground shrink-0">
-            {project.sessions.length}
-          </span>
-        )}
-      </button>
-
-      {/* Sessions (pre-filtered to active only) */}
-      {expanded && (
-        <div className="pl-2">
-          {project.sessions.map((session) => (
-            <SessionRow key={session.id} session={session} />
-          ))}
+      {/* User avatar - last item */}
+      {user && (
+        <div className="border-t border-sidebar-border px-3 py-2.5 flex items-center gap-2">
+          <Avatar className="h-7 w-7 shrink-0">
+            <AvatarImage src={user.image} alt={user.name} />
+            <AvatarFallback className="text-xs bg-sidebar-accent">
+              {user.name?.charAt(0).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium truncate text-sidebar-foreground">{user.name}</p>
+            <p className="text-[10px] text-muted-foreground truncate">{user.email}</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onLogout}
+            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-sidebar-foreground"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+          </Button>
         </div>
       )}
     </div>
   );
 }
+
+/* ── Terminal Group ── */
+
+function TerminalGroup({
+  label,
+  terminals,
+  icon,
+  sessionId,
+}: {
+  label: string;
+  terminals: TerminalInfo[];
+  icon: React.ReactNode;
+  sessionId: string;
+}) {
+  const params = useParams<{ terminalId?: string }>();
+
+  return (
+    <div className="mb-1">
+      <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+        {icon}
+        {label}
+        <span className="ml-auto text-[10px] opacity-60">{terminals.length}</span>
+      </div>
+      <div className="px-1">
+        {terminals.map((terminal) => {
+          const isActive = params.terminalId === terminal.id;
+          return (
+            <Link
+              key={terminal.id}
+              to={`/sessions/${sessionId}/${terminal.id}`}
+              className={cn(
+                'flex items-center gap-2 w-full px-3 py-1.5 rounded-sm transition-colors',
+                'hover:bg-sidebar-accent',
+                isActive && 'bg-primary/15 border-l-2 border-primary'
+              )}
+            >
+              <div
+                className={cn(
+                  'h-1.5 w-1.5 rounded-full shrink-0',
+                  terminal.liveStatus === 'running' ? 'bg-green-500' : 'bg-muted-foreground'
+                )}
+              />
+              <span className="text-xs font-mono truncate text-sidebar-foreground">
+                {terminal.name}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ── New Session Button ── */
 
 function NewSessionButton({ onCreated }: { onCreated?: () => void }) {
   const [modalOpen, setModalOpen] = useState(false);
@@ -220,7 +349,7 @@ function NewSessionButton({ onCreated }: { onCreated?: () => void }) {
       <Button
         variant="ghost"
         size="sm"
-        className="w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent"
+        className="w-full justify-start gap-2 h-8 text-sidebar-foreground hover:bg-sidebar-accent"
         onClick={() => setModalOpen(true)}
       >
         <Plus className="h-4 w-4" />

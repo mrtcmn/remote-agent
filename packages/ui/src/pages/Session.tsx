@@ -7,10 +7,7 @@ import {
   TerminalSquare,
   Plus,
   GitBranch,
-  X,
   RefreshCw,
-  PanelRightClose,
-  PanelRight,
   ChevronDown,
   FolderOpen,
   Trash2,
@@ -45,7 +42,6 @@ export function SessionPage() {
   const terminalIdFromUrl = terminalIdFromRoute || searchParams.get('terminalId');
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(terminalIdFromUrl);
   const [viewMode, setViewMode] = useState<ViewMode>('terminal');
-  const [showSidebar, setShowSidebar] = useState(true);
   const [showTerminalDropdown, setShowTerminalDropdown] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
@@ -84,17 +80,6 @@ export function SessionPage() {
       setActiveTerminalId(terminal.id);
       setViewMode('terminal');
       navigate(`/sessions/${id}/${terminal.id}`, { replace: true });
-    },
-  });
-
-  const closeMutation = useMutation({
-    mutationFn: (terminalId: string) => api.closeTerminal(terminalId),
-    onSuccess: (_, closedId) => {
-      queryClient.invalidateQueries({ queryKey: ['terminals', id] });
-      if (activeTerminalId === closedId) {
-        const remaining = terminals.filter((t) => t.id !== closedId);
-        setActiveTerminalId(remaining[0]?.id || null);
-      }
     },
   });
 
@@ -143,7 +128,7 @@ export function SessionPage() {
 
   const canOpenEditor = !!editorStatus?.configured && !!session?.project?.localPath;
 
-  // Filter out exited terminals, group by type
+  // Filter out exited terminals
   const activeTerminals = terminals.filter((t) => (t.liveStatus || t.status) === 'running');
 
   // Auto-select terminal from URL param or fall back to first running terminal
@@ -171,9 +156,6 @@ export function SessionPage() {
     return (gitStatus.modified?.length || 0) + (gitStatus.staged?.length || 0) + (gitStatus.untracked?.length || 0);
   }, [gitStatus]);
   const exitedCount = terminals.length - activeTerminals.length;
-  const claudeTerminals = activeTerminals.filter((t) => t.type === 'claude');
-  const shellTerminals = activeTerminals.filter((t) => t.type === 'shell');
-  const processTerminals = activeTerminals.filter((t) => t.type === 'process');
 
   return (
     <div className="flex flex-col h-full">
@@ -189,17 +171,17 @@ export function SessionPage() {
           </h1>
         </div>
 
-        {/* Scrollable toolbar area on mobile */}
+        {/* Scrollable toolbar area */}
         <div className="flex-1 flex items-center gap-1 px-2 overflow-x-auto mobile-scroll">
           {/* Separator */}
           <div className="h-5 w-px bg-border shrink-0" />
 
-          {/* Terminal Actions */}
-          <div className="flex items-center gap-1 shrink-0">
+          {/* Group 1: Terminal Actions */}
+          <div className="flex items-center gap-0.5 shrink-0 bg-accent/30 rounded-md px-1 py-0.5">
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
+              className="gap-1.5 h-8 px-2 font-mono text-xs shrink-0"
               onClick={() => createMutation.mutate({ type: 'claude' })}
               disabled={createMutation.isPending}
             >
@@ -213,7 +195,7 @@ export function SessionPage() {
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
+              className="gap-1.5 h-8 px-2 font-mono text-xs shrink-0"
               onClick={() => createMutation.mutate({ type: 'shell' })}
               disabled={createMutation.isPending}
             >
@@ -229,13 +211,13 @@ export function SessionPage() {
           {/* Separator */}
           <div className="h-5 w-px bg-border shrink-0" />
 
-          {/* Git Toggle */}
+          {/* Group 2: Git & Branch */}
           {session?.project && (
-            <>
+            <div className="flex items-center gap-0.5 shrink-0 bg-accent/30 rounded-md px-1 py-0.5">
               <Button
                 variant={viewMode === 'git' ? 'secondary' : 'ghost'}
                 size="sm"
-                className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs relative shrink-0"
+                className="gap-1.5 h-8 px-2 font-mono text-xs relative shrink-0"
                 onClick={() => setViewMode(viewMode === 'git' ? 'terminal' : 'git')}
               >
                 <GitBranch className="h-3.5 w-3.5" />
@@ -251,242 +233,130 @@ export function SessionPage() {
                   {gitStatus.branch}
                 </span>
               )}
-            </>
+            </div>
           )}
 
-          {/* Run Configs Toggle */}
-          {session?.project && (
+          {/* Separator */}
+          <div className="h-5 w-px bg-border shrink-0" />
+
+          {/* Group 3: Views - File, Preview, Code */}
+          <div className="flex items-center gap-0.5 shrink-0 bg-accent/30 rounded-md px-1 py-0.5">
+            {/* Files */}
+            {session?.project && (
+              <Button
+                variant={viewMode === 'files' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="gap-1.5 h-8 px-2 font-mono text-xs shrink-0"
+                onClick={() => setViewMode(viewMode === 'files' ? 'terminal' : 'files')}
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Files</span>
+              </Button>
+            )}
+
+            {/* Preview */}
             <Button
-              variant={viewMode === 'run' ? 'secondary' : 'ghost'}
+              variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
               size="sm"
-              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
-              onClick={() => setViewMode(viewMode === 'run' ? 'terminal' : 'run')}
+              className="gap-1.5 h-8 px-2 font-mono text-xs shrink-0"
+              onClick={() => {
+                if (viewMode === 'preview') {
+                  setViewMode('terminal');
+                } else if (previewId) {
+                  setViewMode('preview');
+                } else {
+                  setShowPreviewDialog(true);
+                }
+              }}
             >
-              <Play className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Run</span>
+              <Monitor className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Preview</span>
             </Button>
-          )}
 
-          {/* Env Toggle */}
-          {session?.project && (
+            {/* Editor */}
+            {canOpenEditor && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 h-8 px-2 font-mono text-xs shrink-0"
+                onClick={() => openEditorMutation.mutate(session!.project!.localPath)}
+                disabled={openEditorMutation.isPending}
+              >
+                {openEditorMutation.isPending ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Code2 className="h-3.5 w-3.5" />
+                )}
+                <span className="hidden sm:inline">Editor</span>
+                <ExternalLink className="h-3 w-3 opacity-50" />
+              </Button>
+            )}
+          </div>
+
+          {/* Separator */}
+          <div className="h-5 w-px bg-border shrink-0" />
+
+          {/* Group 4: Config & Infra */}
+          <div className="flex items-center gap-0.5 shrink-0 bg-accent/30 rounded-md px-1 py-0.5">
+            {/* Run Configs */}
+            {session?.project && (
+              <Button
+                variant={viewMode === 'run' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="gap-1.5 h-8 px-2 font-mono text-xs shrink-0"
+                onClick={() => setViewMode(viewMode === 'run' ? 'terminal' : 'run')}
+              >
+                <Play className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Run</span>
+              </Button>
+            )}
+
+            {/* Env */}
+            {session?.project && (
+              <Button
+                variant={viewMode === 'env' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="gap-1.5 h-8 px-2 font-mono text-xs shrink-0"
+                onClick={() => setViewMode(viewMode === 'env' ? 'terminal' : 'env')}
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Env</span>
+              </Button>
+            )}
+
+            {/* Docker */}
             <Button
-              variant={viewMode === 'env' ? 'secondary' : 'ghost'}
+              variant={viewMode === 'docker' ? 'secondary' : 'ghost'}
               size="sm"
-              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
-              onClick={() => setViewMode(viewMode === 'env' ? 'terminal' : 'env')}
+              className="gap-1.5 h-8 px-2 font-mono text-xs shrink-0"
+              onClick={() => setViewMode(viewMode === 'docker' ? 'terminal' : 'docker')}
             >
-              <Settings2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Env</span>
+              <Box className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Docker</span>
             </Button>
-          )}
+          </div>
+        </div>
 
-          {/* Docker Toggle */}
-          <Button
-            variant={viewMode === 'docker' ? 'secondary' : 'ghost'}
-            size="sm"
-            className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
-            onClick={() => setViewMode(viewMode === 'docker' ? 'terminal' : 'docker')}
-          >
-            <Box className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Docker</span>
-          </Button>
-
-          {/* Preview Toggle */}
-          <Button
-            variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
-            size="sm"
-            className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
-            onClick={() => {
-              if (viewMode === 'preview') {
-                setViewMode('terminal');
-              } else if (previewId) {
-                setViewMode('preview');
-              } else {
-                setShowPreviewDialog(true);
-              }
-            }}
-          >
-            <Monitor className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Preview</span>
-          </Button>
-
-          {/* Editor (starts code-server on demand, opens in new tab) */}
-          {canOpenEditor && (
+        {/* Cleanup exited terminals - fixed right */}
+        {exitedCount > 0 && (
+          <div className="shrink-0 pr-2">
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
-              onClick={() => openEditorMutation.mutate(session!.project!.localPath)}
-              disabled={openEditorMutation.isPending}
+              className="gap-1 h-8 px-2 text-xs text-muted-foreground hover:text-destructive"
+              onClick={() => cleanupMutation.mutate()}
+              disabled={cleanupMutation.isPending}
+              title={`Remove ${exitedCount} exited terminal${exitedCount !== 1 ? 's' : ''}`}
             >
-              {openEditorMutation.isPending ? (
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Code2 className="h-3.5 w-3.5" />
-              )}
-              <span className="hidden sm:inline">Editor</span>
-              <ExternalLink className="h-3 w-3 opacity-50" />
+              <Trash2 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{exitedCount}</span>
             </Button>
-          )}
-        </div>
-
-        {/* Sidebar Toggle - fixed right */}
-        <div className="shrink-0 pr-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 md:h-8 md:w-8 hidden md:flex"
-            onClick={() => setShowSidebar(!showSidebar)}
-            title={showSidebar ? 'Hide sidebar' : 'Show sidebar'}
-          >
-            {showSidebar ? <PanelRightClose className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
-          </Button>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex flex-1 min-h-0 gap-0">
-        {/* Compact Vertical Sidebar - Desktop */}
-        {showSidebar && (
-          <div className="hidden md:flex flex-col w-12 border-r bg-card/50 shrink-0">
-            {/* Claude Terminals */}
-            <div className="flex flex-col items-center py-2 gap-1 border-b border-border/50">
-              {claudeTerminals.map((terminal) => (
-                <TerminalIconButton
-                  key={terminal.id}
-                  terminal={terminal}
-                  isActive={activeTerminalId === terminal.id && viewMode === 'terminal'}
-                  onClick={() => {
-                    selectTerminal(terminal.id);
-                    setViewMode('terminal');
-                  }}
-                  onClose={() => closeMutation.mutate(terminal.id)}
-                />
-              ))}
-              {claudeTerminals.length === 0 && (
-                <div className="w-8 h-8 rounded border border-dashed border-border/50 flex items-center justify-center opacity-30">
-                  <Bot className="h-4 w-4" />
-                </div>
-              )}
-            </div>
-
-            {/* Shell Terminals */}
-            <div className="flex-1 flex flex-col items-center py-2 gap-1 overflow-y-auto">
-              {shellTerminals.map((terminal) => (
-                <TerminalIconButton
-                  key={terminal.id}
-                  terminal={terminal}
-                  isActive={activeTerminalId === terminal.id && viewMode === 'terminal'}
-                  onClick={() => {
-                    selectTerminal(terminal.id);
-                    setViewMode('terminal');
-                  }}
-                  onClose={() => closeMutation.mutate(terminal.id)}
-                />
-              ))}
-            </div>
-
-            {/* Process Terminals */}
-            {processTerminals.length > 0 && (
-              <div className="flex flex-col items-center py-2 gap-1 border-t border-border/50">
-                {processTerminals.map((terminal) => (
-                  <TerminalIconButton
-                    key={terminal.id}
-                    terminal={terminal}
-                    isActive={activeTerminalId === terminal.id && viewMode === 'terminal'}
-                    onClick={() => {
-                      selectTerminal(terminal.id);
-                      setViewMode('terminal');
-                    }}
-                    onClose={() => closeMutation.mutate(terminal.id)}
-                  />
-                ))}
-              </div>
-            )}
-
-            {/* Clean up exited terminals */}
-            {exitedCount > 0 && (
-              <div className="flex flex-col items-center py-2 border-t border-border/50">
-                <button
-                  onClick={() => cleanupMutation.mutate()}
-                  disabled={cleanupMutation.isPending}
-                  className={cn(
-                    'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
-                    'hover:bg-destructive/20 text-muted-foreground hover:text-destructive',
-                  )}
-                  title={`Remove ${exitedCount} exited terminal${exitedCount !== 1 ? 's' : ''}`}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            )}
-
-            {/* Files Button */}
-            {session?.project && (
-              <div className="flex flex-col items-center py-2 border-t border-border/50">
-                <button
-                  onClick={() => setViewMode(viewMode === 'files' ? 'terminal' : 'files')}
-                  className={cn(
-                    'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
-                    'hover:bg-accent',
-                    viewMode === 'files' && 'bg-primary text-primary-foreground'
-                  )}
-                  title="File Explorer"
-                >
-                  <FolderOpen className="h-4 w-4" />
-                </button>
-              </div>
-            )}
-
-            {/* Preview Button */}
-            <div className="flex flex-col items-center py-2 border-t border-border/50">
-              <button
-                onClick={() => {
-                  if (viewMode === 'preview') {
-                    setViewMode('terminal');
-                  } else if (previewId) {
-                    setViewMode('preview');
-                  } else {
-                    setShowPreviewDialog(true);
-                  }
-                }}
-                className={cn(
-                  'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
-                  'hover:bg-accent',
-                  viewMode === 'preview' && 'bg-primary text-primary-foreground'
-                )}
-                title="Browser Preview"
-              >
-                <Monitor className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Editor Button (starts code-server on demand, opens in new tab) */}
-            {canOpenEditor && (
-              <div className="flex flex-col items-center py-2 border-t border-border/50">
-                <button
-                  onClick={() => openEditorMutation.mutate(session!.project!.localPath)}
-                  disabled={openEditorMutation.isPending}
-                  className={cn(
-                    'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
-                    'hover:bg-accent',
-                    openEditorMutation.isPending && 'opacity-50',
-                  )}
-                  title="Open VS Code Editor"
-                >
-                  {openEditorMutation.isPending ? (
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Code2 className="h-4 w-4" />
-                  )}
-                </button>
-              </div>
-            )}
           </div>
         )}
+      </div>
 
-        {/* Mobile Terminal Selector - integrated into content area */}
-        {/* Content Area */}
+      {/* Main Content - no vertical sidebar, full width */}
+      <div className="flex flex-1 min-h-0 gap-0">
         <div className="flex-1 flex flex-col min-w-0 relative">
           {/* Mobile terminal dropdown */}
           <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b bg-card/20 shrink-0">
@@ -726,65 +596,6 @@ export function SessionPage() {
   );
 }
 
-interface TerminalIconButtonProps {
-  terminal: {
-    id: string;
-    name: string;
-    type: string;
-    liveStatus?: string;
-  };
-  isActive: boolean;
-  onClick: () => void;
-  onClose: () => void;
-}
-
-function TerminalIconButton({ terminal, isActive, onClick, onClose }: TerminalIconButtonProps) {
-  const Icon = terminal.type === 'claude' ? Bot : terminal.type === 'process' ? Play : TerminalSquare;
-
-  return (
-    <div className="group relative">
-      <button
-        onClick={onClick}
-        className={cn(
-          'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
-          'hover:bg-accent',
-          isActive && 'bg-primary text-primary-foreground'
-        )}
-        title={terminal.name}
-      >
-        <Icon
-          className={cn(
-            'h-4 w-4',
-            terminal.type === 'claude' && !isActive && 'text-orange-500',
-            terminal.type === 'process' && !isActive && 'text-green-500',
-          )}
-        />
-        {/* Status indicator */}
-        <div
-          className={cn(
-            'absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full',
-            terminal.liveStatus === 'running' ? 'bg-green-500' : 'bg-muted-foreground'
-          )}
-        />
-      </button>
-      {/* Close button on hover */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
-        className={cn(
-          'absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground',
-          'flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity',
-          'hover:scale-110'
-        )}
-      >
-        <X className="h-2.5 w-2.5" />
-      </button>
-    </div>
-  );
-}
-
 function EmptyState({ isLoading, onCreateClaude }: { isLoading: boolean; onCreateClaude: () => void }) {
   if (isLoading) {
     return (
@@ -812,4 +623,3 @@ function EmptyState({ isLoading, onCreateClaude }: { isLoading: boolean; onCreat
     </div>
   );
 }
-
