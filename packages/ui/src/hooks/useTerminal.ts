@@ -121,15 +121,19 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
       if (isDisposed) return;
 
       // Initialize xterm with macOS Terminal-like appearance
+      const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
       xterm = new Terminal({
         cursorBlink: true,
         cursorStyle: 'block',
-        fontSize: 11,
+        fontSize: isMobile ? 13 : 11,
         fontFamily: '"Fira Code", "SF Mono", "Menlo", "Monaco", "Cascadia Code", "Consolas", monospace',
         fontWeight: '500',
         fontWeightBold: '600',
         lineHeight: 1.2,
         letterSpacing: 0,
+        scrollback: 5000,
+        smoothScrollDuration: isMobile ? 100 : 0,
         allowTransparency: false,
         theme: {
           background: '#1e1e1e',
@@ -244,9 +248,38 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
 
       container.addEventListener('paste', handlePaste);
       container.addEventListener('contextmenu', handleContextMenu);
+
+      // Improve mobile touch scrolling: boost scroll speed and momentum
+      let touchStartY = 0;
+      let touchScrollCleanup: (() => void) | null = null;
+      if (isMobile) {
+        const handleTouchStart = (e: TouchEvent) => {
+          touchStartY = e.touches[0].clientY;
+        };
+        const handleTouchMove = (e: TouchEvent) => {
+          if (!xterm) return;
+          const deltaY = touchStartY - e.touches[0].clientY;
+          touchStartY = e.touches[0].clientY;
+          // Scroll by lines based on touch delta (amplify for momentum feel)
+          const lines = Math.round(deltaY / 10);
+          if (lines !== 0) {
+            xterm.scrollLines(lines);
+          }
+          // Prevent page scroll while scrolling terminal
+          e.preventDefault();
+        };
+        container.addEventListener('touchstart', handleTouchStart, { passive: true });
+        container.addEventListener('touchmove', handleTouchMove, { passive: false });
+        touchScrollCleanup = () => {
+          container.removeEventListener('touchstart', handleTouchStart);
+          container.removeEventListener('touchmove', handleTouchMove);
+        };
+      }
+
       pasteCleanup = () => {
         container.removeEventListener('paste', handlePaste);
         container.removeEventListener('contextmenu', handleContextMenu);
+        touchScrollCleanup?.();
       };
 
       xtermRef.current = xterm;

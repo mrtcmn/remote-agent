@@ -77,6 +77,17 @@
   background: linear-gradient(180deg, hsl(var(--card)) 0%, hsl(var(--background)) 100%);
 }
 
+/* Improve xterm touch scrolling on mobile */
+@media (pointer: coarse) {
+  .xterm .xterm-viewport {
+    -webkit-overflow-scrolling: touch;
+    overflow-y: auto !important;
+  }
+  .xterm .xterm-screen {
+    touch-action: pan-y;
+  }
+}
+
 /* Git diff view enhancements */
 .diff-view-container {
   --diff-add-bg: rgba(46, 160, 67, 0.15);
