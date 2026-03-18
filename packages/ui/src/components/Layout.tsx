@@ -1,5 +1,5 @@
 import { useLocation } from 'react-router-dom';
-import { Menu, X, LogOut, Bell } from 'lucide-react';
+import { Menu, X, Bell, LogOut } from 'lucide-react';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
@@ -33,9 +33,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className={cn('flex', isFullHeightPage ? 'h-dvh' : 'min-h-dvh')}>
-      {/* Desktop Sidebar */}
+      {/* Desktop Sidebar - full height, no border radius */}
       <aside
-        className="hidden md:flex shrink-0 border-r border-sidebar-border"
+        className="hidden md:flex shrink-0 border-r border-border"
         style={{ width }}
       >
         <div className="flex-1 min-w-0">
@@ -57,32 +57,29 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </>
       )}
 
-      {/* Middle: header + content */}
+      {/* Center: content */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Slim Header */}
-        <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur safe-area-top">
-          <div className="flex h-12 md:h-12 items-center px-3 md:px-4">
+        {/* Mobile-only header */}
+        <header className="md:hidden sticky top-0 z-30 border-b bg-background/95 backdrop-blur safe-area-top">
+          <div className="flex h-12 items-center px-3">
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden mr-1 h-10 w-10"
+              className="mr-1 h-10 w-10"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </Button>
-
-            <div className="md:hidden flex items-center gap-2">
+            <div className="flex items-center gap-2">
               <img src="/logo.svg" alt="Remote Agent" className="h-6 w-6" />
             </div>
-
-            <div className="ml-auto flex items-center gap-1 md:gap-2">
+            <div className="ml-auto flex items-center gap-1">
               {user && (
                 <>
-                  {/* Mobile notification bell - visible below lg breakpoint */}
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="lg:hidden relative h-9 w-9 md:h-8 md:w-8"
+                    className="relative h-9 w-9"
                     onClick={() => setNotificationPanelOpen(!notificationPanelOpen)}
                   >
                     <Bell className="h-4 w-4" />
@@ -96,7 +93,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     <AvatarImage src={user.image} alt={user.name} />
                     <AvatarFallback className="text-xs">{user.name?.charAt(0).toUpperCase()}</AvatarFallback>
                   </Avatar>
-                  <Button variant="ghost" size="icon" onClick={logout} className="h-9 w-9 md:h-8 md:w-8">
+                  <Button variant="ghost" size="icon" onClick={logout} className="h-9 w-9">
                     <LogOut className="h-3.5 w-3.5" />
                   </Button>
                 </>
@@ -121,7 +118,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Desktop Right Sidebar - Notification Panel */}
-      <aside className="hidden lg:flex shrink-0 w-[300px] border-l border-border overflow-hidden">
+      <aside className="hidden lg:flex shrink-0 w-[320px] border-l border-border overflow-hidden">
         <div className="flex-1 min-w-0">
           <NotificationPanel />
         </div>
@@ -134,7 +131,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             className="lg:hidden fixed inset-0 z-40 bg-black/50"
             onClick={() => setNotificationPanelOpen(false)}
           />
-          <aside className="lg:hidden fixed inset-y-0 right-0 z-50 w-[300px] max-w-[85vw] bg-background shadow-xl animate-in slide-in-from-right duration-200">
+          <aside className="lg:hidden fixed inset-y-0 right-0 z-50 w-[320px] max-w-[85vw] bg-background shadow-xl animate-in slide-in-from-right duration-200">
             <div className="flex items-center justify-between px-4 py-2 border-b">
               <span className="text-sm font-medium">Notifications</span>
               <Button

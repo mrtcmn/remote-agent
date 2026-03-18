@@ -1,18 +1,18 @@
 import { useMemo, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
 import {
-  FolderGit2,
-  ChevronRight,
-  Plus,
-  LayoutGrid,
-  Settings,
   Layers,
+  Plus,
+  ChevronDown,
+  LayoutGrid,
+  ListTodo,
+  Settings,
+  Sparkles,
+  FolderGit2,
   Loader2,
   X,
-  Sparkles,
 } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
-import { SessionRow } from '@/components/SessionRow';
 import { NewSessionModal } from '@/components/NewSessionModal';
 import { cn } from '@/lib/utils';
 import type { SidebarData, SidebarProject, SidebarSession } from '@/lib/api';
@@ -20,10 +20,190 @@ import type { SidebarData, SidebarProject, SidebarSession } from '@/lib/api';
 const ACTIVE_STATUSES = new Set(['active', 'waiting_input', 'paused']);
 
 function isActiveSession(session: SidebarSession): boolean {
-  // Use liveStatus (which accounts for stale sessions) over stored status
   const effectiveStatus = session.liveStatus || session.status;
   return ACTIVE_STATUSES.has(effectiveStatus);
 }
+
+const PALETTE = ['#3b82f6', '#f59e0b', '#10b981', '#a78bfa', '#f472b6', '#fb923c', '#34d399'];
+function projectColor(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return PALETTE[h % PALETTE.length];
+}
+
+// ─── Status colors ───────────────────────────────────────────────────────────
+
+const statusDotClass: Record<string, string> = {
+  active: 'bg-blue-500',
+  waiting_input: 'bg-orange-500 animate-pulse',
+  paused: 'bg-gray-500',
+  terminated: 'bg-red-500',
+};
+
+// ─── DiffStat ────────────────────────────────────────────────────────────────
+
+function DiffStat({ additions, deletions }: { additions: number; deletions: number }) {
+  if (additions === 0 && deletions === 0) return null;
+  return (
+    <span className="flex flex-col items-end gap-px font-mono text-[9px] leading-none shrink-0 tabular-nums">
+      {additions > 0 && <span className="text-emerald-400">+{additions}</span>}
+      {deletions > 0 && <span className="text-red-400">-{deletions}</span>}
+    </span>
+  );
+}
+
+// ─── SessionRow ──────────────────────────────────────────────────────────────
+
+function SessionRow({
+  session,
+  isSelected,
+  onSelect,
+}: {
+  session: SidebarSession;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  const effectiveStatus = session.liveStatus || session.status;
+  const dotClass = statusDotClass[effectiveStatus] || 'bg-gray-500';
+
+  return (
+    <motion.button
+      layout
+      onClick={onSelect}
+      whileTap={{ scale: 0.98 }}
+      transition={{ duration: 0.12 }}
+      className={cn(
+        'group/session w-full flex items-start gap-2 pl-3 pr-2 py-1.5 rounded-md text-left relative',
+        isSelected
+          ? 'bg-secondary text-foreground'
+          : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+      )}
+    >
+      <AnimatePresence>
+        {isSelected && (
+          <motion.span
+            layoutId="session-indicator"
+            className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-foreground/30"
+            initial={{ opacity: 0, scaleY: 0.5 }}
+            animate={{ opacity: 1, scaleY: 1 }}
+            exit={{ opacity: 0, scaleY: 0.5 }}
+            transition={{ type: 'spring', stiffness: 500, damping: 40 }}
+          />
+        )}
+      </AnimatePresence>
+
+      <span className={cn('w-2 h-2 rounded-full shrink-0 mt-1', dotClass)} />
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-1.5">
+          <span className="text-xs font-medium truncate leading-snug">
+            {session.branchName || session.id.slice(0, 8)}
+          </span>
+          {session.diffStats && (
+            <DiffStat additions={session.diffStats.additions} deletions={session.diffStats.deletions} />
+          )}
+        </div>
+        {session.branchName && (
+          <span className="block text-[10px] leading-snug font-mono truncate text-muted-foreground/50 mt-0.5">
+            {session.id.slice(0, 8)}
+          </span>
+        )}
+      </div>
+    </motion.button>
+  );
+}
+
+// ─── ProjectGroup ────────────────────────────────────────────────────────────
+
+function ProjectGroup({
+  project,
+  activeSessionId,
+  onSelectSession,
+}: {
+  project: SidebarProject;
+  activeSessionId: string | null;
+  onSelectSession: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const color = projectColor(project.id);
+  const initial = project.name.charAt(0).toUpperCase();
+
+  return (
+    <div className="space-y-0.5">
+      <div
+        role="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="group/ws flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-secondary cursor-pointer select-none"
+      >
+        <span
+          className="size-4 rounded flex items-center justify-center text-[9px] font-bold leading-none shrink-0"
+          style={{ backgroundColor: color + '33', border: `1px solid ${color}44`, color }}
+        >
+          {initial}
+        </span>
+        <span className="flex-1 text-xs font-medium text-muted-foreground group-hover/ws:text-foreground truncate transition-colors">
+          {project.name}
+        </span>
+        {project.isMultiProject && (
+          <Layers className="size-2.5 text-muted-foreground/40 shrink-0" />
+        )}
+        <span className="text-[10px] text-muted-foreground/40 font-mono shrink-0">
+          ({project.sessions.length})
+        </span>
+        <motion.span
+          animate={{ rotate: expanded ? 0 : -90 }}
+          transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+          className="flex items-center shrink-0"
+        >
+          <ChevronDown className="size-2.5 text-muted-foreground/30" />
+        </motion.span>
+      </div>
+
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+            style={{ overflow: 'hidden' }}
+          >
+            <motion.div
+              className="space-y-0.5"
+              initial="hidden"
+              animate="visible"
+              variants={{
+                hidden: {},
+                visible: {
+                  transition: { staggerChildren: 0.03, delayChildren: 0.04 },
+                },
+              }}
+            >
+              {project.sessions.map((session) => (
+                <motion.div
+                  key={session.id}
+                  variants={{
+                    hidden: { opacity: 0, y: -3 },
+                    visible: { opacity: 1, y: 0 },
+                  }}
+                  transition={{ duration: 0.15, ease: 'easeOut' }}
+                >
+                  <SessionRow
+                    session={session}
+                    isSelected={session.id === activeSessionId}
+                    onSelect={() => onSelectSession(session.id)}
+                  />
+                </motion.div>
+              ))}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── Main ────────────────────────────────────────────────────────────────────
 
 interface AppSidebarProps {
   data: SidebarData | undefined;
@@ -33,10 +213,15 @@ interface AppSidebarProps {
 
 export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const params = useParams();
+  const [activeTab, setActiveTab] = useState<'workspaces' | 'tasks'>('workspaces');
+  const [newSessionModalOpen, setNewSessionModalOpen] = useState(false);
 
-  // Filter projects and sessions to only show non-terminated (active) sessions
-  const { activeProjects, activeUnassigned, hasAnySessions } = useMemo(() => {
-    if (!data) return { activeProjects: [], activeUnassigned: [], hasAnySessions: false };
+  const activeSessionId = params.id || null;
+
+  const { activeProjects, activeUnassigned } = useMemo(() => {
+    if (!data) return { activeProjects: [], activeUnassigned: [] };
 
     const filteredProjects = data.projects
       .map((project) => ({
@@ -50,183 +235,150 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
     return {
       activeProjects: filteredProjects,
       activeUnassigned: filteredUnassigned,
-      hasAnySessions: filteredProjects.length > 0 || filteredUnassigned.length > 0,
     };
   }, [data]);
 
+  const handleSelectSession = (sessionId: string) => {
+    navigate(`/sessions/${sessionId}`);
+    onClose?.();
+  };
+
   return (
-    <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
-      {/* Logo section */}
-      <div className="px-3 py-3 border-b border-sidebar-border flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2" onClick={onClose}>
-          <img src="/logo.svg" alt="Remote Agent" className="h-7 w-7" />
-          <span className="font-semibold text-sm">Remote Agent</span>
-        </Link>
-        {onClose && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="md:hidden h-9 w-9 shrink-0"
-            onClick={onClose}
+    <div className="flex flex-col h-full bg-card text-foreground">
+      {/* Top nav tabs with sliding pill */}
+      <div className="flex items-center gap-0.5 px-2 pt-3 pb-2 shrink-0">
+        {(['workspaces', 'tasks'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => {
+              setActiveTab(tab);
+              if (tab === 'tasks') {
+                navigate('/kanban');
+                onClose?.();
+              }
+            }}
+            className={cn(
+              'relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium capitalize transition-colors duration-150',
+              activeTab === tab
+                ? 'text-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+            )}
           >
-            <X className="h-4 w-4" />
-          </Button>
+            {activeTab === tab && (
+              <motion.span
+                layoutId="sidebar-tab-pill"
+                className="absolute inset-0 rounded-md bg-secondary"
+                transition={{ type: 'spring', stiffness: 400, damping: 35 }}
+              />
+            )}
+            <span className="relative z-10 flex items-center gap-1.5">
+              {tab === 'workspaces' ? <LayoutGrid className="size-3.5" /> : <ListTodo className="size-3.5" />}
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </span>
+          </button>
+        ))}
+
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="ml-auto md:hidden p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary"
+          >
+            <X className="size-4" />
+          </button>
         )}
       </div>
 
-      {/* Scrollable project tree */}
-      <div className="flex-1 overflow-y-auto py-2">
+      {/* New Session button */}
+      <div className="px-2 pb-2 shrink-0">
+        <motion.button
+          whileTap={{ scale: 0.98 }}
+          transition={{ duration: 0.12 }}
+          onClick={() => setNewSessionModalOpen(true)}
+          className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+        >
+          <span className="flex items-center gap-1.5">
+            <Plus className="size-3.5" />
+            New Session
+          </span>
+        </motion.button>
+      </div>
+
+      <div className="h-px bg-border mb-2 shrink-0" />
+
+      {/* Project list */}
+      <div className="flex-1 overflow-y-auto min-h-0">
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           </div>
-        ) : !hasAnySessions ? (
+        ) : activeProjects.length === 0 && activeUnassigned.length === 0 ? (
           <div className="px-3 py-8 text-center">
             <p className="text-xs text-muted-foreground">No active sessions</p>
           </div>
         ) : (
-          <>
-            {/* Active Sessions label */}
-            <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-              Active Sessions
-            </div>
-
-            {activeProjects.map((project) => (
-              <ProjectGroup key={project.id} project={project} />
-            ))}
-
-            {/* Unassigned sessions (filtered to active only) */}
-            {activeUnassigned.length > 0 && (
-              <div className="mt-2">
-                <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                  Unassigned
-                </div>
+          <div className="py-1">
+            {activeProjects.map((project, i) => (
+              <div key={project.id}>
+                {i > 0 && <div className="h-px bg-border my-1" />}
                 <div className="px-1">
-                  {activeUnassigned.map((session) => (
-                    <SessionRow key={session.id} session={session} />
-                  ))}
+                  <ProjectGroup
+                    project={project}
+                    activeSessionId={activeSessionId}
+                    onSelectSession={handleSelectSession}
+                  />
                 </div>
               </div>
+            ))}
+
+            {activeUnassigned.length > 0 && (
+              <>
+                {activeProjects.length > 0 && <div className="h-px bg-border my-1" />}
+                <div className="px-1">
+                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground/40 font-medium">
+                    Unassigned
+                  </div>
+                  <div className="space-y-0.5">
+                    {activeUnassigned.map((session) => (
+                      <SessionRow
+                        key={session.id}
+                        session={session}
+                        isSelected={session.id === activeSessionId}
+                        onSelect={() => handleSelectSession(session.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </>
             )}
-          </>
+          </div>
         )}
       </div>
 
-      {/* Bottom actions */}
-      <div className="border-t border-sidebar-border p-2 space-y-0.5">
-        <NewSessionButton onCreated={onClose} />
-        <Link to="/kanban" onClick={onClose}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              'w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent',
-              location.pathname === '/kanban' && 'bg-sidebar-accent'
-            )}
-          >
-            <LayoutGrid className="h-4 w-4" />
-            Kanban
-          </Button>
-        </Link>
-        <Link to="/projects" onClick={onClose}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              'w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent',
-              location.pathname === '/projects' && 'bg-sidebar-accent'
-            )}
-          >
-            <FolderGit2 className="h-4 w-4" />
-            Projects
-          </Button>
-        </Link>
-        <Link to="/skills" onClick={onClose}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              'w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent',
-              location.pathname === '/skills' && 'bg-sidebar-accent'
-            )}
-          >
-            <Sparkles className="h-4 w-4" />
-            Skills
-          </Button>
-        </Link>
-        <Link to="/settings" onClick={onClose}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              'w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent',
-              location.pathname === '/settings' && 'bg-sidebar-accent'
-            )}
-          >
-            <Settings className="h-4 w-4" />
-            Settings
-          </Button>
-        </Link>
+      {/* Bottom nav */}
+      <div className="shrink-0 border-t border-border">
+        {[
+          { to: '/kanban', icon: LayoutGrid, label: 'Kanban' },
+          { to: '/projects', icon: FolderGit2, label: 'Projects' },
+          { to: '/skills', icon: Sparkles, label: 'Skills' },
+          { to: '/settings', icon: Settings, label: 'Settings' },
+        ].map((item) => (
+          <Link key={item.to} to={item.to} onClick={onClose}>
+            <motion.button
+              whileTap={{ scale: 0.99 }}
+              transition={{ duration: 0.12 }}
+              className={cn(
+                'w-full flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors',
+                location.pathname === item.to && 'text-foreground bg-secondary'
+              )}
+            >
+              <item.icon className="size-3.5" />
+              {item.label}
+            </motion.button>
+          </Link>
+        ))}
       </div>
+
+      <NewSessionModal open={newSessionModalOpen} onClose={() => setNewSessionModalOpen(false)} />
     </div>
-  );
-}
-
-function ProjectGroup({ project }: { project: SidebarProject }) {
-  const [expanded, setExpanded] = useState(true);
-
-  return (
-    <div className="mb-1">
-      {/* Project header */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1.5 w-full px-3 py-2.5 md:py-1.5 hover:bg-sidebar-accent transition-colors text-left"
-      >
-        <ChevronRight
-          className={cn(
-            'h-3 w-3 text-muted-foreground transition-transform shrink-0',
-            expanded && 'rotate-90'
-          )}
-        />
-        <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        <span className="text-xs font-medium truncate flex-1">{project.name}</span>
-        {project.isMultiProject && (
-          <Layers className="h-3 w-3 text-primary/60 shrink-0" />
-        )}
-        {project.sessions.length > 0 && (
-          <span className="text-[10px] text-muted-foreground shrink-0">
-            {project.sessions.length}
-          </span>
-        )}
-      </button>
-
-      {/* Sessions (pre-filtered to active only) */}
-      {expanded && (
-        <div className="pl-2">
-          {project.sessions.map((session) => (
-            <SessionRow key={session.id} session={session} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function NewSessionButton({ onCreated }: { onCreated?: () => void }) {
-  const [modalOpen, setModalOpen] = useState(false);
-
-  return (
-    <>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="w-full justify-start gap-2 h-10 md:h-8 text-sidebar-foreground hover:bg-sidebar-accent"
-        onClick={() => setModalOpen(true)}
-      >
-        <Plus className="h-4 w-4" />
-        New Session
-      </Button>
-      <NewSessionModal open={modalOpen} onClose={() => { setModalOpen(false); onCreated?.(); }} />
-    </>
   );
 }

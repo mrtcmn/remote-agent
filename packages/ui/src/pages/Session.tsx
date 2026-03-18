@@ -1,25 +1,26 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft,
   Bot,
   TerminalSquare,
+  Terminal as TerminalIcon,
   Plus,
   GitBranch,
   X,
   RefreshCw,
-  PanelRightClose,
-  PanelRight,
   ChevronDown,
   FolderOpen,
-  Trash2,
   Play,
   Monitor,
-  Box,
-  Settings2,
   Code2,
   ExternalLink,
+  ChevronsRight,
+  KeyRound,
+  Container,
+  AlertTriangle,
 } from 'lucide-react';
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -30,10 +31,271 @@ import { RunConfigPanel } from '@/components/RunConfigPanel';
 import { BrowserPreview } from '@/components/BrowserPreview';
 import { DockerPanel } from '@/components/DockerPanel';
 import { EnvEditor } from '@/components/EnvEditor';
+import {
+  ToolbarRoot,
+  ToolbarGroup,
+  ToolbarDivider,
+  ToolbarItem,
+  ToolbarStatus,
+} from '@/components/ui/Toolbar';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/Toaster';
 
 type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'preview' | 'docker' | 'env';
+
+// ─── Tools Menu Primitives ──────────────────────────────────────────────────
+
+function Divider() {
+  return <div className="w-px self-stretch shrink-0 bg-border/70 mx-0.5" />;
+}
+
+function ToolBadge({ count }: { count: number }) {
+  return (
+    <motion.span
+      initial={{ scale: 0.4, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+      className="flex items-center justify-center min-w-[14px] h-3.5 rounded-full bg-orange-500 text-white text-[8px] font-bold leading-none px-1 shrink-0 tabular-nums"
+    >
+      {count}
+    </motion.span>
+  );
+}
+
+function PulseDot({ active }: { active: boolean }) {
+  const color = active ? '#10b981' : 'rgba(128,128,128,0.3)';
+  return (
+    <span className="relative flex size-1.5 shrink-0">
+      {active && (
+        <motion.span
+          className="absolute inset-0 rounded-full"
+          style={{ backgroundColor: color }}
+          animate={{ scale: [1, 2.2, 1], opacity: [0.7, 0, 0.7] }}
+          transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      )}
+      <span className="relative rounded-full h-full w-full" style={{ backgroundColor: color }} />
+    </span>
+  );
+}
+
+interface ToolBtnProps {
+  icon?: React.ElementType;
+  label?: string;
+  badge?: number;
+  pill?: string;
+  isActive?: boolean;
+  isRunning?: boolean;
+  external?: boolean;
+  accentColor?: string;
+  iconColor?: string;
+  activeGlow?: boolean;
+  onClick?: () => void;
+  disabled?: boolean;
+  className?: string;
+}
+
+function ToolBtn({
+  icon: Icon,
+  label,
+  badge,
+  pill,
+  isActive,
+  isRunning,
+  external,
+  accentColor,
+  iconColor,
+  activeGlow,
+  onClick,
+  disabled,
+  className,
+}: ToolBtnProps) {
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <motion.button
+      whileTap={{ scale: 0.94 }}
+      transition={{ duration: 0.1 }}
+      onHoverStart={() => setHovered(true)}
+      onHoverEnd={() => setHovered(false)}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'relative flex items-center gap-1.5 px-2 h-full text-xs font-medium rounded-md transition-colors duration-100 shrink-0 select-none cursor-pointer',
+        isActive
+          ? 'bg-secondary/80 text-foreground'
+          : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60',
+        disabled && 'opacity-50 cursor-not-allowed',
+        className
+      )}
+    >
+      {isActive && accentColor && activeGlow && (
+        <motion.span
+          className="absolute inset-0 rounded-md pointer-events-none"
+          style={{ backgroundColor: accentColor }}
+          animate={{ opacity: [0.06, 0.12, 0.06] }}
+          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      )}
+
+      {isActive && accentColor && (
+        <motion.span
+          layoutId="tool-indicator"
+          className="absolute -top-px left-1/2 -translate-x-1/2 h-px w-4/5 rounded-full pointer-events-none"
+          style={{ backgroundColor: accentColor }}
+          transition={{ type: 'spring', stiffness: 400, damping: 35 }}
+        />
+      )}
+
+      {isRunning !== undefined && <PulseDot active={isRunning} />}
+
+      {Icon && (
+        <Icon
+          className="size-3.5 shrink-0 transition-colors"
+          style={iconColor && (isActive || hovered) ? { color: iconColor } : undefined}
+        />
+      )}
+
+      {label && <span className="leading-none tracking-tight hidden sm:inline">{label}</span>}
+      {badge !== undefined && badge > 0 && <ToolBadge count={badge} />}
+      {pill && (
+        <span className="px-1.5 h-4 flex items-center rounded text-[10px] font-mono bg-muted/80 text-muted-foreground shrink-0 border border-border/60 leading-none hidden sm:flex">
+          {pill}
+        </span>
+      )}
+
+      {external && (
+        <motion.span animate={{ opacity: hovered ? 0.5 : 0.2 }} transition={{ duration: 0.12 }}>
+          <ExternalLink className="size-2.5" />
+        </motion.span>
+      )}
+    </motion.button>
+  );
+}
+
+// ─── Tab Bar ─────────────────────────────────────────────────────────────────
+
+interface TabData {
+  id: string;
+  label: string;
+  type: string;
+  pinned?: boolean;
+  color?: string;
+}
+
+function StatusDot({ color = '#22c55e' }: { color?: string }) {
+  return (
+    <span
+      className="size-3.5 rounded-full shrink-0 flex items-center justify-center"
+      style={{ border: `2px solid ${color}`, backgroundColor: `${color}22` }}
+    >
+      <span className="size-[5px] rounded-full" style={{ backgroundColor: color }} />
+    </span>
+  );
+}
+
+function TabItem({
+  tab,
+  isActive,
+  onActivate,
+  onClose,
+}: {
+  tab: TabData;
+  isActive: boolean;
+  onActivate: () => void;
+  onClose?: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const showClose = !tab.pinned && (isActive || hovered);
+
+  const typeIcon = tab.type === 'claude' ? (
+    <Bot className="size-3.5 text-orange-500 shrink-0" />
+  ) : tab.type === 'process' ? (
+    <StatusDot color="#22c55e" />
+  ) : (
+    <TerminalSquare className="size-3.5 text-muted-foreground shrink-0" />
+  );
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, filter: 'blur(2px)' }}
+      animate={{ opacity: 1, filter: 'blur(0px)' }}
+      exit={{ opacity: 0, filter: 'blur(2px)' }}
+      transition={{ duration: 0.12 }}
+      onClick={onActivate}
+      onHoverStart={() => setHovered(true)}
+      onHoverEnd={() => setHovered(false)}
+      className={cn(
+        'relative flex items-center gap-1.5 h-full px-3 cursor-pointer select-none shrink-0 overflow-hidden',
+        'border-r border-border',
+        isActive
+          ? 'bg-secondary text-foreground'
+          : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+      )}
+      style={{ maxWidth: 180 }}
+    >
+      {typeIcon}
+
+      <span className="text-xs font-medium truncate flex-1 min-w-0 leading-none">
+        {tab.label}
+      </span>
+
+      <AnimatePresence>
+        {showClose && (
+          <motion.button
+            key="close"
+            initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+            animate={{ opacity: 1, width: 14, marginLeft: 2 }}
+            exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+            transition={{ duration: 0.1 }}
+            className="flex items-center justify-center size-3.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose?.();
+            }}
+          >
+            <X className="size-2.5" />
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      {isActive && (
+        <motion.span
+          layoutId="terminal-tab-underline"
+          className="absolute bottom-0 left-0 right-0 h-px bg-foreground/20"
+          transition={{ type: 'spring', stiffness: 400, damping: 35 }}
+        />
+      )}
+    </motion.div>
+  );
+}
+
+// ─── Status Bar Metric ──────────────────────────────────────────────────────
+
+function useSystemMetrics() {
+  const [cpu, setCpu] = useState(24);
+  const [ram, setRam] = useState(6.2);
+  const disk = 67;
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCpu((p) => Math.round(Math.max(3, Math.min(96, p + (Math.random() - 0.46) * 14))));
+      setRam((p) => parseFloat(Math.max(2, Math.min(14.5, p + (Math.random() - 0.5) * 0.5)).toFixed(1)));
+    }, 1200);
+    return () => clearInterval(id);
+  }, []);
+
+  return { cpu, ram, disk };
+}
+
+function loadColor(pct: number): string {
+  if (pct < 55) return '#34d399';
+  if (pct < 80) return '#fbbf24';
+  return '#f87171';
+}
+
+// ─── Main ────────────────────────────────────────────────────────────────────
 
 export function SessionPage() {
   const { id, terminalId: terminalIdFromRoute } = useParams<{ id: string; terminalId?: string }>();
@@ -41,15 +303,15 @@ export function SessionPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  // Support both route param and legacy query param
   const terminalIdFromUrl = terminalIdFromRoute || searchParams.get('terminalId');
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(terminalIdFromUrl);
   const [viewMode, setViewMode] = useState<ViewMode>('terminal');
-  const [showSidebar, setShowSidebar] = useState(true);
   const [showTerminalDropdown, setShowTerminalDropdown] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('http://localhost:3000');
+  const [toolsCollapsed, setToolsCollapsed] = useState(false);
+  const { cpu, ram, disk } = useSystemMetrics();
 
   const { data: session } = useQuery({
     queryKey: ['session', id],
@@ -98,13 +360,6 @@ export function SessionPage() {
     },
   });
 
-  const cleanupMutation = useMutation({
-    mutationFn: () => api.removeExitedTerminals(id!),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['terminals', id] });
-    },
-  });
-
   const startPreviewMutation = useMutation({
     mutationFn: (url: string) => api.startPreview(url, id!),
     onSuccess: (data) => {
@@ -113,11 +368,7 @@ export function SessionPage() {
       setShowPreviewDialog(false);
     },
     onError: (error) => {
-      toast({
-        title: 'Failed to start preview',
-        description: (error as Error).message,
-        variant: 'destructive',
-      });
+      toast({ title: 'Failed to start preview', description: (error as Error).message, variant: 'destructive' });
     },
   });
 
@@ -129,547 +380,431 @@ export function SessionPage() {
 
   const openEditorMutation = useMutation({
     mutationFn: (folder: string) => api.openEditor(folder),
-    onSuccess: (data) => {
-      window.open(data.url, '_blank');
-    },
+    onSuccess: (data) => { window.open(data.url, '_blank'); },
     onError: (error) => {
-      toast({
-        title: 'Failed to open editor',
-        description: (error as Error).message,
-        variant: 'destructive',
-      });
+      toast({ title: 'Failed to open editor', description: (error as Error).message, variant: 'destructive' });
     },
   });
 
   const canOpenEditor = !!editorStatus?.configured && !!session?.project?.localPath;
-
-  // Filter out exited terminals, group by type
   const activeTerminals = terminals.filter((t) => (t.liveStatus || t.status) === 'running');
 
-  // Auto-select terminal from URL param or fall back to first running terminal
   if (!activeTerminalId && activeTerminals.length > 0 && !isLoading) {
     setActiveTerminalId(activeTerminals[0].id);
   }
 
-  // Clean up legacy query param and migrate to route param
   if (searchParams.get('terminalId') && terminals.length > 0 && !isLoading) {
     const tid = searchParams.get('terminalId');
     navigate(`/sessions/${id}/${tid}`, { replace: true });
   }
 
-  // Helper to update URL when switching terminals
   const selectTerminal = (terminalId: string) => {
     setActiveTerminalId(terminalId);
+    setViewMode('terminal');
     navigate(`/sessions/${id}/${terminalId}`, { replace: true });
   };
 
   const activeTerminal = terminals.find((t) => t.id === activeTerminalId);
 
-  // Count changes for git badge
   const changeCount = useMemo(() => {
     if (!gitStatus) return 0;
     return (gitStatus.modified?.length || 0) + (gitStatus.staged?.length || 0) + (gitStatus.untracked?.length || 0);
   }, [gitStatus]);
-  const exitedCount = terminals.length - activeTerminals.length;
-  const claudeTerminals = activeTerminals.filter((t) => t.type === 'claude');
-  const shellTerminals = activeTerminals.filter((t) => t.type === 'shell');
-  const processTerminals = activeTerminals.filter((t) => t.type === 'process');
+
+  // Build tab data from terminals
+  const tabData: TabData[] = useMemo(() => {
+    // Add a pinned "home" tab for the project
+    const tabs: TabData[] = [];
+    if (session?.project) {
+      tabs.push({
+        id: '__project__',
+        label: session.project.name,
+        type: 'project',
+        pinned: true,
+      });
+    }
+    activeTerminals.forEach((t) => {
+      tabs.push({
+        id: t.id,
+        label: t.name,
+        type: t.type,
+        color: t.type === 'claude' ? '#f97316' : t.type === 'process' ? '#22c55e' : undefined,
+      });
+    });
+    return tabs;
+  }, [activeTerminals, session]);
 
   return (
     <div className="flex flex-col h-full">
-      {/* Top Toolbar */}
-      <div className="flex items-center h-11 border-b bg-card/30 shrink-0">
-        {/* Fixed: Back + Title */}
-        <div className="flex items-center gap-1 pl-2 md:pl-2 shrink-0">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="shrink-0 h-9 w-9">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <h1 className="font-mono text-sm font-medium tracking-tight truncate max-w-[120px] sm:max-w-none">
-            {session?.project?.name || 'Session'}
-          </h1>
-        </div>
+      {/* ── Tools Menu Toolbar ── */}
+      <div className="flex items-stretch h-9 border-b border-border bg-card overflow-hidden w-full shrink-0">
+        <div
+          className="flex-1 min-w-0 flex items-stretch overflow-x-auto"
+          style={{ scrollbarWidth: 'none' }}
+        >
+          <div className="flex items-stretch px-1">
+            {/* Nav */}
+            <ToolBtn icon={ArrowLeft} onClick={() => navigate('/')} className="w-7 justify-center px-0" />
+            <ToolBtn
+              label={session?.project?.name || 'Session'}
+              className="font-semibold text-foreground/90 px-2"
+            />
 
-        {/* Scrollable toolbar area on mobile */}
-        <div className="flex-1 flex items-center gap-1 px-2 overflow-x-auto mobile-scroll">
-          {/* Separator */}
-          <div className="h-5 w-px bg-border shrink-0" />
+            <AnimatePresence initial={false}>
+              {!toolsCollapsed && (
+                <motion.div
+                  key="tool-groups"
+                  initial={{ opacity: 0, width: 0 }}
+                  animate={{ opacity: 1, width: 'auto' }}
+                  exit={{ opacity: 0, width: 0 }}
+                  transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+                  className="flex items-stretch overflow-hidden"
+                >
+                  {/* AI */}
+                  <Divider />
+                  <div className="flex items-stretch gap-0.5">
+                    <ToolBtn
+                      icon={Bot}
+                      label="Claude"
+                      accentColor="#f97316"
+                      iconColor="#f97316"
+                      activeGlow
+                      isActive
+                      onClick={() => createMutation.mutate({ type: 'claude' })}
+                      disabled={createMutation.isPending}
+                    />
+                  </div>
 
-          {/* Terminal Actions */}
-          <div className="flex items-center gap-1 shrink-0">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
-              onClick={() => createMutation.mutate({ type: 'claude' })}
-              disabled={createMutation.isPending}
-            >
-              {createMutation.isPending ? (
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Bot className="h-3.5 w-3.5 text-orange-500" />
+                  {/* Shell & Git */}
+                  <Divider />
+                  <div className="flex items-stretch gap-0.5">
+                    <ToolBtn
+                      icon={TerminalSquare}
+                      label="Shell"
+                      onClick={() => createMutation.mutate({ type: 'shell' })}
+                      disabled={createMutation.isPending}
+                    />
+                    {session?.project && (
+                      <ToolBtn
+                        icon={GitBranch}
+                        label="Git"
+                        badge={changeCount}
+                        pill={gitStatus?.branch}
+                        isActive={viewMode === 'git'}
+                        onClick={() => setViewMode(viewMode === 'git' ? 'terminal' : 'git')}
+                      />
+                    )}
+                  </div>
+
+                  {/* Run / Files */}
+                  {session?.project && (
+                    <>
+                      <Divider />
+                      <div className="flex items-stretch gap-0.5">
+                        <ToolBtn
+                          icon={Play}
+                          label="Run"
+                          isActive={viewMode === 'run'}
+                          onClick={() => setViewMode(viewMode === 'run' ? 'terminal' : 'run')}
+                        />
+                        <ToolBtn
+                          icon={FolderOpen}
+                          label="Files"
+                          isActive={viewMode === 'files'}
+                          onClick={() => setViewMode(viewMode === 'files' ? 'terminal' : 'files')}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {/* Infra */}
+                  <Divider />
+                  <div className="flex items-stretch gap-0.5">
+                    {session?.project && (
+                      <ToolBtn
+                        icon={KeyRound}
+                        label="Env"
+                        isActive={viewMode === 'env'}
+                        onClick={() => setViewMode(viewMode === 'env' ? 'terminal' : 'env')}
+                      />
+                    )}
+                    <ToolBtn
+                      icon={Container}
+                      label="Docker"
+                      isActive={viewMode === 'docker'}
+                      onClick={() => setViewMode(viewMode === 'docker' ? 'terminal' : 'docker')}
+                    />
+                    <ToolBtn
+                      icon={Monitor}
+                      label="Preview"
+                      isActive={viewMode === 'preview'}
+                      onClick={() => {
+                        if (viewMode === 'preview') setViewMode('terminal');
+                        else if (previewId) setViewMode('preview');
+                        else setShowPreviewDialog(true);
+                      }}
+                    />
+                  </div>
+
+                  {/* Editor */}
+                  {canOpenEditor && (
+                    <>
+                      <Divider />
+                      <div className="flex items-stretch gap-0.5">
+                        <ToolBtn
+                          icon={Code2}
+                          label="VS Code"
+                          external
+                          iconColor="#007ACC"
+                          onClick={() => openEditorMutation.mutate(session!.project!.localPath)}
+                          disabled={openEditorMutation.isPending}
+                        />
+                      </div>
+                    </>
+                  )}
+                </motion.div>
               )}
-              <span className="hidden sm:inline">Claude</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
-              onClick={() => createMutation.mutate({ type: 'shell' })}
-              disabled={createMutation.isPending}
-            >
-              {createMutation.isPending ? (
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Plus className="h-3.5 w-3.5" />
-              )}
-              <span className="hidden sm:inline">Shell</span>
-            </Button>
+            </AnimatePresence>
           </div>
-
-          {/* Separator */}
-          <div className="h-5 w-px bg-border shrink-0" />
-
-          {/* Git Toggle */}
-          {session?.project && (
-            <>
-              <Button
-                variant={viewMode === 'git' ? 'secondary' : 'ghost'}
-                size="sm"
-                className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs relative shrink-0"
-                onClick={() => setViewMode(viewMode === 'git' ? 'terminal' : 'git')}
-              >
-                <GitBranch className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Git</span>
-                {changeCount > 0 && (
-                  <span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-yellow-500 text-[10px] font-bold text-black flex items-center justify-center">
-                    {changeCount > 99 ? '99+' : changeCount}
-                  </span>
-                )}
-              </Button>
-              {gitStatus?.branch && (
-                <span className="font-mono text-[11px] text-muted-foreground bg-accent/50 px-2 py-0.5 rounded hidden sm:inline-block shrink-0">
-                  {gitStatus.branch}
-                </span>
-              )}
-            </>
-          )}
-
-          {/* Run Configs Toggle */}
-          {session?.project && (
-            <Button
-              variant={viewMode === 'run' ? 'secondary' : 'ghost'}
-              size="sm"
-              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
-              onClick={() => setViewMode(viewMode === 'run' ? 'terminal' : 'run')}
-            >
-              <Play className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Run</span>
-            </Button>
-          )}
-
-          {/* Env Toggle */}
-          {session?.project && (
-            <Button
-              variant={viewMode === 'env' ? 'secondary' : 'ghost'}
-              size="sm"
-              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
-              onClick={() => setViewMode(viewMode === 'env' ? 'terminal' : 'env')}
-            >
-              <Settings2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Env</span>
-            </Button>
-          )}
-
-          {/* Docker Toggle */}
-          <Button
-            variant={viewMode === 'docker' ? 'secondary' : 'ghost'}
-            size="sm"
-            className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
-            onClick={() => setViewMode(viewMode === 'docker' ? 'terminal' : 'docker')}
-          >
-            <Box className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Docker</span>
-          </Button>
-
-          {/* Preview Toggle */}
-          <Button
-            variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
-            size="sm"
-            className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
-            onClick={() => {
-              if (viewMode === 'preview') {
-                setViewMode('terminal');
-              } else if (previewId) {
-                setViewMode('preview');
-              } else {
-                setShowPreviewDialog(true);
-              }
-            }}
-          >
-            <Monitor className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Preview</span>
-          </Button>
-
-          {/* Editor (starts code-server on demand, opens in new tab) */}
-          {canOpenEditor && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1.5 h-9 md:h-8 px-2.5 font-mono text-xs shrink-0"
-              onClick={() => openEditorMutation.mutate(session!.project!.localPath)}
-              disabled={openEditorMutation.isPending}
-            >
-              {openEditorMutation.isPending ? (
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Code2 className="h-3.5 w-3.5" />
-              )}
-              <span className="hidden sm:inline">Editor</span>
-              <ExternalLink className="h-3 w-3 opacity-50" />
-            </Button>
-          )}
         </div>
 
-        {/* Sidebar Toggle - fixed right */}
-        <div className="shrink-0 pr-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 md:h-8 md:w-8 hidden md:flex"
-            onClick={() => setShowSidebar(!showSidebar)}
-            title={showSidebar ? 'Hide sidebar' : 'Show sidebar'}
+        {/* Collapse toggle */}
+        <div className="shrink-0 flex items-stretch border-l border-border/60">
+          <button
+            onClick={() => setToolsCollapsed((v) => !v)}
+            className="flex items-center justify-center w-8 h-full text-muted-foreground/40 hover:text-muted-foreground hover:bg-secondary/60 transition-colors"
           >
-            {showSidebar ? <PanelRightClose className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
-          </Button>
+            <motion.span
+              animate={{ rotate: toolsCollapsed ? 180 : 0 }}
+              transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+              className="flex items-center"
+            >
+              <ChevronsRight className="size-3.5" />
+            </motion.span>
+          </button>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex flex-1 min-h-0 gap-0">
-        {/* Compact Vertical Sidebar - Desktop */}
-        {showSidebar && (
-          <div className="hidden md:flex flex-col w-12 border-r bg-card/50 shrink-0">
-            {/* Claude Terminals */}
-            <div className="flex flex-col items-center py-2 gap-1 border-b border-border/50">
-              {claudeTerminals.map((terminal) => (
-                <TerminalIconButton
-                  key={terminal.id}
-                  terminal={terminal}
-                  isActive={activeTerminalId === terminal.id && viewMode === 'terminal'}
-                  onClick={() => {
-                    selectTerminal(terminal.id);
-                    setViewMode('terminal');
+      {/* ── Tab Bar ── */}
+      <div className="hidden md:flex items-stretch h-8 border-b border-border bg-card w-full shrink-0">
+        <div
+          className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden"
+          style={{ scrollbarWidth: 'none' }}
+        >
+          <div className="flex items-stretch h-full">
+            <AnimatePresence initial={false}>
+              {tabData.map((tab) => (
+                <TabItem
+                  key={tab.id}
+                  tab={tab}
+                  isActive={
+                    tab.id === '__project__'
+                      ? viewMode !== 'terminal'
+                      : tab.id === activeTerminalId && viewMode === 'terminal'
+                  }
+                  onActivate={() => {
+                    if (tab.id === '__project__') {
+                      setViewMode('files');
+                    } else {
+                      selectTerminal(tab.id);
+                    }
                   }}
-                  onClose={() => closeMutation.mutate(terminal.id)}
+                  onClose={tab.pinned ? undefined : () => closeMutation.mutate(tab.id)}
                 />
               ))}
-              {claudeTerminals.length === 0 && (
-                <div className="w-8 h-8 rounded border border-dashed border-border/50 flex items-center justify-center opacity-30">
-                  <Bot className="h-4 w-4" />
-                </div>
+            </AnimatePresence>
+          </div>
+        </div>
+
+        {/* Add tab */}
+        <button
+          onClick={() => createMutation.mutate({ type: 'shell' })}
+          className="flex items-center justify-center w-8 h-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-secondary transition-colors shrink-0 border-l border-border"
+        >
+          <Plus className="size-3.5" />
+        </button>
+      </div>
+
+      {/* Mobile terminal dropdown */}
+      <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b bg-card/20 shrink-0">
+        <div className="relative flex-1">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-between h-10 font-mono text-xs"
+            onClick={() => setShowTerminalDropdown(!showTerminalDropdown)}
+          >
+            <span className="flex items-center gap-2 truncate">
+              {activeTerminal ? (
+                <>
+                  {activeTerminal.type === 'claude' ? (
+                    <Bot className="h-3.5 w-3.5 text-orange-500" />
+                  ) : activeTerminal.type === 'process' ? (
+                    <Play className="h-3.5 w-3.5 text-green-500" />
+                  ) : (
+                    <TerminalSquare className="h-3.5 w-3.5" />
+                  )}
+                  {activeTerminal.name}
+                </>
+              ) : (
+                'Select terminal'
+              )}
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 ml-2 shrink-0" />
+          </Button>
+
+          {showTerminalDropdown && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-card border rounded-md shadow-lg z-20 max-h-48 overflow-y-auto">
+              {activeTerminals.map((terminal) => (
+                <button
+                  key={terminal.id}
+                  className={cn(
+                    'flex items-center gap-2 w-full px-3 py-3 text-left text-sm hover:bg-accent',
+                    activeTerminalId === terminal.id && 'bg-accent'
+                  )}
+                  onClick={() => {
+                    selectTerminal(terminal.id);
+                    setShowTerminalDropdown(false);
+                  }}
+                >
+                  {terminal.type === 'claude' ? (
+                    <Bot className="h-4 w-4 text-orange-500" />
+                  ) : terminal.type === 'process' ? (
+                    <Play className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <TerminalSquare className="h-4 w-4" />
+                  )}
+                  <span className="flex-1 truncate font-mono text-xs">{terminal.name}</span>
+                </button>
+              ))}
+              {activeTerminals.length === 0 && (
+                <div className="px-3 py-4 text-center text-sm text-muted-foreground">No terminals</div>
               )}
             </div>
+          )}
+        </div>
+      </div>
 
-            {/* Shell Terminals */}
-            <div className="flex-1 flex flex-col items-center py-2 gap-1 overflow-y-auto">
-              {shellTerminals.map((terminal) => (
-                <TerminalIconButton
-                  key={terminal.id}
-                  terminal={terminal}
-                  isActive={activeTerminalId === terminal.id && viewMode === 'terminal'}
-                  onClick={() => {
-                    selectTerminal(terminal.id);
-                    setViewMode('terminal');
-                  }}
-                  onClose={() => closeMutation.mutate(terminal.id)}
-                />
-              ))}
-            </div>
-
-            {/* Process Terminals */}
-            {processTerminals.length > 0 && (
-              <div className="flex flex-col items-center py-2 gap-1 border-t border-border/50">
-                {processTerminals.map((terminal) => (
-                  <TerminalIconButton
-                    key={terminal.id}
-                    terminal={terminal}
-                    isActive={activeTerminalId === terminal.id && viewMode === 'terminal'}
-                    onClick={() => {
-                      selectTerminal(terminal.id);
-                      setViewMode('terminal');
-                    }}
-                    onClose={() => closeMutation.mutate(terminal.id)}
-                  />
+      {/* ── Content Area ── */}
+      <div className="flex-1 min-h-0">
+        {viewMode === 'terminal' ? (
+          activeTerminal ? (
+            <Terminal
+              key={activeTerminal.id}
+              terminalId={activeTerminal.id}
+              className="h-full"
+              onExit={() => { queryClient.invalidateQueries({ queryKey: ['terminals', id] }); }}
+              onTitleChanged={() => { queryClient.invalidateQueries({ queryKey: ['terminals', id] }); }}
+            />
+          ) : (
+            <EmptyState isLoading={isLoading} onCreateClaude={() => createMutation.mutate({ type: 'claude' })} />
+          )
+        ) : viewMode === 'git' ? (
+          <GitPanel
+            sessionId={id!}
+            project={session?.project}
+            onProceed={(message) => {
+              createMutation.mutate(
+                { type: 'claude', name: 'Review', initialPrompt: message },
+                {
+                  onSuccess: () => { toast({ title: 'Claude terminal started', description: 'Review comments are being processed' }); },
+                  onError: () => { toast({ title: 'Failed to create terminal', description: 'Please try again', variant: 'destructive' }); },
+                }
+              );
+            }}
+          />
+        ) : viewMode === 'run' ? (
+          <RunConfigPanel
+            projectId={session!.project!.id}
+            sessionId={id!}
+            onTerminalCreated={(terminalId) => {
+              queryClient.invalidateQueries({ queryKey: ['terminals', id] });
+              selectTerminal(terminalId);
+            }}
+          />
+        ) : viewMode === 'docker' ? (
+          <DockerPanel
+            sessionId={id!}
+            projectId={session?.project?.id}
+            onTerminalCreated={(terminalId) => {
+              queryClient.invalidateQueries({ queryKey: ['terminals', id] });
+              selectTerminal(terminalId);
+            }}
+          />
+        ) : viewMode === 'env' && session?.project ? (
+          <div className="p-4 overflow-y-auto h-full">
+            <EnvEditor projectId={session.project.id} />
+            {session.project.isMultiProject && session.project.childLinks && (
+              <div className="mt-6 space-y-4">
+                {session.project.childLinks.map((link: any) => (
+                  <div key={link.id} className="border rounded-lg p-3">
+                    <p className="text-xs font-medium text-muted-foreground mb-2">
+                      {link.alias || link.childProject?.name}
+                    </p>
+                    <EnvEditor projectId={link.childProjectId} />
+                  </div>
                 ))}
               </div>
             )}
-
-            {/* Clean up exited terminals */}
-            {exitedCount > 0 && (
-              <div className="flex flex-col items-center py-2 border-t border-border/50">
-                <button
-                  onClick={() => cleanupMutation.mutate()}
-                  disabled={cleanupMutation.isPending}
-                  className={cn(
-                    'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
-                    'hover:bg-destructive/20 text-muted-foreground hover:text-destructive',
-                  )}
-                  title={`Remove ${exitedCount} exited terminal${exitedCount !== 1 ? 's' : ''}`}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            )}
-
-            {/* Files Button */}
-            {session?.project && (
-              <div className="flex flex-col items-center py-2 border-t border-border/50">
-                <button
-                  onClick={() => setViewMode(viewMode === 'files' ? 'terminal' : 'files')}
-                  className={cn(
-                    'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
-                    'hover:bg-accent',
-                    viewMode === 'files' && 'bg-primary text-primary-foreground'
-                  )}
-                  title="File Explorer"
-                >
-                  <FolderOpen className="h-4 w-4" />
-                </button>
-              </div>
-            )}
-
-            {/* Preview Button */}
-            <div className="flex flex-col items-center py-2 border-t border-border/50">
-              <button
-                onClick={() => {
-                  if (viewMode === 'preview') {
-                    setViewMode('terminal');
-                  } else if (previewId) {
-                    setViewMode('preview');
-                  } else {
-                    setShowPreviewDialog(true);
-                  }
-                }}
-                className={cn(
-                  'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
-                  'hover:bg-accent',
-                  viewMode === 'preview' && 'bg-primary text-primary-foreground'
-                )}
-                title="Browser Preview"
-              >
-                <Monitor className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Editor Button (starts code-server on demand, opens in new tab) */}
-            {canOpenEditor && (
-              <div className="flex flex-col items-center py-2 border-t border-border/50">
-                <button
-                  onClick={() => openEditorMutation.mutate(session!.project!.localPath)}
-                  disabled={openEditorMutation.isPending}
-                  className={cn(
-                    'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
-                    'hover:bg-accent',
-                    openEditorMutation.isPending && 'opacity-50',
-                  )}
-                  title="Open VS Code Editor"
-                >
-                  {openEditorMutation.isPending ? (
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Code2 className="h-4 w-4" />
-                  )}
-                </button>
-              </div>
-            )}
           </div>
+        ) : viewMode === 'preview' && previewId ? (
+          <BrowserPreview
+            previewId={previewId}
+            onStop={async () => {
+              try { await api.stopPreview(previewId); } catch {}
+              setPreviewId(null);
+              setViewMode('terminal');
+            }}
+            className="h-full"
+          />
+        ) : (
+          <FileExplorer sessionId={id!} project={session?.project} className="h-full" />
         )}
-
-        {/* Mobile Terminal Selector - integrated into content area */}
-        {/* Content Area */}
-        <div className="flex-1 flex flex-col min-w-0 relative">
-          {/* Mobile terminal dropdown */}
-          <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b bg-card/20 shrink-0">
-            <div className="relative flex-1">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full justify-between h-10 font-mono text-xs"
-                onClick={() => setShowTerminalDropdown(!showTerminalDropdown)}
-              >
-                <span className="flex items-center gap-2 truncate">
-                  {activeTerminal ? (
-                    <>
-                      {activeTerminal.type === 'claude' ? (
-                        <Bot className="h-3.5 w-3.5 text-orange-500" />
-                      ) : activeTerminal.type === 'process' ? (
-                        <Play className="h-3.5 w-3.5 text-green-500" />
-                      ) : (
-                        <TerminalSquare className="h-3.5 w-3.5" />
-                      )}
-                      {activeTerminal.name}
-                    </>
-                  ) : (
-                    'Select terminal'
-                  )}
-                </span>
-                <ChevronDown className="h-3.5 w-3.5 ml-2 shrink-0" />
-              </Button>
-
-              {showTerminalDropdown && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-card border rounded-md shadow-lg z-20 max-h-48 overflow-y-auto">
-                  {activeTerminals.map((terminal) => (
-                    <button
-                      key={terminal.id}
-                      className={cn(
-                        'flex items-center gap-2 w-full px-3 py-3 text-left text-sm hover:bg-accent',
-                        activeTerminalId === terminal.id && 'bg-accent'
-                      )}
-                      onClick={() => {
-                        selectTerminal(terminal.id);
-                        setViewMode('terminal');
-                        setShowTerminalDropdown(false);
-                      }}
-                    >
-                      {terminal.type === 'claude' ? (
-                        <Bot className="h-4 w-4 text-orange-500" />
-                      ) : terminal.type === 'process' ? (
-                        <Play className="h-4 w-4 text-green-500" />
-                      ) : (
-                        <TerminalSquare className="h-4 w-4" />
-                      )}
-                      <span className="flex-1 truncate font-mono text-xs">{terminal.name}</span>
-                      <div
-                        className={cn(
-                          'h-2 w-2 rounded-full',
-                          terminal.liveStatus === 'running' ? 'bg-green-500' : 'bg-muted-foreground'
-                        )}
-                      />
-                    </button>
-                  ))}
-                  {activeTerminals.length === 0 && (
-                    <div className="px-3 py-4 text-center text-sm text-muted-foreground">No terminals</div>
-                  )}
-                  {exitedCount > 0 && (
-                    <button
-                      className="flex items-center gap-2 w-full px-3 py-2 text-left text-sm hover:bg-destructive/10 text-muted-foreground hover:text-destructive border-t"
-                      onClick={() => {
-                        cleanupMutation.mutate();
-                        setShowTerminalDropdown(false);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      <span className="font-mono text-xs">Remove {exitedCount} exited</span>
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Main content */}
-          <div className="flex-1 min-h-0 px-1 pb-1 md:p-0 safe-area-bottom">
-            {viewMode === 'terminal' ? (
-              activeTerminal ? (
-                <Terminal
-                  key={activeTerminal.id}
-                  terminalId={activeTerminal.id}
-                  className="h-full"
-                  onExit={() => {
-                    queryClient.invalidateQueries({ queryKey: ['terminals', id] });
-                  }}
-                  onTitleChanged={() => {
-                    queryClient.invalidateQueries({ queryKey: ['terminals', id] });
-                  }}
-                />
-              ) : (
-                <EmptyState isLoading={isLoading} onCreateClaude={() => createMutation.mutate({ type: 'claude' })} />
-              )
-            ) : viewMode === 'git' ? (
-              <GitPanel
-                sessionId={id!}
-                project={session?.project}
-                onProceed={(message) => {
-                  createMutation.mutate(
-                    {
-                      type: 'claude',
-                      name: 'Review',
-                      initialPrompt: message,
-                    },
-                    {
-                      onSuccess: () => {
-                        toast({
-                          title: 'Claude terminal started',
-                          description: 'Review comments are being processed',
-                        });
-                      },
-                      onError: () => {
-                        toast({
-                          title: 'Failed to create terminal',
-                          description: 'Please try again',
-                          variant: 'destructive',
-                        });
-                      },
-                    }
-                  );
-                }}
-              />
-            ) : viewMode === 'run' ? (
-              <RunConfigPanel
-                projectId={session!.project!.id}
-                sessionId={id!}
-                onTerminalCreated={(terminalId) => {
-                  queryClient.invalidateQueries({ queryKey: ['terminals', id] });
-                  selectTerminal(terminalId);
-                  setViewMode('terminal');
-                }}
-              />
-            ) : viewMode === 'docker' ? (
-              <DockerPanel
-                sessionId={id!}
-                projectId={session?.project?.id}
-                onTerminalCreated={(terminalId) => {
-                  queryClient.invalidateQueries({ queryKey: ['terminals', id] });
-                  selectTerminal(terminalId);
-                  setViewMode('terminal');
-                }}
-              />
-            ) : viewMode === 'env' && session?.project ? (
-              <div className="p-4">
-                <EnvEditor projectId={session.project.id} />
-                {session.project.isMultiProject && session.project.childLinks && (
-                  <div className="mt-6 space-y-4">
-                    {session.project.childLinks.map((link: any) => (
-                      <div key={link.id} className="border rounded-lg p-3">
-                        <p className="text-xs font-medium text-muted-foreground mb-2">
-                          {link.alias || link.childProject?.name}
-                        </p>
-                        <EnvEditor projectId={link.childProjectId} />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : viewMode === 'preview' && previewId ? (
-              <BrowserPreview
-                previewId={previewId}
-                onStop={async () => {
-                  try {
-                    await api.stopPreview(previewId);
-                  } catch {
-                    // Ignore stop errors
-                  }
-                  setPreviewId(null);
-                  setViewMode('terminal');
-                }}
-                className="h-full"
-              />
-            ) : (
-              <FileExplorer sessionId={id!} project={session?.project} className="h-full" />
-            )}
-          </div>
-        </div>
       </div>
+
+      {/* ── Status Bar ── */}
+      <ToolbarRoot>
+        <ToolbarGroup>
+          <ToolbarStatus status="green" label="Connected" pulse />
+          <ToolbarDivider />
+          {gitStatus?.branch && (
+            <>
+              <ToolbarItem icon={GitBranch} label={gitStatus.branch} />
+              <ToolbarDivider />
+            </>
+          )}
+          {changeCount > 0 && (
+            <>
+              <ToolbarItem
+                icon={AlertTriangle}
+                label={String(changeCount)}
+                className="text-yellow-600/70 hover:text-yellow-600"
+              />
+              <ToolbarDivider />
+            </>
+          )}
+        </ToolbarGroup>
+
+        <ToolbarGroup align="right">
+          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] font-mono leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground">
+            <span className="text-muted-foreground/70">cpu </span>
+            <span style={{ color: loadColor(cpu) }} className="tabular-nums">{cpu}%</span>
+          </button>
+          <ToolbarDivider />
+          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] font-mono leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground">
+            <span className="text-muted-foreground/70">mem </span>
+            <span style={{ color: loadColor((ram / 16) * 100) }} className="tabular-nums">{ram}</span>
+            <span className="text-muted-foreground/60">/16</span>
+          </button>
+          <ToolbarDivider />
+          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] font-mono leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground">
+            <span className="text-muted-foreground/70">disk </span>
+            <span style={{ color: loadColor(disk) }} className="tabular-nums">{disk}%</span>
+          </button>
+          <ToolbarDivider />
+          <ToolbarItem icon={TerminalIcon} label="bash" />
+        </ToolbarGroup>
+      </ToolbarRoot>
 
       {/* Preview URL Dialog */}
       {showPreviewDialog && (
@@ -694,20 +829,12 @@ export function SessionPage() {
                 />
               </div>
               <div className="flex justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowPreviewDialog(false)}
-                >
+                <Button variant="ghost" size="sm" onClick={() => setShowPreviewDialog(false)}>
                   Cancel
                 </Button>
                 <Button
                   size="sm"
-                  onClick={() => {
-                    if (previewUrl.trim()) {
-                      startPreviewMutation.mutate(previewUrl.trim());
-                    }
-                  }}
+                  onClick={() => { if (previewUrl.trim()) startPreviewMutation.mutate(previewUrl.trim()); }}
                   disabled={startPreviewMutation.isPending || !previewUrl.trim()}
                 >
                   {startPreviewMutation.isPending ? (
@@ -722,65 +849,6 @@ export function SessionPage() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-interface TerminalIconButtonProps {
-  terminal: {
-    id: string;
-    name: string;
-    type: string;
-    liveStatus?: string;
-  };
-  isActive: boolean;
-  onClick: () => void;
-  onClose: () => void;
-}
-
-function TerminalIconButton({ terminal, isActive, onClick, onClose }: TerminalIconButtonProps) {
-  const Icon = terminal.type === 'claude' ? Bot : terminal.type === 'process' ? Play : TerminalSquare;
-
-  return (
-    <div className="group relative">
-      <button
-        onClick={onClick}
-        className={cn(
-          'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
-          'hover:bg-accent',
-          isActive && 'bg-primary text-primary-foreground'
-        )}
-        title={terminal.name}
-      >
-        <Icon
-          className={cn(
-            'h-4 w-4',
-            terminal.type === 'claude' && !isActive && 'text-orange-500',
-            terminal.type === 'process' && !isActive && 'text-green-500',
-          )}
-        />
-        {/* Status indicator */}
-        <div
-          className={cn(
-            'absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full',
-            terminal.liveStatus === 'running' ? 'bg-green-500' : 'bg-muted-foreground'
-          )}
-        />
-      </button>
-      {/* Close button on hover */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
-        className={cn(
-          'absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground',
-          'flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity',
-          'hover:scale-110'
-        )}
-      >
-        <X className="h-2.5 w-2.5" />
-      </button>
     </div>
   );
 }
@@ -812,4 +880,3 @@ function EmptyState({ isLoading, onCreateClaude }: { isLoading: boolean; onCreat
     </div>
   );
 }
-
