@@ -215,10 +215,10 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const params = useParams();
-  const [activeTab, setActiveTab] = useState<'workspaces' | 'tasks'>('workspaces');
   const [newSessionModalOpen, setNewSessionModalOpen] = useState(false);
 
   const activeSessionId = params.id || null;
+  const activeTab = location.pathname === '/kanban' ? 'tasks' : 'workspaces';
 
   const { activeProjects, activeUnassigned } = useMemo(() => {
     if (!data) return { activeProjects: [], activeUnassigned: [] };
@@ -251,11 +251,12 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
           <button
             key={tab}
             onClick={() => {
-              setActiveTab(tab);
               if (tab === 'tasks') {
                 navigate('/kanban');
-                onClose?.();
+              } else {
+                navigate('/');
               }
+              onClose?.();
             }}
             className={cn(
               'relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium capitalize transition-colors duration-150',

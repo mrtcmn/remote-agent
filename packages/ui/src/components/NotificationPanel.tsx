@@ -226,7 +226,7 @@ export function NotificationPanel() {
   return (
     <div className="flex flex-col h-full bg-card">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-4 pb-3 shrink-0">
+      <div className="flex items-center justify-between px-4 h-9 shrink-0">
         <div className="flex items-center gap-2">
           <Bell className="size-3.5 text-muted-foreground/60" />
           <span className="text-sm font-semibold text-foreground tracking-tight">Notifications</span>
