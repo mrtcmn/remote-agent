@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { db, claudeSessions, projects } from '../db';
 import { notificationService } from '../services/notification';
 import type { NotificationType, NotificationAction } from '../services/notification/types';
+import { notificationClassifier } from '../services/notification/classifier';
+import type { NotificationClassification, ParsedOption } from '../services/notification/classifier';
 
 // Helper to get project name for a session
 async function getSessionWithProject(sessionId: string) {
@@ -73,6 +75,82 @@ async function getTranscriptSummary(transcriptPath: string): Promise<{ stopReaso
     console.error('Failed to parse transcript:', error);
     return {};
   }
+}
+
+// Convert parsed options from classifier into notification actions
+function optionsToActions(options: ParsedOption[], freeformAllowed: boolean): NotificationAction[] {
+  const actions: NotificationAction[] = options.map(opt => ({
+    label: opt.label,
+    action: opt.value,
+    data: opt.isDefault ? { isDefault: true } : undefined,
+  }));
+
+  // If freeform is allowed, add a reply action so user can type custom input
+  if (freeformAllowed) {
+    actions.push({ label: 'Reply', action: 'reply' });
+  }
+
+  // Always include an "Open" action to jump to the terminal
+  actions.push({ label: 'Open', action: 'open' });
+
+  return actions;
+}
+
+// Map LLM classifications to notification types and session status
+function mapClassificationToNotification(
+  classifications: NotificationClassification[],
+  options: ParsedOption[],
+  freeformAllowed: boolean,
+): {
+  notificationType: NotificationType;
+  sessionStatus: 'active' | 'waiting_input' | 'paused' | 'terminated';
+  priority: 'low' | 'normal' | 'high';
+  actions: NotificationAction[];
+} {
+  // Priority: question > permission > error > task_complete > progress_update > idle
+  if (classifications.includes('question')) {
+    return {
+      notificationType: 'user_input_required',
+      sessionStatus: 'waiting_input',
+      priority: 'high',
+      actions: optionsToActions(options, freeformAllowed),
+    };
+  }
+
+  if (classifications.includes('permission')) {
+    return {
+      notificationType: 'permission_request',
+      sessionStatus: 'waiting_input',
+      priority: 'high',
+      actions: optionsToActions(options, false), // Permissions are pick-one, no freeform
+    };
+  }
+
+  if (classifications.includes('error')) {
+    return {
+      notificationType: 'error',
+      sessionStatus: 'waiting_input',
+      priority: 'high',
+      actions: optionsToActions(options, true), // Errors always allow freeform reply
+    };
+  }
+
+  if (classifications.includes('task_complete')) {
+    return {
+      notificationType: 'task_complete',
+      sessionStatus: 'terminated',
+      priority: 'normal',
+      actions: [{ label: 'View', action: 'view' }],
+    };
+  }
+
+  // progress_update or idle — low priority
+  return {
+    notificationType: 'task_complete',
+    sessionStatus: 'terminated',
+    priority: 'low',
+    actions: [{ label: 'View', action: 'view' }],
+  };
 }
 
 // Internal routes for hooks (not authenticated, only accessible from localhost)
@@ -155,7 +233,7 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
     }),
   })
 
-  // Hook callback for task completion (Stop event)
+  // Hook callback for task completion (Stop event) — uses LLM classifier
   .post('/hooks/complete', async ({ body, set }) => {
     console.log('hooks/complete', body);
     const session = await getSessionWithProject(body.sessionId);
@@ -165,45 +243,75 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       return { error: 'Session not found' };
     }
 
-    // Update session status to terminated (task complete)
-    await db.update(claudeSessions)
-      .set({ status: 'terminated' })
-      .where(eq(claudeSessions.id, body.sessionId));
-
-    // Dismiss pending notifications for this session (they're now irrelevant)
-    await notificationService.dismissBySession(body.sessionId);
-
     // Parse transcript for summary if available
     let transcriptInfo: { stopReason?: string; summary?: string } = {};
     if (body.transcript_path) {
       transcriptInfo = await getTranscriptSummary(body.transcript_path);
     }
 
-    // Build notification body with summary
-    let notificationBody = body.prompt || 'Task completed';
-    if (transcriptInfo.summary) {
-      notificationBody = transcriptInfo.summary;
+    const messageText = body.last_assistant_message || transcriptInfo.summary || body.prompt || 'Task completed';
+
+    // Classify the message using LLM engine
+    const classification = await notificationClassifier.classify({
+      message: messageText,
+      hookEvent: body.hook_event_name || 'Stop',
+      stopReason: transcriptInfo.stopReason,
+      transcriptSummary: transcriptInfo.summary,
+    });
+
+    console.log('[hooks/complete] Classification:', classification);
+
+    // Map classifications to notification type and session status
+    const { notificationType, sessionStatus, priority, actions } =
+      mapClassificationToNotification(
+        classification.classifications,
+        classification.options,
+        classification.freeformAllowed,
+      );
+
+    // Update session status based on classification
+    await db.update(claudeSessions)
+      .set({ status: sessionStatus })
+      .where(eq(claudeSessions.id, body.sessionId));
+
+    // Dismiss pending notifications if task is actually complete
+    if (classification.classifications.includes('task_complete') && !classification.requiresUserAction) {
+      await notificationService.dismissBySession(body.sessionId);
     }
+
+    // Build notification body — prefer classifier summary
+    let notificationBody = classification.summary || messageText;
     if (transcriptInfo.stopReason && transcriptInfo.stopReason !== 'end_turn') {
       notificationBody = `[${transcriptInfo.stopReason}] ${notificationBody}`;
     }
 
     // Build title with project name
-    const title = session.projectName ? `${session.projectName}: Task Complete` : 'Task Complete';
+    const titleMap: Record<string, string> = {
+      user_input_required: 'Question',
+      permission_request: 'Permission Request',
+      task_complete: 'Task Complete',
+      error: 'Error',
+    };
+    const baseTitle = titleMap[notificationType] || 'Update';
+    const title = session.projectName ? `${session.projectName}: ${baseTitle}` : baseTitle;
 
     // Create and send notification
     const result = await notificationService.createAndSend({
       userId: session.userId,
       sessionId: body.sessionId,
       terminalId: body.terminalId,
-      type: 'task_complete' as NotificationType,
+      type: notificationType,
       title,
       body: notificationBody,
-      actions: [{ label: 'View', action: 'view' }],
-      priority: 'normal',
+      actions,
+      priority,
       metadata: {
         ...(session.projectName ? { projectName: session.projectName } : {}),
         ...(transcriptInfo.stopReason ? { stopReason: transcriptInfo.stopReason } : {}),
+        classifications: classification.classifications,
+        classificationConfidence: classification.confidence,
+        options: classification.options,
+        freeformAllowed: classification.freeformAllowed,
       },
     });
 
@@ -211,6 +319,7 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       success: true,
       notificationId: result.notification.id,
       notification: result.sendResult,
+      classification,
     };
   }, {
     body: t.Object({
@@ -219,6 +328,7 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       type: t.Optional(t.String()),
       prompt: t.Optional(t.String()),
       // Fields from Claude CLI hooks
+      last_assistant_message: t.Optional(t.String()),
       transcript_path: t.Optional(t.String()),
       session_id: t.Optional(t.String()),
       stop_hook_active: t.Optional(t.Boolean()),

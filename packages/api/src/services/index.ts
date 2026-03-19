@@ -1,4 +1,5 @@
 export * from './git';
+export * from './llm-engine';
 export * from './notification';
 export * from './terminal';
 export * from './workspace';
