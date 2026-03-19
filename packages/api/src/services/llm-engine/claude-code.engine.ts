@@ -14,33 +14,34 @@ export class ClaudeCodeEngine implements LLMEngine {
   }
 
   async complete(request: LLMRequest): Promise<LLMResponse> {
-    const args = this.buildArgs(request);
-
-    const proc = Bun.spawn(['claude', ...args], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: process.env as Record<string, string>,
-    });
-
-    const output = await new Response(proc.stdout).text();
-    const exitCode = await proc.exited;
-
-    if (exitCode !== 0) {
-      const stderr = await new Response(proc.stderr).text();
-      throw new Error(`Claude Code exited with code ${exitCode}: ${stderr}`);
-    }
-
+    const output = await this.run(request);
     return this.parseResponse(output);
   }
 
   async completeJSON<T>(request: LLMRequest): Promise<LLMResponse<T>> {
-    const args = this.buildArgs(request, true);
+    const output = await this.run(request);
+    return this.parseJSONResponse<T>(output);
+  }
 
-    const proc = Bun.spawn(['claude', ...args], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: process.env as Record<string, string>,
-    });
+  private async run(request: LLMRequest): Promise<string> {
+    // Build the full input: system prompt (if any) + user prompt, passed via stdin
+    // This avoids OS arg-length limits and quoting issues with long prompts
+    const stdinParts: string[] = [];
+    if (request.systemPrompt) {
+      stdinParts.push(`<system>\n${request.systemPrompt}\n</system>\n\n`);
+    }
+    stdinParts.push(request.prompt);
+    const stdin = stdinParts.join('');
+
+    const proc = Bun.spawn(
+      ['claude', '--print', '--output-format', 'json', '--max-turns', '1'],
+      {
+        stdout: 'pipe',
+        stderr: 'pipe',
+        stdin: new TextEncoder().encode(stdin),
+        env: process.env as Record<string, string>,
+      }
+    );
 
     const output = await new Response(proc.stdout).text();
     const exitCode = await proc.exited;
@@ -50,27 +51,7 @@ export class ClaudeCodeEngine implements LLMEngine {
       throw new Error(`Claude Code exited with code ${exitCode}: ${stderr}`);
     }
 
-    return this.parseJSONResponse<T>(output);
-  }
-
-  private buildArgs(request: LLMRequest, jsonOutput = false): string[] {
-    const args: string[] = ['--print', '--output-format', 'json', '--max-turns', '1'];
-
-    if (request.systemPrompt) {
-      args.push('--system-prompt', request.systemPrompt);
-    }
-
-    if (jsonOutput && request.jsonSchema) {
-      args.push('--output-format', 'json');
-    }
-
-    // No tool use for classification — fast and cheap
-    args.push('--allowedTools', '');
-
-    // Prompt goes last
-    args.push(request.prompt);
-
-    return args;
+    return output;
   }
 
   private parseResponse(output: string): LLMResponse {
@@ -90,18 +71,15 @@ export class ClaudeCodeEngine implements LLMEngine {
       const parsed = JSON.parse(output);
       const content = parsed.result || output;
 
-      // Try to extract JSON from the result text
       let structured: T | undefined;
       try {
-        // Result might be raw JSON or wrapped in markdown code blocks
         const jsonStr = content.replace(/^```json?\n?/m, '').replace(/\n?```$/m, '').trim();
         structured = JSON.parse(jsonStr);
       } catch {
-        // If result itself isn't JSON, try the whole content
         try {
           structured = JSON.parse(content);
         } catch {
-          // Not parseable as JSON
+          // not parseable as JSON
         }
       }
 
