@@ -5,6 +5,7 @@ import { db, claudeSessions, projects } from '../db';
 import { notificationService } from '../services/notification';
 import type { NotificationType, NotificationAction } from '../services/notification/types';
 import { notificationClassifier } from '../services/notification/classifier';
+import { artifactService } from '../services/artifact';
 import type { NotificationClassification, ParsedOption, ClassificationResult } from '../services/notification/classifier';
 
 // Helper to get project name for a session
@@ -387,5 +388,42 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       cwd: t.Optional(t.String()),
       permission_mode: t.Optional(t.String()),
       hook_event_name: t.Optional(t.String()),
+    }, { additionalProperties: true }),
+  })
+
+  // Hook callback for PostToolUse — captures artifacts from tool outputs
+  .post('/hooks/artifact', async ({ body, set }) => {
+    console.log('hooks/artifact', body.tool_name);
+
+    const session = await getSessionWithProject(body.sessionId);
+    if (!session) {
+      set.status = 404;
+      return { error: 'Session not found' };
+    }
+
+    const toolInput = typeof body.tool_input === 'string'
+      ? (() => { try { return JSON.parse(body.tool_input); } catch { return {}; } })()
+      : (body.tool_input || {});
+
+    const result = await artifactService.processToolOutput({
+      sessionId: body.sessionId,
+      terminalId: body.terminalId,
+      toolName: body.tool_name || '',
+      toolInput,
+      toolResult: body.tool_result || '',
+    });
+
+    if (!result) {
+      return { success: false, message: 'No adapter matched or processing failed' };
+    }
+
+    return { success: true, artifact: result };
+  }, {
+    body: t.Object({
+      sessionId: t.String(),
+      terminalId: t.Optional(t.String()),
+      tool_name: t.Optional(t.String()),
+      tool_input: t.Optional(t.Any()),
+      tool_result: t.Optional(t.String()),
     }, { additionalProperties: true }),
   });

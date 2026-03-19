@@ -462,6 +462,7 @@ export const claudeSessionsRelations = relations(claudeSessions, ({ one, many })
   codeEditors: many(codeEditors),
   reviewComments: many(reviewComments),
   notifications: many(notifications),
+  artifacts: many(artifacts),
 }));
 
 export const fcmTokensRelations = relations(fcmTokens, ({ one }) => ({
@@ -651,6 +652,30 @@ export const runConfigInstancesRelations = relations(runConfigInstances, ({ one 
   }),
 }));
 
+// Artifacts
+export const artifactTypeEnum = pgEnum('artifact_type', ['screenshot', 'file', 'log']);
+
+export const artifacts = pgTable('artifacts', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').references(() => claudeSessions.id, { onDelete: 'cascade' }).notNull(),
+  terminalId: text('terminal_id'),
+  type: artifactTypeEnum('type').notNull(),
+  toolName: text('tool_name'),
+  filename: text('filename').notNull(),
+  filepath: text('filepath').notNull(),
+  mimetype: text('mimetype').notNull(),
+  size: integer('size').notNull(),
+  metadata: text('metadata'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const artifactsRelations = relations(artifacts, ({ one }) => ({
+  session: one(claudeSessions, {
+    fields: [artifacts.sessionId],
+    references: [claudeSessions.id],
+  }),
+}));
+
 // App settings (key-value store)
 export const appSettings = pgTable('app_settings', {
   key: text('key').primaryKey(),
@@ -667,6 +692,8 @@ export type NewProject = typeof projects.$inferInsert;
 export type ClaudeSession = typeof claudeSessions.$inferSelect;
 export type NewClaudeSession = typeof claudeSessions.$inferInsert;
 export type FCMToken = typeof fcmTokens.$inferSelect;
+export type Artifact = typeof artifacts.$inferSelect;
+export type NewArtifact = typeof artifacts.$inferInsert;
 export type SSHKey = typeof sshKeys.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type Terminal = typeof terminals.$inferSelect;
