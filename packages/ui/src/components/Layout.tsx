@@ -11,7 +11,7 @@ import { AppSidebar } from '@/components/AppSidebar';
 import { ResizeHandle } from '@/components/ResizeHandle';
 import { useSidebar } from '@/hooks/useSidebar';
 import { api } from '@/lib/api';
-import { cn } from '@/lib/utils';
+
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);

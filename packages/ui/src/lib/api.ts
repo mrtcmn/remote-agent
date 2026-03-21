@@ -178,6 +178,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(params),
     }),
+  respondToNotification: (id: string, action: string, text?: string) =>
+    request<{ success: boolean }>(`/notifications/${id}/respond`, {
+      method: 'POST',
+      body: JSON.stringify({ action, ...(text ? { text } : {}) }),
+    }),
 
   // Presence
   sendHeartbeat: (terminalId?: string) =>
@@ -567,6 +572,18 @@ export interface NotificationPrefs {
   notifyOnComplete: boolean;
 }
 
+export interface NotificationAction {
+  label: string;
+  action: string;
+  data?: Record<string, unknown>;
+}
+
+export interface NotificationOption {
+  label: string;
+  value: string;
+  isDefault?: boolean;
+}
+
 export interface NotificationRecord {
   id: string;
   sessionId: string;
@@ -577,8 +594,12 @@ export interface NotificationRecord {
   metadata?: {
     projectName?: string;
     stopReason?: string;
+    classifications?: string[];
+    options?: NotificationOption[];
+    freeformAllowed?: boolean;
     [key: string]: unknown;
   } | null;
+  actions?: NotificationAction[] | null;
   priority: 'low' | 'normal' | 'high';
   status: 'pending' | 'sent' | 'read' | 'resolved' | 'dismissed';
   resolvedAction?: string | null;
