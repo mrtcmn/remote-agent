@@ -32,8 +32,8 @@ export function SlideSkeleton({ title, fileCount = 2, className }: SlideSkeleton
 
       {/* Diff placeholder */}
       <div className="rounded border border-border bg-muted/50 p-4 space-y-1">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-3.5 rounded bg-muted animate-pulse" style={{ width: `${60 + Math.random() * 35}%` }} />
+        {[78, 92, 65, 85, 71, 88].map((width, i) => (
+          <div key={i} className="h-3.5 rounded bg-muted animate-pulse" style={{ width: `${width}%` }} />
         ))}
       </div>
     </div>

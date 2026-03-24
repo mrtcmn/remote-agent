@@ -70,30 +70,31 @@ export function usePresentationStream(): UsePresentationStreamReturn {
 
           buffer += decoder.decode(value, { stream: true });
 
-          // Parse SSE events from buffer
-          const lines = buffer.split('\n');
-          buffer = '';
+          // SSE events are delimited by double newlines
+          const events = buffer.split('\n\n');
+          buffer = events.pop() || ''; // last element is potentially incomplete
 
-          let eventType = '';
+          for (const eventBlock of events) {
+            if (!eventBlock.trim()) continue;
 
-          for (const line of lines) {
-            if (line.startsWith('event: ')) {
-              eventType = line.slice(7).trim();
-            } else if (line.startsWith('data: ')) {
-              const dataStr = line.slice(6);
+            let eventType = '';
+            let dataStr = '';
+
+            for (const line of eventBlock.split('\n')) {
+              if (line.startsWith('event: ')) {
+                eventType = line.slice(7).trim();
+              } else if (line.startsWith('data: ')) {
+                dataStr += line.slice(6);
+              }
+            }
+
+            if (eventType && dataStr) {
               try {
                 const data = JSON.parse(dataStr);
                 handleEvent(eventType, data);
               } catch {
-                // Incomplete JSON, put back in buffer
-                buffer = `event: ${eventType}\n${line}\n`;
+                // Malformed JSON — skip this event
               }
-            } else if (line.trim() === '') {
-              // Event boundary — reset
-              eventType = '';
-            } else {
-              // Incomplete line, keep in buffer
-              buffer += line + '\n';
             }
           }
         }

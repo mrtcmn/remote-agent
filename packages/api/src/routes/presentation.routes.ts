@@ -6,7 +6,8 @@ import { requireAuth } from '../auth/middleware';
 import { presentationService } from '../services/presentation';
 import type { PresentationRequest, SlideAnnotation } from '../services/presentation';
 
-// In-memory annotation storage (ephemeral per session)
+// In-memory annotation storage (ephemeral per session, capped per session)
+const MAX_ANNOTATIONS_PER_SESSION = 100;
 const annotationStore = new Map<string, SlideAnnotation[]>();
 
 // Track active streams to prevent concurrent generation
@@ -71,7 +72,9 @@ export const presentationRoutes = new Elysia({ prefix: '/sessions/:id/presentati
       projectPath: result.path,
       unstaged: query.unstaged === 'true',
       staged: query.staged === 'true',
-      commitHashes: query.commitHashes ? query.commitHashes.split(',').filter(Boolean) : undefined,
+      commitHashes: query.commitHashes
+        ? query.commitHashes.split(',').filter(h => /^[a-f0-9]{4,40}$/.test(h))
+        : undefined,
     };
 
     // Default to unstaged+staged if nothing specified
@@ -132,6 +135,12 @@ export const presentationRoutes = new Elysia({ prefix: '/sessions/:id/presentati
       return { error: 'Session not found' };
     }
 
+    const existing = annotationStore.get(params.id) || [];
+    if (existing.length >= MAX_ANNOTATIONS_PER_SESSION) {
+      set.status = 400;
+      return { error: `Maximum ${MAX_ANNOTATIONS_PER_SESSION} annotations per session` };
+    }
+
     const annotation: SlideAnnotation = {
       id: nanoid(),
       slideId: body.slideId,
@@ -139,7 +148,6 @@ export const presentationRoutes = new Elysia({ prefix: '/sessions/:id/presentati
       createdAt: new Date().toISOString(),
     };
 
-    const existing = annotationStore.get(params.id) || [];
     existing.push(annotation);
     annotationStore.set(params.id, existing);
 
