@@ -46,14 +46,14 @@ services:
 
       # SSH keys
       - dev-ssh-keys:/app/ssh-keys
+
+      # Claude Code credentials (for LLM engine)
+      - ~/.claude:/home/agent/.claude
       # Docker socket for container management
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       # Database
       - DATABASE_URL=postgres://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent}@db:5432/${POSTGRES_DB:-remote_agent}
-
-      # Required
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 
       # Auth
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}

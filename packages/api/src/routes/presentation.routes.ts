@@ -106,6 +106,9 @@ export const presentationRoutes = new Elysia({ prefix: '/sessions/:id/presentati
           controller.close();
         }
       },
+      cancel() {
+        activeStreams.delete(sessionId);
+      },
     });
 
     return new Response(stream, {

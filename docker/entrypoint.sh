@@ -19,6 +19,9 @@ fi
 chown -R agent:agent /app/workspaces /app/ssh-keys /app/data 2>/dev/null || true
 chown -R agent:agent /app/config 2>/dev/null || true
 
+# Fix ownership of Claude credentials so the agent user can read/write them
+chown -R agent:agent /home/agent/.claude 2>/dev/null || true
+
 # Ensure directories exist with correct ownership
 mkdir -p /app/data /app/workspaces /app/ssh-keys
 chown agent:agent /app/data /app/workspaces /app/ssh-keys
@@ -67,12 +70,6 @@ elif su - agent -c "command -v claude" &> /dev/null; then
 else
   echo "Claude Code CLI not found, installing..."
   gosu agent npm install -g @anthropic-ai/claude-code || true
-fi
-
-# Verify required environment variables
-if [ -z "$ANTHROPIC_API_KEY" ]; then
-  echo "Error: ANTHROPIC_API_KEY is required"
-  exit 1
 fi
 
 if [ -z "$JWT_SECRET" ]; then

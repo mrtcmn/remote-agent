@@ -24,31 +24,58 @@ export class ClaudeCodeEngine implements LLMEngine {
   }
 
   private async run(request: LLMRequest): Promise<string> {
-    // Build the full input: system prompt (if any) + user prompt, passed via stdin
-    // This avoids OS arg-length limits and quoting issues with long prompts
-    const stdinParts: string[] = [];
+    const args = ['claude', '--print', '--output-format', 'json'];
+
     if (request.systemPrompt) {
-      stdinParts.push(`<system>\n${request.systemPrompt}\n</system>\n\n`);
+      args.push('--system-prompt', request.systemPrompt);
     }
-    stdinParts.push(request.prompt);
-    const stdin = stdinParts.join('');
 
-    const proc = Bun.spawn(
-      ['claude', '--print', '--output-format', 'json', '--max-turns', '1'],
-      {
-        stdout: 'pipe',
-        stderr: 'pipe',
-        stdin: new TextEncoder().encode(stdin),
-        env: process.env as Record<string, string>,
-      }
-    );
+    console.log('[LLMEngine] Spawning claude with args:', args.join(' '));
+    console.log('[LLMEngine] Prompt length:', request.prompt.length, 'chars');
+    console.log('[LLMEngine] System prompt length:', request.systemPrompt?.length ?? 0, 'chars');
 
-    const output = await new Response(proc.stdout).text();
+    const proc = Bun.spawn(args, {
+      stdout: 'pipe',
+      stderr: 'pipe',
+      stdin: new TextEncoder().encode(request.prompt),
+      env: process.env as Record<string, string>,
+    });
+
+    // Read stdout and stderr in parallel to avoid pipe deadlocks
+    const [output, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
     const exitCode = await proc.exited;
 
+    console.log('[LLMEngine] Exit code:', exitCode);
+    console.log('[LLMEngine] Stdout length:', output.length, 'chars');
+    if (stderr) console.log('[LLMEngine] Stderr:', stderr);
+    if (output) {
+      try {
+        const parsed = JSON.parse(output);
+        console.log('[LLMEngine] Result:', JSON.stringify(parsed, null, 2));
+      } catch {
+        console.log('[LLMEngine] Stdout (raw):', output);
+      }
+    }
+
     if (exitCode !== 0) {
-      const stderr = await new Response(proc.stderr).text();
-      throw new Error(`Claude Code exited with code ${exitCode}: ${stderr}`);
+      // If Claude completed successfully (is_error: false), don't treat non-zero exit as failure
+      // — hooks or post-processing can cause non-zero exit even on success
+      try {
+        const parsed = JSON.parse(output);
+        if (parsed.is_error === false) {
+          return output;
+        }
+        const detail = parsed.result || parsed.subtype || stderr.trim() || JSON.stringify(parsed);
+        throw new Error(`Claude Code exited with code ${exitCode}: ${detail}`);
+      } catch (e) {
+        if (e instanceof SyntaxError) {
+          throw new Error(`Claude Code exited with code ${exitCode}: ${stderr.trim() || output.trim()}`);
+        }
+        throw e;
+      }
     }
 
     return output;
