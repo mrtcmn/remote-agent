@@ -123,7 +123,7 @@ function ToolBtn({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'relative flex items-center gap-1.5 px-2 h-full text-xs font-medium rounded-md transition-colors duration-100 shrink-0 select-none cursor-pointer',
+        'relative flex items-center gap-1.5 px-2 my-[2px] self-stretch text-xs font-medium rounded-md transition-colors duration-100 shrink-0 select-none cursor-pointer',
         isActive
           ? 'bg-secondary/80 text-foreground'
           : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60',
@@ -215,6 +215,8 @@ function TabItem({
     <AIModelIcon model={detectAIModel(tab.label)} size={14} />
   ) : tab.type === 'process' ? (
     <StatusDot color="#22c55e" />
+  ) : tab.type === 'project' ? (
+    <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
   ) : (
     <TerminalSquare className="size-3.5 text-muted-foreground shrink-0" />
   );
@@ -469,9 +471,6 @@ export function SessionPage() {
                     <ToolBtn
                       customIcon={<AIModelIcon model="claude" size={14} />}
                       label="Claude"
-                      accentColor="#f97316"
-                      activeGlow
-                      isActive
                       onClick={() => createMutation.mutate({ type: 'claude' })}
                       disabled={createMutation.isPending}
                     />

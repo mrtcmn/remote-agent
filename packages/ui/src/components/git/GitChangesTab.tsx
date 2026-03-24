@@ -1,7 +1,5 @@
-import { useState, useMemo, useCallback, Component, type ReactNode, type ErrorInfo } from 'react';
+import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { PatchDiff, WorkerPoolContextProvider } from '@pierre/diffs/react';
-import type { DiffLineAnnotation } from '@pierre/diffs';
 import {
   FileCode,
   Loader2,
@@ -14,37 +12,14 @@ import {
   History,
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { DIFF_THEME } from '@/lib/constants';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
 import { useReviewComments } from '@/hooks/useReviewComments';
 import { ReviewCommentInput } from '../ReviewCommentInput';
-import { ReviewCommentAnnotation } from '../ReviewCommentAnnotation';
 import { ReviewBatchPanel } from '../ReviewBatchPanel';
 import { toast } from '@/components/ui/Toaster';
 
-/** Error boundary for diff rendering failures */
-class DiffErrorBoundary extends Component<
-  { children: ReactNode; fallback: ReactNode },
-  { hasError: boolean }
-> {
-  constructor(props: { children: ReactNode; fallback: ReactNode }) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError(): { hasError: boolean } {
-    return { hasError: true };
-  }
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('Diff rendering error:', error, info);
-  }
-  render() {
-    if (this.state.hasError) return this.props.fallback;
-    return this.props.children;
-  }
-}
-
-/** Fallback raw diff view */
+/** Raw diff view */
 function RawDiffView({ diff, fileName }: { diff: string; fileName?: string }) {
   const lines = diff.split('\n');
   return (
@@ -55,7 +30,7 @@ function RawDiffView({ diff, fileName }: { diff: string; fileName?: string }) {
           <span className="truncate">{fileName}</span>
         </div>
       )}
-      <div className="overflow-auto">
+      <div>
         {lines.map((line, i) => {
           let bg = '';
           let color = 'text-muted-foreground';
@@ -83,8 +58,6 @@ function RawDiffView({ diff, fileName }: { diff: string; fileName?: string }) {
   );
 }
 
-const workerFactory = () =>
-  new Worker(new URL('../../workers/diff-worker.js', import.meta.url), { type: 'module' });
 
 interface GitChangesTabProps {
   sessionId: string;
@@ -104,7 +77,6 @@ export function GitChangesTab({ sessionId, onProceed }: GitChangesTabProps) {
     pendingComments,
     batches,
     createComment,
-    deleteComment,
     proceed,
     rerunBatch,
     isProceedPending,
@@ -166,55 +138,6 @@ export function GitChangesTab({ sessionId, onProceed }: GitChangesTabProps) {
   const changedFiles = [...modifiedFiles, ...untrackedFiles];
   const hasChanges = stagedFiles.length > 0 || changedFiles.length > 0;
 
-  const getLineAnnotationsForFile = useCallback((filePath: string): DiffLineAnnotation<string>[] => {
-    return comments
-      .filter(c => c.filePath === filePath)
-      .map(c => ({
-        lineNumber: c.lineNumber,
-        side: c.lineSide,
-        metadata: c.id,
-      }));
-  }, [comments]);
-
-  const lineAnnotations: DiffLineAnnotation<string>[] = useMemo(() => {
-    if (!selectedFile) return [];
-    return getLineAnnotationsForFile(selectedFile);
-  }, [selectedFile, getLineAnnotationsForFile]);
-
-  const renderAnnotation = useCallback((annotation: DiffLineAnnotation<string>) => {
-    const comment = comments.find(c => c.id === annotation.metadata);
-    if (!comment) return null;
-    return <ReviewCommentAnnotation comment={comment} onDelete={deleteComment} />;
-  }, [comments, deleteComment]);
-
-  const createRenderHoverUtility = useCallback((filePath: string) => {
-    return (getHoveredLine: () => { lineNumber: number; side: 'additions' | 'deletions' } | undefined) => {
-      const handleClick = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        const hoveredLine = getHoveredLine();
-        if (!hoveredLine) return;
-        const rect = (e.target as HTMLElement).getBoundingClientRect();
-        setCommentPopover({
-          lineNumber: hoveredLine.lineNumber,
-          side: hoveredLine.side,
-          lineContent: '',
-          filePath,
-          position: { x: rect.right + 10, y: rect.top },
-        });
-      };
-
-      return (
-        <button
-          onClick={handleClick}
-          className="flex items-center justify-center w-5 h-5 rounded hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 transition-colors"
-          title="Add comment"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      );
-    };
-  }, []);
-
   const handleAddComment = useCallback((comment: string) => {
     if (!commentPopover) return;
     createComment({
@@ -233,8 +156,7 @@ export function GitChangesTab({ sessionId, onProceed }: GitChangesTabProps) {
   }, [proceed, onProceed]);
 
   return (
-    <WorkerPoolContextProvider poolOptions={{ workerFactory }} highlighterOptions={{}}>
-      <div className="flex flex-1 min-h-0">
+    <div className="flex flex-1 min-h-0">
         {/* Left Sidebar - Staging & Commit */}
         <div className="w-72 border-r bg-card/20 flex flex-col shrink-0">
           {/* Commit Section */}
@@ -371,21 +293,10 @@ export function GitChangesTab({ sessionId, onProceed }: GitChangesTabProps) {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : selectedFile && diffData?.diff ? (
-            <div className="w-full">
-              <div className="mb-1 px-3 py-2 flex items-center gap-2 font-mono text-xs text-muted-foreground border-b border-border/20 sticky top-0 bg-[#0d1117] z-10">
-                <FileCode className="h-3.5 w-3.5" />
-                <span className="truncate">{selectedFile}</span>
-              </div>
-              <DiffErrorBoundary fallback={<RawDiffView diff={diffData.diff} fileName={selectedFile} />}>
-                <PatchDiff
-                  patch={diffData.diff}
-                  options={{ theme: DIFF_THEME, diffStyle: 'unified', enableHoverUtility: true }}
-                  lineAnnotations={lineAnnotations}
-                  renderAnnotation={renderAnnotation}
-                  renderHoverUtility={createRenderHoverUtility(selectedFile)}
-                />
-              </DiffErrorBoundary>
-            </div>
+            <FileDiffRenderer
+              diff={diffData.diff}
+              fileName={selectedFile}
+            />
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
               <FileCode className="h-8 w-8 mb-2 opacity-30" />
@@ -410,8 +321,11 @@ export function GitChangesTab({ sessionId, onProceed }: GitChangesTabProps) {
           <ReviewBatchPanel batches={batches} comments={comments} onRerun={rerunBatch} onClose={() => setShowBatchPanel(false)} />
         )}
       </div>
-    </WorkerPoolContextProvider>
   );
+}
+
+function FileDiffRenderer({ diff, fileName }: { diff: string; fileName: string }) {
+  return <RawDiffView diff={diff} fileName={fileName} />;
 }
 
 function StagingFileItem({

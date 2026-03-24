@@ -48,7 +48,7 @@ export function GitPanel({ sessionId, project: _project, className, onProceed }:
         ))}
       </div>
 
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 flex">
         {activeTab === 'changes' && <GitChangesTab sessionId={sessionId} onProceed={onProceed} />}
         {activeTab === 'log' && <GitLogTab sessionId={sessionId} />}
         {activeTab === 'branches' && <GitBranchesTab sessionId={sessionId} />}

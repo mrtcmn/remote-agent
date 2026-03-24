@@ -275,16 +275,20 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
           const result = await $`git diff --no-index /dev/null ${filePath}`.cwd(targetPath).nothrow().quiet();
           diff = result.stdout.toString();
         } else {
-          // Show all changes relative to HEAD (combines staged + unstaged)
+          // 1. Working tree vs HEAD (covers staged + unstaged combined)
           const headResult = await $`git diff HEAD -- ${filePath}`.cwd(targetPath).nothrow().quiet();
-          if (headResult.exitCode === 0) {
-            diff = headResult.stdout.toString();
-          }
+          diff = headResult.stdout.toString();
 
-          // Fallback for repos with no commits (HEAD doesn't exist)
-          if (!diff && headResult.exitCode !== 0) {
+          // 2. Staged diff (index vs HEAD) — covers staged-only or when HEAD fails
+          if (!diff) {
             const cachedResult = await $`git diff --cached -- ${filePath}`.cwd(targetPath).nothrow().quiet();
             diff = cachedResult.stdout.toString();
+          }
+
+          // 3. Unstaged diff (working tree vs index) — last resort
+          if (!diff) {
+            const unstagedResult = await $`git diff -- ${filePath}`.cwd(targetPath).nothrow().quiet();
+            diff = unstagedResult.stdout.toString();
           }
         }
       }

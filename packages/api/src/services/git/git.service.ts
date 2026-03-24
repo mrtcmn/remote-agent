@@ -159,7 +159,9 @@ export class GitService {
     for (const line of lines) {
       const index = line[0];
       const working = line[1];
-      const file = line.slice(3);
+      // --porcelain format is "XY PATH" (XY = 2 status chars, space, then path)
+      // but handle edge cases where the separator might be off
+      const file = line.charAt(2) === ' ' ? line.slice(3) : line.slice(2).trimStart();
 
       if (index === '?' && working === '?') {
         untracked.push(file);
