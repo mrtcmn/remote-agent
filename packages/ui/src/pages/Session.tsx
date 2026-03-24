@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft,
-  Bot,
   TerminalSquare,
   Terminal as TerminalIcon,
   Plus,
@@ -25,6 +24,7 @@ import {
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Terminal } from '@/components/Terminal';
+import { AIModelIcon, detectAIModel } from '@/components/AIModelIcon';
 import { GitPanel } from '@/components/git';
 import { FileExplorer } from '@/components/FileExplorer';
 import { RunConfigPanel } from '@/components/RunConfigPanel';
@@ -81,6 +81,7 @@ function PulseDot({ active }: { active: boolean }) {
 
 interface ToolBtnProps {
   icon?: React.ElementType;
+  customIcon?: React.ReactNode;
   label?: string;
   badge?: number;
   pill?: string;
@@ -97,6 +98,7 @@ interface ToolBtnProps {
 
 function ToolBtn({
   icon: Icon,
+  customIcon,
   label,
   badge,
   pill,
@@ -149,7 +151,8 @@ function ToolBtn({
 
       {isRunning !== undefined && <PulseDot active={isRunning} />}
 
-      {Icon && (
+      {customIcon && customIcon}
+      {!customIcon && Icon && (
         <Icon
           className="size-3.5 shrink-0 transition-colors"
           style={iconColor && (isActive || hovered) ? { color: iconColor } : undefined}
@@ -209,7 +212,7 @@ function TabItem({
   const showClose = !tab.pinned && (isActive || hovered);
 
   const typeIcon = tab.type === 'claude' ? (
-    <Bot className="size-3.5 text-orange-500 shrink-0" />
+    <AIModelIcon model={detectAIModel(tab.label)} size={14} />
   ) : tab.type === 'process' ? (
     <StatusDot color="#22c55e" />
   ) : (
@@ -464,10 +467,9 @@ export function SessionPage() {
                   <Divider />
                   <div className="flex items-stretch gap-0.5">
                     <ToolBtn
-                      icon={Bot}
+                      customIcon={<AIModelIcon model="claude" size={14} />}
                       label="Claude"
                       accentColor="#f97316"
-                      iconColor="#f97316"
                       activeGlow
                       isActive
                       onClick={() => createMutation.mutate({ type: 'claude' })}
@@ -638,7 +640,7 @@ export function SessionPage() {
               {activeTerminal ? (
                 <>
                   {activeTerminal.type === 'claude' ? (
-                    <Bot className="h-3.5 w-3.5 text-orange-500" />
+                    <AIModelIcon model={detectAIModel(activeTerminal.name)} size={14} />
                   ) : activeTerminal.type === 'process' ? (
                     <Play className="h-3.5 w-3.5 text-green-500" />
                   ) : (
@@ -668,7 +670,7 @@ export function SessionPage() {
                   }}
                 >
                   {terminal.type === 'claude' ? (
-                    <Bot className="h-4 w-4 text-orange-500" />
+                    <AIModelIcon model={detectAIModel(terminal.name)} size={16} />
                   ) : terminal.type === 'process' ? (
                     <Play className="h-4 w-4 text-green-500" />
                   ) : (
@@ -867,14 +869,14 @@ function EmptyState({ isLoading, onCreateClaude }: { isLoading: boolean; onCreat
       <div className="relative mb-6">
         <div className="absolute inset-0 bg-gradient-to-r from-orange-500/20 to-green-500/20 blur-xl rounded-full" />
         <div className="relative flex items-center gap-3 p-4">
-          <Bot className="h-10 w-10 text-orange-500" />
+          <AIModelIcon model="claude" size={40} />
           <div className="h-8 w-px bg-border" />
           <TerminalSquare className="h-10 w-10" />
         </div>
       </div>
       <p className="text-sm font-mono mb-4">No terminals running</p>
       <Button variant="outline" size="sm" onClick={onCreateClaude} className="gap-2 font-mono">
-        <Bot className="h-4 w-4 text-orange-500" />
+        <AIModelIcon model="claude" size={16} />
         Start Claude
       </Button>
     </div>
