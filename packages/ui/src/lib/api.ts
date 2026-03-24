@@ -493,6 +493,23 @@ export const api = {
     }),
   uninstallSkill: (name: string) =>
     request<{ success: boolean }>(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
+  // Presentation
+  addPresentationAnnotation: (sessionId: string, slideId: string, text: string) =>
+    request<SlideAnnotation>(`/sessions/${sessionId}/presentation/annotations`, {
+      method: 'POST',
+      body: JSON.stringify({ slideId, text }),
+    }),
+  deletePresentationAnnotation: (sessionId: string, annotationId: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/presentation/annotations/${annotationId}`, {
+      method: 'DELETE',
+    }),
+  getPresentationAnnotations: (sessionId: string, slideId?: string) => {
+    const params = new URLSearchParams();
+    if (slideId) params.set('slideId', slideId);
+    const query = params.toString();
+    return request<SlideAnnotation[]>(`/sessions/${sessionId}/presentation/annotations${query ? `?${query}` : ''}`);
+  },
 };
 
 // Types
@@ -1046,4 +1063,53 @@ export interface RegistrySkill {
   repo: string;
   installs: number;
   trending?: number;
+}
+
+// ─── Presentation Types ──────────────────────────────────────────────────────
+
+export interface PresentationRequest {
+  unstaged?: boolean;
+  staged?: boolean;
+  commitHashes?: string[];
+  projectId?: string;
+}
+
+export interface SlidePlanEntry {
+  title: string;
+  files: string[];
+  importance: 'high' | 'medium' | 'low';
+  hunkSelectors: Array<{
+    filePath: string;
+    hunkIndices: number[];
+  }>;
+}
+
+export interface SlidePlan {
+  slides: SlidePlanEntry[];
+  summary: string;
+}
+
+export interface DiffExcerpt {
+  filePath: string;
+  patch: string;
+  explanation: string;
+}
+
+export interface SlideAnnotation {
+  id: string;
+  slideId: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface PresentationSlide {
+  id: string;
+  index: number;
+  title: string;
+  narrative: string;
+  importance: 'high' | 'medium' | 'low';
+  files: string[];
+  excerpts: DiffExcerpt[];
+  fullDiff: string;
+  annotations: SlideAnnotation[];
 }

@@ -18,6 +18,7 @@ import { dockerRoutes } from './docker.routes';
 import { editorRoutes } from './editor.routes';
 import { skillsRoutes } from './skills.routes';
 import { artifactRoutes } from './artifacts.routes';
+import { presentationRoutes } from './presentation.routes';
 
 export const api = new Elysia({ prefix: '/api' })
   .use(authRoutes)
@@ -37,6 +38,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(skillsRoutes)
   .use(presenceRoutes)
   .use(artifactRoutes)
+  .use(presentationRoutes)
   .use(versionRoutes);
 
 export { internalRoutes };

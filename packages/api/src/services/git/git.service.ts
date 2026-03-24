@@ -308,6 +308,16 @@ export class GitService {
     await $`git reset --${mode} ${ref}`.cwd(projectPath).quiet();
   }
 
+  async commitDiff(projectPath: string, hash: string): Promise<string> {
+    const result = await $`git show ${hash} --format= --patch`.cwd(projectPath).nothrow().quiet();
+    return result.stdout.toString();
+  }
+
+  async unstagedDiff(projectPath: string): Promise<string> {
+    const result = await $`git diff`.cwd(projectPath).nothrow().quiet();
+    return result.stdout.toString();
+  }
+
   async diffStats(projectPath: string): Promise<{ additions: number; deletions: number }> {
     try {
       // Use HEAD to include both staged + unstaged changes
