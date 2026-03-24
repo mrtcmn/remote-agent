@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Check,
   Loader2,
+  Presentation,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -16,9 +17,10 @@ import { toast } from '@/components/ui/Toaster';
 
 interface GitToolbarProps {
   sessionId: string;
+  onReview?: () => void;
 }
 
-export function GitToolbar({ sessionId }: GitToolbarProps) {
+export function GitToolbar({ sessionId, onReview }: GitToolbarProps) {
   const queryClient = useQueryClient();
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -153,6 +155,19 @@ export function GitToolbar({ sessionId }: GitToolbarProps) {
       )}
 
       <div className="flex-1" />
+
+      {onReview && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 h-8 px-2.5 text-xs"
+          onClick={onReview}
+          title="Review changes"
+        >
+          <Presentation className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Review</span>
+        </Button>
+      )}
 
       <Button
         variant="ghost"
