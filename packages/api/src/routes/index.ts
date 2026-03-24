@@ -17,6 +17,7 @@ import { previewRoutes } from './preview.routes';
 import { dockerRoutes } from './docker.routes';
 import { editorRoutes } from './editor.routes';
 import { skillsRoutes } from './skills.routes';
+import { artifactRoutes } from './artifacts.routes';
 
 export const api = new Elysia({ prefix: '/api' })
   .use(authRoutes)
@@ -35,6 +36,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(editorRoutes)
   .use(skillsRoutes)
   .use(presenceRoutes)
+  .use(artifactRoutes)
   .use(versionRoutes);
 
 export { internalRoutes };

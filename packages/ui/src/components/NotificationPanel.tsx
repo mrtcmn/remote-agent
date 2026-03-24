@@ -14,7 +14,7 @@ import {
   Archive,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { api, type NotificationRecord } from '@/lib/api';
+import { api, type NotificationRecord, type NotificationOption, type NotificationAction } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -84,21 +84,107 @@ function ProjectBadge({ name }: { name: string }) {
   );
 }
 
+// ─── Choice Buttons ─────────────────────────────────────────────────────────
+
+function getChoiceVariant(index: number, total: number): 'primary' | 'secondary' | 'danger' {
+  if (index === 0) return 'primary';
+  if (index === total - 1 && total > 2) {
+    // Check if last option looks like a cancel/abort/deny action
+    return 'secondary';
+  }
+  return 'secondary';
+}
+
+function ChoiceButtons({
+  choices,
+  resolved,
+  onResolve,
+}: {
+  choices: { id: string; label: string; variant: 'primary' | 'secondary' | 'danger' }[];
+  resolved?: string | null;
+  onResolve: (id: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {choices.map((c) => (
+        <motion.button
+          key={c.id}
+          whileTap={{ scale: 0.95 }}
+          transition={{ duration: 0.15 }}
+          onClick={(e) => { e.stopPropagation(); onResolve(c.id); }}
+          disabled={!!resolved && resolved !== c.id}
+          className={cn(
+            'px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-150 border max-w-[160px] truncate',
+            resolved === c.id
+              ? c.variant === 'primary'
+                ? 'bg-foreground text-background border-foreground'
+                : 'bg-secondary text-foreground border-border'
+              : resolved
+              ? 'opacity-30 cursor-not-allowed border-border/40 text-muted-foreground'
+              : c.variant === 'primary'
+              ? 'bg-foreground text-background border-foreground hover:opacity-90'
+              : c.variant === 'danger'
+              ? 'border-red-500/40 text-red-500 hover:bg-red-500/10'
+              : 'border-border text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+          )}
+        >
+          {resolved === c.id ? (
+            <span className="inline-flex items-center gap-1 min-w-0">
+              <CheckCircle2 className="size-2.5 shrink-0" />
+              <span className="truncate">{c.label}</span>
+            </span>
+          ) : (
+            <span className="truncate">{c.label}</span>
+          )}
+        </motion.button>
+      ))}
+    </div>
+  );
+}
+
+function buildChoices(notification: NotificationRecord): { id: string; label: string; variant: 'primary' | 'secondary' | 'danger' }[] | null {
+  // Prefer metadata.options (from classifier), fall back to actions
+  const options = notification.metadata?.options as NotificationOption[] | undefined;
+  const actions = notification.actions as NotificationAction[] | undefined;
+
+  if (options && options.length > 0) {
+    return options.map((opt, i) => ({
+      id: opt.value,
+      label: opt.label,
+      variant: opt.isDefault ? 'primary' : getChoiceVariant(i, options.length),
+    }));
+  }
+
+  if (actions && actions.length > 0) {
+    return actions.map((act, i) => ({
+      id: act.action,
+      label: act.label,
+      variant: getChoiceVariant(i, actions.length),
+    }));
+  }
+
+  return null;
+}
+
 // ─── Notification Row ────────────────────────────────────────────────────────
 
 function NotifRow({
   notification,
   onMarkRead,
   onNavigate,
+  onResolve,
 }: {
   notification: NotificationRecord;
   onMarkRead: (id: string) => void;
   onNavigate: (notification: NotificationRecord) => void;
+  onResolve: (notificationId: string, action: string) => void;
 }) {
   const isUnread = notification.status === 'pending' || notification.status === 'sent';
+  const isResolved = notification.status === 'resolved';
   const projectName = notification.metadata?.projectName;
   const stopReason = notification.metadata?.stopReason;
-
+  const choices = buildChoices(notification);
+  const hasChoices = choices && choices.length > 0;
 
   return (
     <motion.div
@@ -152,11 +238,20 @@ function NotifRow({
         </div>
       </div>
 
-      {notification.body && (
-        <div className="ml-[22px]">
-          <p className="text-xs text-muted-foreground leading-relaxed border-l-2 border-border pl-3 line-clamp-3">
-            {notification.body}
-          </p>
+      {(notification.body || hasChoices) && (
+        <div className="ml-[22px] space-y-2">
+          {notification.body && (
+            <p className="text-xs text-muted-foreground leading-relaxed border-l-2 border-border pl-3 line-clamp-3">
+              {notification.body}
+            </p>
+          )}
+          {hasChoices && (
+            <ChoiceButtons
+              choices={choices}
+              resolved={isResolved ? notification.resolvedAction : null}
+              onResolve={(action) => onResolve(notification.id, action)}
+            />
+          )}
         </div>
       )}
     </motion.div>
@@ -199,6 +294,14 @@ export function NotificationPanel() {
 
   const markSingleReadMutation = useMutation({
     mutationFn: (id: string) => api.markNotificationRead(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    },
+  });
+
+  const respondMutation = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: string }) =>
+      api.respondToNotification(id, action),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
@@ -300,6 +403,7 @@ export function NotificationPanel() {
                   notification={notification}
                   onMarkRead={(id) => markSingleReadMutation.mutate(id)}
                   onNavigate={handleNavigate}
+                  onResolve={(id, action) => respondMutation.mutate({ id, action })}
                 />
               </div>
             ))}

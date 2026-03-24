@@ -217,6 +217,14 @@ export class WorkspaceService {
             command: completeCommand,
           }],
         }],
+        // PostToolUse hook for capturing artifacts (screenshots, etc.)
+        PostToolUse: [{
+          matcher: 'mcp__agent-browser__screenshot',
+          hooks: [{
+            type: 'command',
+            command: `jq -c '{sessionId: "${sid}", terminalId: "${tid}", tool_name: .tool_name, tool_input: (.tool_input | tostring), tool_result: (if .tool_result.content then (.tool_result.content | if type == "array" then (map(select(.type == "text")) | .[0].text // "") else tostring end) else (.tool_result | tostring) end)}' | curl -s -X POST "${baseUrl}/artifact" -H "Content-Type: application/json" -d @- || true`,
+          }],
+        }],
       },
     };
 

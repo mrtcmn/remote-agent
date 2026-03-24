@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell, ExternalLink } from 'lucide-react';
-import { api, NotificationRecord } from '@/lib/api';
+import { Bell, ExternalLink, CheckCircle2 } from 'lucide-react';
+import { api, NotificationRecord, type NotificationOption, type NotificationAction } from '@/lib/api';
 import { formatDistanceToNow } from 'date-fns';
+import { cn } from '@/lib/utils';
 
 export function NotificationInbox() {
   const [isOpen, setIsOpen] = useState(false);
@@ -94,6 +95,19 @@ export function NotificationInbox() {
   );
 }
 
+function buildInboxChoices(notification: NotificationRecord): { id: string; label: string }[] | null {
+  const options = notification.metadata?.options as NotificationOption[] | undefined;
+  const actions = notification.actions as NotificationAction[] | undefined;
+
+  if (options && options.length > 0) {
+    return options.map((opt) => ({ id: opt.value, label: opt.label }));
+  }
+  if (actions && actions.length > 0) {
+    return actions.map((act) => ({ id: act.action, label: act.label }));
+  }
+  return null;
+}
+
 function NotificationItem({
   notification,
   onClose,
@@ -103,9 +117,18 @@ function NotificationItem({
 }) {
   const queryClient = useQueryClient();
   const isUnread = notification.status === 'pending' || notification.status === 'sent';
+  const isResolved = notification.status === 'resolved';
+  const choices = buildInboxChoices(notification);
 
   const markReadMutation = useMutation({
     mutationFn: () => api.markNotificationRead(notification.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    },
+  });
+
+  const respondMutation = useMutation({
+    mutationFn: (action: string) => api.respondToNotification(notification.id, action),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
@@ -146,6 +169,39 @@ function NotificationItem({
             )}
           </div>
           <p className="text-sm text-muted-foreground line-clamp-2">{notification.body}</p>
+          {choices && choices.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {choices.map((c, i) => (
+                <button
+                  key={c.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    respondMutation.mutate(c.id);
+                  }}
+                  disabled={isResolved && notification.resolvedAction !== c.id}
+                  className={cn(
+                    'px-2 py-0.5 rounded text-xs font-medium border transition-all max-w-[140px] truncate',
+                    isResolved && notification.resolvedAction === c.id
+                      ? 'bg-foreground text-background border-foreground'
+                      : isResolved
+                      ? 'opacity-30 cursor-not-allowed border-border/40 text-muted-foreground'
+                      : i === 0
+                      ? 'bg-foreground text-background border-foreground hover:opacity-90'
+                      : 'border-border text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+                  )}
+                >
+                  {isResolved && notification.resolvedAction === c.id ? (
+                    <span className="inline-flex items-center gap-1">
+                      <CheckCircle2 className="size-2.5 shrink-0" />
+                      <span className="truncate">{c.label}</span>
+                    </span>
+                  ) : (
+                    c.label
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex items-center gap-2 mt-1">
             <span className="text-xs text-muted-foreground">
               {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}

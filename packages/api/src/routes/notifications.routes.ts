@@ -208,7 +208,7 @@ export const notificationRoutes = new Elysia({ prefix: '/notifications' })
       (notification.type === 'permission_request' || notification.type === 'user_input_required')
     ) {
       // Import terminal service to write response
-      const { terminalManager } = await import('../services/terminal');
+      const { terminalService } = await import('../services/terminal');
 
       let response = body.action;
       if (body.text) {
@@ -220,7 +220,7 @@ export const notificationRoutes = new Elysia({ prefix: '/notifications' })
       }
 
       try {
-        terminalManager.writeToTerminal(notification.terminalId, response + '\n');
+        await terminalService.write(notification.terminalId, response + '\n');
       } catch (error) {
         console.error('Failed to write to terminal:', error);
         // Don't fail the response - notification is already resolved
