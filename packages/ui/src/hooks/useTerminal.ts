@@ -29,6 +29,8 @@ function encodeBase64(str: string): string {
 interface UseTerminalOptions {
   terminalId: string;
   theme?: ITheme;
+  fontFamily?: string;
+  fontWeight?: number;
   onConnect?: () => void;
   onDisconnect?: () => void;
   onExit?: (exitCode: number) => void;
@@ -44,7 +46,7 @@ interface UseTerminalReturn {
 }
 
 export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
-  const { terminalId, theme: externalTheme, onConnect, onDisconnect, onExit, onTitleChanged } = options;
+  const { terminalId, theme: externalTheme, fontFamily: externalFontFamily, fontWeight: externalFontWeight, onConnect, onDisconnect, onExit, onTitleChanged } = options;
 
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
@@ -154,9 +156,9 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
         cursorBlink: true,
         cursorStyle: 'block',
         fontSize: isMobile ? 13 : 11,
-        fontFamily: '"Fira Code", "SF Mono", "Menlo", "Monaco", "Cascadia Code", "Consolas", monospace',
-        fontWeight: '500',
-        fontWeightBold: '600',
+        fontFamily: externalFontFamily || '"Fira Code", "SF Mono", "Menlo", "Monaco", "Cascadia Code", "Consolas", monospace',
+        fontWeight: String(externalFontWeight || 500) as any,
+        fontWeightBold: String(Math.min((externalFontWeight || 500) + 100, 900)) as any,
         lineHeight: 1.2,
         letterSpacing: 0,
         scrollback: 5000,
@@ -444,12 +446,21 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
     };
   }, [terminalId, fit]);
 
-  // Live-update theme without re-creating the terminal
+  // Live-update theme and font without re-creating the terminal
   useEffect(() => {
-    if (externalTheme && xtermRef.current) {
-      xtermRef.current.options.theme = externalTheme;
+    if (xtermRef.current) {
+      if (externalTheme) xtermRef.current.options.theme = externalTheme;
+      if (externalFontFamily) xtermRef.current.options.fontFamily = externalFontFamily;
+      if (externalFontWeight) {
+        xtermRef.current.options.fontWeight = String(externalFontWeight) as any;
+        xtermRef.current.options.fontWeightBold = String(Math.min(externalFontWeight + 100, 900)) as any;
+      }
+      // Re-fit after font change to recalculate char dimensions
+      if (fitAddonRef.current?.proposeDimensions()) {
+        fitAddonRef.current.fit();
+      }
     }
-  }, [externalTheme]);
+  }, [externalTheme, externalFontFamily, externalFontWeight]);
 
   return {
     terminalRef,

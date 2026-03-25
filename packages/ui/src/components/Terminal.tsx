@@ -11,10 +11,12 @@ interface TerminalProps {
 }
 
 export function Terminal({ terminalId, className, onExit, onTitleChanged }: TerminalProps) {
-  const { activeTheme } = useTerminalTheme();
+  const { activeTheme, activeFont, activeWeight } = useTerminalTheme();
   const { terminalRef, status, fit, refresh } = useTerminal({
     terminalId,
     theme: activeTheme.theme,
+    fontFamily: activeFont.family,
+    fontWeight: activeWeight,
     onExit,
     onTitleChanged,
   });
@@ -68,7 +70,10 @@ export function Terminal({ terminalId, className, onExit, onTitleChanged }: Term
   }, [terminalRef, fit, refresh]);
 
   return (
-    <div className={cn('relative h-full w-full', className)}>
+    <div
+      className={cn('relative h-full w-full', className)}
+      style={{ backgroundColor: (activeTheme.theme.background as string) || '#1e1e1e' }}
+    >
       {/* Status indicator */}
       <div className="absolute top-2 right-2 z-10 flex items-center gap-2 text-xs bg-black/50 px-2 py-1 rounded">
         <div
@@ -83,10 +88,10 @@ export function Terminal({ terminalId, className, onExit, onTitleChanged }: Term
         <span className="text-white/70 capitalize text-[10px]">{status}</span>
       </div>
 
-      {/* Terminal container */}
+      {/* Terminal container with horizontal padding */}
       <div
         ref={terminalRef}
-        className="h-full w-full rounded-lg overflow-hidden"
+        className="h-full w-full rounded-lg overflow-hidden px-3"
         style={{ backgroundColor: (activeTheme.theme.background as string) || '#1e1e1e' }}
       />
     </div>
