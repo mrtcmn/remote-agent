@@ -9,6 +9,8 @@ import { workspaceService } from '../services/workspace';
 import { resolveProjectEnv } from '../services/workspace/env.service';
 import { requireAuth } from '../auth/middleware';
 
+const CLAUDE_BIN = process.env.CLAUDE_BIN_PATH || 'claude';
+
 const SHARED_DEFAULT_ENV: Record<string, string> = {
   NODE_ENV: 'development',
 };
@@ -89,7 +91,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     };
 
     if (type === 'claude') {
-      command = ['claude', '--dangerously-skip-permissions'];
+      command = [CLAUDE_BIN, '--dangerously-skip-permissions'];
       // Append initial prompt if provided (starts REPL with query)
       if (body.initialPrompt) {
         command.push(body.initialPrompt);

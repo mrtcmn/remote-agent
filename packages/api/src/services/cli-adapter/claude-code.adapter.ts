@@ -1,6 +1,8 @@
 import { BaseCLIAdapter } from './base.adapter';
 import type { CLISessionConfig, CLISessionResult } from './types';
 
+const CLAUDE_BIN = process.env.CLAUDE_BIN_PATH || 'claude';
+
 export class ClaudeCodeAdapter extends BaseCLIAdapter {
   readonly name = 'Claude Code';
   readonly type = 'claude_code' as const;
@@ -9,7 +11,7 @@ export class ClaudeCodeAdapter extends BaseCLIAdapter {
 
   async isAvailable(): Promise<boolean> {
     try {
-      const proc = Bun.spawn(['claude', '--version'], { stdout: 'pipe', stderr: 'pipe' });
+      const proc = Bun.spawn([CLAUDE_BIN, '--version'], { stdout: 'pipe', stderr: 'pipe' });
       await proc.exited;
       return proc.exitCode === 0;
     } catch {
@@ -22,7 +24,7 @@ export class ClaudeCodeAdapter extends BaseCLIAdapter {
     const args = this.buildArgs(config);
 
     try {
-      const proc = Bun.spawn(['claude', ...args], {
+      const proc = Bun.spawn([CLAUDE_BIN, ...args], {
         cwd: config.projectPath,
         stdout: 'pipe',
         stderr: 'pipe',

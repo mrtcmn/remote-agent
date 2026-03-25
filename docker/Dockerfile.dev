@@ -38,7 +38,15 @@ RUN bun install && cd packages/api && bun install
 # ---- Runtime config ----
 ENV NODE_ENV=development
 ENV BUN_TMPDIR=/tmp
+ENV WORKSPACES_ROOT=/app/workspaces
+ENV SSH_KEYS_ROOT=/app/ssh-keys
+ENV CONFIG_ROOT=/app/config
+ENV TEMPLATES_ROOT=/app/templates
 ENV PATH="/home/agent/.local/bin:/usr/local/bin:${PATH}"
+
+# ---- Copy hooks and templates ----
+COPY --chown=agent:agent --chmod=755 docker/hooks/ /app/hooks/
+COPY --chown=agent:agent docker/claude/ /app/templates/claude/
 
 EXPOSE 5100
 
