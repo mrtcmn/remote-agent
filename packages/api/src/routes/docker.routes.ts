@@ -298,6 +298,17 @@ export const dockerRoutes = new Elysia({ prefix: '/docker' })
     params: t.Object({ projectId: t.String() }),
   })
 
+  // System stats (CPU, memory, disk) from Docker
+  .get('/stats', async ({ set }) => {
+    try {
+      const stats = await dockerService.getHostStats();
+      return stats;
+    } catch (error) {
+      set.status = 500;
+      return { error: (error as Error).message };
+    }
+  })
+
   // Check Docker availability
   .get('/status', async () => {
     try {

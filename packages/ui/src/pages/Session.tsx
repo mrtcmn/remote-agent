@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
@@ -282,19 +282,20 @@ function TabItem({
 // ─── Status Bar Metric ──────────────────────────────────────────────────────
 
 function useSystemMetrics() {
-  const [cpu, setCpu] = useState(24);
-  const [ram, setRam] = useState(6.2);
-  const disk = 67;
+  const { data } = useQuery({
+    queryKey: ['system-stats'],
+    queryFn: () => api.getSystemStats(),
+    refetchInterval: 5000,
+  });
 
-  useEffect(() => {
-    const id = setInterval(() => {
-      setCpu((p) => Math.round(Math.max(3, Math.min(96, p + (Math.random() - 0.46) * 14))));
-      setRam((p) => parseFloat(Math.max(2, Math.min(14.5, p + (Math.random() - 0.5) * 0.5)).toFixed(1)));
-    }, 1200);
-    return () => clearInterval(id);
-  }, []);
+  const toGB = (bytes: number) => bytes / 1024 ** 3;
 
-  return { cpu, ram, disk };
+  return {
+    cpu: data?.cpu ?? 0,
+    memUsed: data ? toGB(data.memUsed) : 0,
+    memTotal: data ? Math.round(toGB(data.memTotal)) : 0,
+    diskPct: data ? Math.round((data.diskUsed / data.diskTotal) * 100) : 0,
+  };
 }
 
 function loadColor(pct: number): string {
@@ -321,8 +322,8 @@ export function SessionPage() {
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
   const [showThemeSelector, setShowThemeSelector] = useState(false);
   const themeBtnRef = useRef<HTMLButtonElement>(null);
-  const { activeTheme } = useTerminalTheme();
-  const { cpu, ram, disk } = useSystemMetrics();
+  const { activeTheme, activeFont } = useTerminalTheme();
+  const { cpu, memUsed, memTotal, diskPct } = useSystemMetrics();
 
   const { data: session } = useQuery({
     queryKey: ['session', id],
@@ -793,20 +794,20 @@ export function SessionPage() {
         </ToolbarGroup>
 
         <ToolbarGroup align="right">
-          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] font-mono leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground">
-            <span className="text-muted-foreground/70">cpu </span>
-            <span style={{ color: loadColor(cpu) }} className="tabular-nums">{cpu}%</span>
+          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground" style={{ fontFamily: activeFont.family }}>
+            <span className="text-muted-foreground/70">cpu</span>
+            <span style={{ color: loadColor(cpu), minWidth: '3ch', textAlign: 'right', display: 'inline-block' }} className="tabular-nums">{cpu}%</span>
           </button>
           <ToolbarDivider />
-          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] font-mono leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground">
-            <span className="text-muted-foreground/70">mem </span>
-            <span style={{ color: loadColor((ram / 16) * 100) }} className="tabular-nums">{ram}</span>
-            <span className="text-muted-foreground/60">/16</span>
+          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground" style={{ fontFamily: activeFont.family }}>
+            <span className="text-muted-foreground/70">mem</span>
+            <span style={{ color: loadColor(memTotal > 0 ? (memUsed / memTotal) * 100 : 0), minWidth: '4ch', textAlign: 'right', display: 'inline-block' }} className="tabular-nums">{memUsed.toFixed(1)}</span>
+            <span className="text-muted-foreground/60">/{memTotal}</span>
           </button>
           <ToolbarDivider />
-          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] font-mono leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground">
-            <span className="text-muted-foreground/70">disk </span>
-            <span style={{ color: loadColor(disk) }} className="tabular-nums">{disk}%</span>
+          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground" style={{ fontFamily: activeFont.family }}>
+            <span className="text-muted-foreground/70">disk</span>
+            <span style={{ color: loadColor(diskPct), minWidth: '3ch', textAlign: 'right', display: 'inline-block' }} className="tabular-nums">{diskPct}%</span>
           </button>
           <ToolbarDivider />
           <ToolbarItem icon={TerminalIcon} label="bash" />

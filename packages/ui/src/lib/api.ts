@@ -477,6 +477,8 @@ export const api = {
     request<{ files: DockerFile[] }>(`/docker/detect/${projectId}`),
   getDockerStatus: () =>
     request<{ available: boolean }>('/docker/status'),
+  getSystemStats: () =>
+    request<SystemStats>('/docker/stats'),
 
   // ─── Skills ──────────────────────────────────────────────────────────────
 
@@ -1041,6 +1043,14 @@ export interface DockerFile {
   path: string;
   type: 'dockerfile' | 'compose';
   name: string;
+}
+
+export interface SystemStats {
+  cpu: number;
+  memUsed: number;
+  memTotal: number;
+  diskUsed: number;
+  diskTotal: number;
 }
 
 // ─── Skills Types ────────────────────────────────────────────────────────────

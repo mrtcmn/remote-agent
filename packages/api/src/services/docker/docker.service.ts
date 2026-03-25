@@ -10,6 +10,14 @@ export interface DockerContainer {
   createdAt: string;
 }
 
+export interface ContainerStats {
+  cpu: number;       // percentage 0-100
+  memUsed: number;   // bytes
+  memTotal: number;  // bytes
+  diskUsed: number;  // bytes
+  diskTotal: number; // bytes
+}
+
 export interface DockerFile {
   path: string;
   type: 'dockerfile' | 'compose';
@@ -183,6 +191,46 @@ class DockerService {
 
     await scan(projectPath, 0);
     return results;
+  }
+
+  async getHostStats(): Promise<ContainerStats> {
+    const containerId = (await import('os')).hostname();
+
+    // CPU & memory from docker stats
+    const statsOut = await this.exec([
+      'stats', '--no-stream', '--format',
+      '{{.CPUPerc}}\t{{.MemUsage}}',
+      containerId,
+    ]);
+
+    // Parse "2.34%\t1.5GiB / 16GiB"
+    const [cpuRaw, memRaw] = statsOut.split('\t');
+    const cpu = parseFloat(cpuRaw.replace('%', '')) || 0;
+
+    const memParts = memRaw.split('/').map((s) => s.trim());
+    const parseBytes = (s: string): number => {
+      const match = s.match(/([\d.]+)\s*(GiB|MiB|KiB|B)/i);
+      if (!match) return 0;
+      const val = parseFloat(match[1]);
+      const unit = match[2].toLowerCase();
+      if (unit === 'gib') return val * 1024 ** 3;
+      if (unit === 'mib') return val * 1024 ** 2;
+      if (unit === 'kib') return val * 1024;
+      return val;
+    };
+    const memUsed = parseBytes(memParts[0]);
+    const memTotal = parseBytes(memParts[1]);
+
+    // Disk from df
+    const proc = spawn(['df', '-B1', '/'], { stdout: 'pipe', stderr: 'pipe' });
+    const dfOut = await new Response(proc.stdout).text();
+    await proc.exited;
+    const dfLine = dfOut.trim().split('\n')[1];
+    const dfCols = dfLine.split(/\s+/);
+    const diskTotal = parseInt(dfCols[1], 10) || 0;
+    const diskUsed = parseInt(dfCols[2], 10) || 0;
+
+    return { cpu: Math.round(cpu), memUsed, memTotal, diskUsed, diskTotal };
   }
 
   async isAvailable(): Promise<boolean> {
