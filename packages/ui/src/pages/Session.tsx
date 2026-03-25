@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
@@ -20,6 +20,7 @@ import {
   KeyRound,
   Container,
   AlertTriangle,
+  Palette,
 } from 'lucide-react';
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -40,6 +41,8 @@ import {
 } from '@/components/ui/Toolbar';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/Toaster';
+import { useTerminalTheme } from '@/hooks/useTerminalTheme';
+import { ThemeSelector } from '@/components/ThemeSelector';
 
 type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'preview' | 'docker' | 'env';
 
@@ -316,6 +319,9 @@ export function SessionPage() {
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('http://localhost:3000');
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
+  const [showThemeSelector, setShowThemeSelector] = useState(false);
+  const themeBtnRef = useRef<HTMLButtonElement>(null);
+  const { activeTheme } = useTerminalTheme();
   const { cpu, ram, disk } = useSystemMetrics();
 
   const { data: session } = useQuery({
@@ -804,6 +810,28 @@ export function SessionPage() {
           </button>
           <ToolbarDivider />
           <ToolbarItem icon={TerminalIcon} label="bash" />
+          <ToolbarDivider />
+          <div className="relative flex items-stretch">
+            <button
+              ref={themeBtnRef}
+              onClick={() => setShowThemeSelector((v) => !v)}
+              className={cn(
+                'flex items-center gap-1 px-2 h-full',
+                'text-[10.5px] font-mono leading-none tracking-tight',
+                'text-muted-foreground hover:text-foreground hover:bg-secondary',
+                'transition-colors duration-75 cursor-pointer outline-none',
+                showThemeSelector && 'bg-secondary text-foreground'
+              )}
+            >
+              <Palette className="size-[11px] shrink-0" />
+              <span>{activeTheme.name}</span>
+            </button>
+            <ThemeSelector
+              open={showThemeSelector}
+              onClose={() => setShowThemeSelector(false)}
+              anchorRef={themeBtnRef as React.RefObject<HTMLElement>}
+            />
+          </div>
         </ToolbarGroup>
       </ToolbarRoot>
 

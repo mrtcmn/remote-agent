@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal } from 'xterm';
+import type { ITheme } from 'xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
@@ -27,6 +28,7 @@ function encodeBase64(str: string): string {
 
 interface UseTerminalOptions {
   terminalId: string;
+  theme?: ITheme;
   onConnect?: () => void;
   onDisconnect?: () => void;
   onExit?: (exitCode: number) => void;
@@ -42,7 +44,7 @@ interface UseTerminalReturn {
 }
 
 export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
-  const { terminalId, onConnect, onDisconnect, onExit, onTitleChanged } = options;
+  const { terminalId, theme: externalTheme, onConnect, onDisconnect, onExit, onTitleChanged } = options;
 
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
@@ -123,6 +125,31 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
       // Initialize xterm with macOS Terminal-like appearance
       const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
+      const defaultTheme: ITheme = {
+        background: '#1e1e1e',
+        foreground: '#cccccc',
+        cursor: '#ffffff',
+        cursorAccent: '#000000',
+        selectionBackground: '#3a3d41',
+        selectionForeground: '#ffffff',
+        black: '#000000',
+        red: '#c91b00',
+        green: '#00c200',
+        yellow: '#c7c400',
+        blue: '#0225c7',
+        magenta: '#c930c7',
+        cyan: '#00c5c7',
+        white: '#c7c7c7',
+        brightBlack: '#676767',
+        brightRed: '#ff6d67',
+        brightGreen: '#5ff967',
+        brightYellow: '#fefb67',
+        brightBlue: '#6871ff',
+        brightMagenta: '#ff76ff',
+        brightCyan: '#5ffdff',
+        brightWhite: '#feffff',
+      };
+
       xterm = new Terminal({
         cursorBlink: true,
         cursorStyle: 'block',
@@ -135,32 +162,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
         scrollback: 5000,
         smoothScrollDuration: isMobile ? 100 : 0,
         allowTransparency: false,
-        theme: {
-          background: '#1e1e1e',
-          foreground: '#cccccc',
-          cursor: '#ffffff',
-          cursorAccent: '#000000',
-          selectionBackground: '#3a3d41',
-          selectionForeground: '#ffffff',
-          // Standard ANSI colors (macOS Terminal inspired)
-          black: '#000000',
-          red: '#c91b00',
-          green: '#00c200',
-          yellow: '#c7c400',
-          blue: '#0225c7',
-          magenta: '#c930c7',
-          cyan: '#00c5c7',
-          white: '#c7c7c7',
-          // Bright colors
-          brightBlack: '#676767',
-          brightRed: '#ff6d67',
-          brightGreen: '#5ff967',
-          brightYellow: '#fefb67',
-          brightBlue: '#6871ff',
-          brightMagenta: '#ff76ff',
-          brightCyan: '#5ffdff',
-          brightWhite: '#feffff',
-        },
+        theme: externalTheme || defaultTheme,
       });
 
       fitAddon = new FitAddon();
@@ -441,6 +443,13 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
       wsRef.current = null;
     };
   }, [terminalId, fit]);
+
+  // Live-update theme without re-creating the terminal
+  useEffect(() => {
+    if (externalTheme && xtermRef.current) {
+      xtermRef.current.options.theme = externalTheme;
+    }
+  }, [externalTheme]);
 
   return {
     terminalRef,

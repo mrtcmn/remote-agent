@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useTerminal } from '@/hooks/useTerminal';
+import { useTerminalTheme } from '@/hooks/useTerminalTheme';
 import { cn } from '@/lib/utils';
 
 interface TerminalProps {
@@ -10,8 +11,10 @@ interface TerminalProps {
 }
 
 export function Terminal({ terminalId, className, onExit, onTitleChanged }: TerminalProps) {
+  const { activeTheme } = useTerminalTheme();
   const { terminalRef, status, fit, refresh } = useTerminal({
     terminalId,
+    theme: activeTheme.theme,
     onExit,
     onTitleChanged,
   });
@@ -83,7 +86,8 @@ export function Terminal({ terminalId, className, onExit, onTitleChanged }: Term
       {/* Terminal container */}
       <div
         ref={terminalRef}
-        className="h-full w-full bg-[#1e1e1e] rounded-lg overflow-hidden"
+        className="h-full w-full rounded-lg overflow-hidden"
+        style={{ backgroundColor: (activeTheme.theme.background as string) || '#1e1e1e' }}
       />
     </div>
   );
