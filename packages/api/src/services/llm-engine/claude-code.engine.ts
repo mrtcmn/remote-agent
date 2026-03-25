@@ -3,9 +3,13 @@ import type { LLMEngine, LLMRequest, LLMResponse } from './types';
 export class ClaudeCodeEngine implements LLMEngine {
   readonly name = 'claude-code';
 
+  private getClaudePath(): string {
+    return process.env.CLAUDE_BIN_PATH || 'claude';
+  }
+
   async isAvailable(): Promise<boolean> {
     try {
-      const proc = Bun.spawn(['claude', '--version'], { stdout: 'pipe', stderr: 'pipe' });
+      const proc = Bun.spawn([this.getClaudePath(), '--version'], { stdout: 'pipe', stderr: 'pipe' });
       await proc.exited;
       return proc.exitCode === 0;
     } catch {
@@ -24,7 +28,7 @@ export class ClaudeCodeEngine implements LLMEngine {
   }
 
   private async run(request: LLMRequest): Promise<string> {
-    const args = ['claude', '--print', '--output-format', 'json'];
+    const args = [this.getClaudePath(), '--print', '--output-format', 'json'];
 
     if (request.systemPrompt) {
       args.push('--system-prompt', request.systemPrompt);

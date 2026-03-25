@@ -100,13 +100,6 @@ if [ ! -f .env ]; then
     # Database password
     POSTGRES_PASSWORD=$(openssl rand -hex 16)
 
-    # Prompt for required values
-    read -p "Enter ANTHROPIC_API_KEY: " ANTHROPIC_API_KEY
-    if [ -z "$ANTHROPIC_API_KEY" ]; then
-        log_error "ANTHROPIC_API_KEY is required"
-        exit 1
-    fi
-
     read -p "Enter GITHUB_CLIENT_ID (for OAuth): " GITHUB_CLIENT_ID
     if [ -z "$GITHUB_CLIENT_ID" ]; then
         log_error "GITHUB_CLIENT_ID is required"
@@ -153,9 +146,6 @@ IMAGE_TAG=${IMAGE_TAG}
 POSTGRES_USER=agent
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_DB=remote_agent
-
-# Required API Keys
-ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 
 # GitHub OAuth
 GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}

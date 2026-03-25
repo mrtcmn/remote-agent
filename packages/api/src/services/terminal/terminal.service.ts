@@ -120,7 +120,6 @@ export class TerminalService extends EventEmitter {
 
     return instance;
   }
-
   async write(terminalId: string, data: string): Promise<void> {
     const instance = this.instances.get(terminalId);
     if (!instance) {

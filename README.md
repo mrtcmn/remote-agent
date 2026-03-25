@@ -169,7 +169,6 @@ Hot-reloading via Bun's `--watch` flag, PostgreSQL exposed at `127.0.0.1:5432`, 
 
 | Variable | Description |
 |----------|-------------|
-| `ANTHROPIC_API_KEY` | Anthropic API key for Claude Code |
 | `GITHUB_CLIENT_ID` | GitHub OAuth App Client ID |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth App Client Secret |
 | `POSTGRES_PASSWORD` | PostgreSQL database password |
@@ -346,8 +345,6 @@ docker run -d --name remote-agent-db \
   -p 5432:5432 \
   postgres:16-alpine
 
-# Configure
-export ANTHROPIC_API_KEY=sk-ant-xxxxx
 export DATABASE_URL=postgres://agent:agent@localhost:5432/remote_agent
 export JWT_SECRET=dev-secret-change-in-production
 

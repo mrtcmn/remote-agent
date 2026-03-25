@@ -28,10 +28,6 @@ set -a
 source docker/.env
 set +a
 
-if [ -z "$ANTHROPIC_API_KEY" ]; then
-    echo -e "${RED}Error: ANTHROPIC_API_KEY is required${NC}"
-    exit 1
-fi
 
 if [ -z "$JWT_SECRET" ] || [ "$JWT_SECRET" = "generate_a_random_32_byte_hex_string" ]; then
     echo -e "${YELLOW}Generating secure JWT_SECRET...${NC}"

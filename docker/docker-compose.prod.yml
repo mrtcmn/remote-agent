@@ -41,8 +41,6 @@ services:
       # Database
       - DATABASE_URL=postgres://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-remote_agent}
 
-      # API Keys
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
 
       # GitHub OAuth
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
@@ -65,6 +63,9 @@ services:
 
       # Security
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+
+      # Claude CLI path (installed to agent user's local bin)
+      - CLAUDE_BIN_PATH=/home/agent/.local/bin/claude
 
       # App
       - APP_URL=${APP_URL:-http://localhost:5100}

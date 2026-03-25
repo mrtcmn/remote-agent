@@ -42,12 +42,6 @@ if [ ! -f docker/.env ]; then
     echo -e "${YELLOW}Please configure your environment:${NC}"
     echo ""
 
-    # Prompt for API key
-    read -p "Enter your ANTHROPIC_API_KEY: " api_key
-    if [ -n "$api_key" ]; then
-        sed -i.bak "s/your_anthropic_api_key/$api_key/" docker/.env
-        rm -f docker/.env.bak
-    fi
 
     # Generate JWT secret
     jwt_secret=$(openssl rand -hex 32)
