@@ -22,6 +22,7 @@ export function FileExplorer({ sessionId, project, selectedProjectId: externalSe
   useEffect(() => {
     if (externalSelectedProjectId !== undefined) {
       setSelectedProjectId(externalSelectedProjectId);
+      setSelectedFile(null);
     }
   }, [externalSelectedProjectId]);
 
