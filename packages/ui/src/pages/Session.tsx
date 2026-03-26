@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
@@ -321,6 +321,13 @@ export function SessionPage() {
   const [previewUrl, setPreviewUrl] = useState('http://localhost:3000');
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
   const [showThemeSelector, setShowThemeSelector] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+
+  // Reset child project selection when navigating to a different session
+  useEffect(() => {
+    setSelectedProjectId(null);
+  }, [id]);
+
   const themeBtnRef = useRef<HTMLButtonElement>(null);
   const { activeTheme, activeFont } = useTerminalTheme();
   const { cpu, memUsed, memTotal, diskPct } = useSystemMetrics();
@@ -331,6 +338,28 @@ export function SessionPage() {
     enabled: !!id,
   });
 
+  // Resolve the active project: child project if multi-project session with selection, else the session's project
+  const activeProject = useMemo(() => {
+    if (!session?.project) return null;
+    if (session.project.isMultiProject) {
+      if (!selectedProjectId) return null;
+      return session.project.childLinks
+        ?.find(l => l.childProjectId === selectedProjectId)
+        ?.childProject ?? null;
+    }
+    return session.project;
+  }, [session, selectedProjectId]);
+
+  // The project ID to pass to git operations (only for child project context)
+  const gitProjectId = session?.project?.isMultiProject ? (activeProject?.id ?? undefined) : undefined;
+
+  // The alias for the selected child project (used to badge terminal names)
+  const selectedAlias = useMemo(() => {
+    if (!selectedProjectId || !session?.project?.childLinks) return null;
+    return session.project.childLinks.find(l => l.childProjectId === selectedProjectId)?.alias ?? null;
+  }, [selectedProjectId, session]);
+  void selectedAlias; // consumed by terminal badge in subsequent task
+
   const { data: terminals = [], isLoading } = useQuery({
     queryKey: ['terminals', id],
     queryFn: () => api.getSessionTerminals(id!),
@@ -339,10 +368,10 @@ export function SessionPage() {
   });
 
   const { data: gitStatus } = useQuery({
-    queryKey: ['session-git-status', id],
-    queryFn: () => api.getSessionGitStatus(id!),
+    queryKey: ['session-git-status', id, gitProjectId],
+    queryFn: () => api.getSessionGitStatus(id!, gitProjectId),
     refetchInterval: 3000,
-    enabled: !!id && !!session?.project,
+    enabled: !!id && !!activeProject,
   });
 
   const createMutation = useMutation({
@@ -398,7 +427,7 @@ export function SessionPage() {
     },
   });
 
-  const canOpenEditor = !!editorStatus?.configured && !!session?.project?.localPath;
+  const canOpenEditor = !!editorStatus?.configured && !!activeProject?.localPath;
   const activeTerminals = terminals.filter((t) => (t.liveStatus || t.status) === 'running');
 
   if (!activeTerminalId && activeTerminals.length > 0 && !isLoading) {
