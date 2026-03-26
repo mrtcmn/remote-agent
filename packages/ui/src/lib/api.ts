@@ -95,7 +95,7 @@ export const api = {
     }),
   getSessionGitLog: (sessionId: string, limit?: number, projectId?: string) => {
     const params = new URLSearchParams();
-    if (limit) params.set('limit', String(limit));
+    if (limit !== undefined) params.set('limit', String(limit));
     if (projectId) params.set('projectId', projectId);
     const query = params.toString();
     return request<{ commits: GitLogEntry[] }>(`/sessions/${sessionId}/git/log${query ? `?${query}` : ''}`);

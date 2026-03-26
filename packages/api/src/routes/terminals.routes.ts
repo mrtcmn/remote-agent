@@ -91,6 +91,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     };
 
     if (type === 'claude') {
+      // cwd is inherited from the outer scope (body.cwd || project.localPath || userWorkspace)
       command = [CLAUDE_BIN, '--dangerously-skip-permissions'];
       // Append initial prompt if provided (starts REPL with query)
       if (body.initialPrompt) {
