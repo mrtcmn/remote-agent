@@ -17,34 +17,35 @@ import { toast } from '@/components/ui/Toaster';
 
 interface GitToolbarProps {
   sessionId: string;
+  projectId?: string;
   onReview?: () => void;
 }
 
-export function GitToolbar({ sessionId, onReview }: GitToolbarProps) {
+export function GitToolbar({ sessionId, projectId, onReview }: GitToolbarProps) {
   const queryClient = useQueryClient();
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const { data: gitStatus } = useQuery({
-    queryKey: ['session-git-status', sessionId],
-    queryFn: () => api.getSessionGitStatus(sessionId),
+    queryKey: ['session-git-status', sessionId, projectId],
+    queryFn: () => api.getSessionGitStatus(sessionId, projectId),
     refetchInterval: 3000,
   });
 
   const { data: branches } = useQuery({
-    queryKey: ['session-git-branches', sessionId],
-    queryFn: () => api.getSessionGitBranches(sessionId),
+    queryKey: ['session-git-branches', sessionId, projectId],
+    queryFn: () => api.getSessionGitBranches(sessionId, projectId),
     enabled: showBranchDropdown,
   });
 
   const invalidateGit = () => {
-    queryClient.invalidateQueries({ queryKey: ['session-git-status', sessionId] });
-    queryClient.invalidateQueries({ queryKey: ['session-git-log', sessionId] });
-    queryClient.invalidateQueries({ queryKey: ['session-git-branches', sessionId] });
+    queryClient.invalidateQueries({ queryKey: ['session-git-status', sessionId, projectId] });
+    queryClient.invalidateQueries({ queryKey: ['session-git-log', sessionId, projectId] });
+    queryClient.invalidateQueries({ queryKey: ['session-git-branches', sessionId, projectId] });
   };
 
   const checkoutMutation = useMutation({
-    mutationFn: (branch: string) => api.gitCheckout(sessionId, branch),
+    mutationFn: (branch: string) => api.gitCheckout(sessionId, branch, undefined, projectId),
     onSuccess: () => {
       invalidateGit();
       setShowBranchDropdown(false);
@@ -54,7 +55,7 @@ export function GitToolbar({ sessionId, onReview }: GitToolbarProps) {
   });
 
   const pullMutation = useMutation({
-    mutationFn: () => api.gitSessionPull(sessionId),
+    mutationFn: () => api.gitSessionPull(sessionId, projectId),
     onSuccess: () => {
       invalidateGit();
       toast({ title: 'Pulled successfully' });
@@ -63,7 +64,7 @@ export function GitToolbar({ sessionId, onReview }: GitToolbarProps) {
   });
 
   const pushMutation = useMutation({
-    mutationFn: () => api.gitSessionPush(sessionId),
+    mutationFn: () => api.gitSessionPush(sessionId, projectId),
     onSuccess: () => {
       invalidateGit();
       toast({ title: 'Pushed successfully' });
@@ -72,7 +73,7 @@ export function GitToolbar({ sessionId, onReview }: GitToolbarProps) {
   });
 
   const fetchMutation = useMutation({
-    mutationFn: () => api.gitSessionFetch(sessionId),
+    mutationFn: () => api.gitSessionFetch(sessionId, projectId),
     onSuccess: () => {
       invalidateGit();
       toast({ title: 'Fetched successfully' });

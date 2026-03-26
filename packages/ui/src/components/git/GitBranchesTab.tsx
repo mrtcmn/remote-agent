@@ -13,23 +13,24 @@ import { toast } from '@/components/ui/Toaster';
 
 interface GitBranchesTabProps {
   sessionId: string;
+  projectId?: string;
 }
 
-export function GitBranchesTab({ sessionId }: GitBranchesTabProps) {
+export function GitBranchesTab({ sessionId, projectId }: GitBranchesTabProps) {
   const queryClient = useQueryClient();
 
   const { data: branches, isLoading } = useQuery({
-    queryKey: ['session-git-branches', sessionId],
-    queryFn: () => api.getSessionGitBranches(sessionId),
+    queryKey: ['session-git-branches', sessionId, projectId],
+    queryFn: () => api.getSessionGitBranches(sessionId, projectId),
     refetchInterval: 10000,
   });
 
   const checkoutMutation = useMutation({
-    mutationFn: (branch: string) => api.gitCheckout(sessionId, branch),
+    mutationFn: (branch: string) => api.gitCheckout(sessionId, branch, undefined, projectId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['session-git-status', sessionId] });
-      queryClient.invalidateQueries({ queryKey: ['session-git-branches', sessionId] });
-      queryClient.invalidateQueries({ queryKey: ['session-git-log', sessionId] });
+      queryClient.invalidateQueries({ queryKey: ['session-git-status', sessionId, projectId] });
+      queryClient.invalidateQueries({ queryKey: ['session-git-branches', sessionId, projectId] });
+      queryClient.invalidateQueries({ queryKey: ['session-git-log', sessionId, projectId] });
       toast({ title: 'Branch switched' });
     },
     onError: (e) => toast({ title: 'Checkout failed', description: (e as Error).message, variant: 'destructive' }),

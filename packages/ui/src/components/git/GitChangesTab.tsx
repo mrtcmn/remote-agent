@@ -61,10 +61,11 @@ function RawDiffView({ diff, fileName }: { diff: string; fileName?: string }) {
 
 interface GitChangesTabProps {
   sessionId: string;
+  projectId?: string;
   onProceed?: (message: string) => void;
 }
 
-export function GitChangesTab({ sessionId, onProceed }: GitChangesTabProps) {
+export function GitChangesTab({ sessionId, projectId, onProceed }: GitChangesTabProps) {
   const queryClient = useQueryClient();
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [commitMessage, setCommitMessage] = useState('');
@@ -94,36 +95,36 @@ export function GitChangesTab({ sessionId, onProceed }: GitChangesTabProps) {
     data: gitStatus,
     isLoading: statusLoading,
   } = useQuery({
-    queryKey: ['session-git-status', sessionId],
-    queryFn: () => api.getSessionGitStatus(sessionId),
+    queryKey: ['session-git-status', sessionId, projectId],
+    queryFn: () => api.getSessionGitStatus(sessionId, projectId),
     refetchInterval: 3000,
   });
 
   const { data: diffData, isLoading: diffLoading } = useQuery({
-    queryKey: ['session-file-diff', sessionId, selectedFile],
-    queryFn: () => api.getSessionFileDiff(sessionId, selectedFile!),
+    queryKey: ['session-file-diff', sessionId, selectedFile, projectId],
+    queryFn: () => api.getSessionFileDiff(sessionId, selectedFile!, projectId),
     enabled: !!selectedFile,
   });
 
   const invalidateGit = () => {
-    queryClient.invalidateQueries({ queryKey: ['session-git-status', sessionId] });
-    queryClient.invalidateQueries({ queryKey: ['session-git-log', sessionId] });
+    queryClient.invalidateQueries({ queryKey: ['session-git-status', sessionId, projectId] });
+    queryClient.invalidateQueries({ queryKey: ['session-git-log', sessionId, projectId] });
   };
 
   const stageMutation = useMutation({
-    mutationFn: (files: string[]) => api.gitStage(sessionId, files),
+    mutationFn: (files: string[]) => api.gitStage(sessionId, files, projectId),
     onSuccess: invalidateGit,
     onError: (e) => toast({ title: 'Stage failed', description: (e as Error).message, variant: 'destructive' }),
   });
 
   const unstageMutation = useMutation({
-    mutationFn: (files: string[]) => api.gitUnstage(sessionId, files),
+    mutationFn: (files: string[]) => api.gitUnstage(sessionId, files, projectId),
     onSuccess: invalidateGit,
     onError: (e) => toast({ title: 'Unstage failed', description: (e as Error).message, variant: 'destructive' }),
   });
 
   const commitMutation = useMutation({
-    mutationFn: (message: string) => api.gitCommit(sessionId, message),
+    mutationFn: (message: string) => api.gitCommit(sessionId, message, projectId),
     onSuccess: () => {
       setCommitMessage('');
       invalidateGit();

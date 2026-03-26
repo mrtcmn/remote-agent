@@ -13,14 +13,15 @@ import { cn } from '@/lib/utils';
 
 interface GitLogTabProps {
   sessionId: string;
+  projectId?: string;
 }
 
-export function GitLogTab({ sessionId }: GitLogTabProps) {
+export function GitLogTab({ sessionId, projectId }: GitLogTabProps) {
   const [expandedCommit, setExpandedCommit] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['session-git-log', sessionId],
-    queryFn: () => api.getSessionGitLog(sessionId, 50),
+    queryKey: ['session-git-log', sessionId, projectId],
+    queryFn: () => api.getSessionGitLog(sessionId, 50, projectId),
     refetchInterval: 10000,
   });
 

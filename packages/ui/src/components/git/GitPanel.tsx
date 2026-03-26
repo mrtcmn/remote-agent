@@ -12,11 +12,12 @@ type GitTab = 'changes' | 'log' | 'branches';
 interface GitPanelProps {
   sessionId: string;
   project?: Project;
+  projectId?: string;
   className?: string;
   onProceed?: (message: string) => void;
 }
 
-export function GitPanel({ sessionId, project: _project, className, onProceed }: GitPanelProps) {
+export function GitPanel({ sessionId, project: _project, projectId, className, onProceed }: GitPanelProps) {
   const [activeTab, setActiveTab] = useState<GitTab>('changes');
   const [presentationRequest, setPresentationRequest] = useState<PresentationRequest | null>(null);
 
@@ -32,7 +33,7 @@ export function GitPanel({ sessionId, project: _project, className, onProceed }:
 
   return (
     <div className={cn('flex flex-col h-full bg-background', className)}>
-      <GitToolbar sessionId={sessionId} onReview={handleReview} />
+      <GitToolbar sessionId={sessionId} projectId={projectId} onReview={handleReview} />
 
       <div className="flex items-center border-b bg-card/20 shrink-0">
         {tabs.map((tab) => (
@@ -55,9 +56,9 @@ export function GitPanel({ sessionId, project: _project, className, onProceed }:
       </div>
 
       <div className="flex-1 min-h-0 flex">
-        {activeTab === 'changes' && <GitChangesTab sessionId={sessionId} onProceed={onProceed} />}
-        {activeTab === 'log' && <GitLogTab sessionId={sessionId} />}
-        {activeTab === 'branches' && <GitBranchesTab sessionId={sessionId} />}
+        {activeTab === 'changes' && <GitChangesTab sessionId={sessionId} projectId={projectId} onProceed={onProceed} />}
+        {activeTab === 'log' && <GitLogTab sessionId={sessionId} projectId={projectId} />}
+        {activeTab === 'branches' && <GitBranchesTab sessionId={sessionId} projectId={projectId} />}
       </div>
 
       {presentationRequest && (
