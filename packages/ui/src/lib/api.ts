@@ -58,36 +58,54 @@ export const api = {
   },
 
   // Git operations (session-level)
-  gitStage: (sessionId: string, files: string[]) =>
+  gitStage: (sessionId: string, files: string[], projectId?: string) =>
     request<{ success: boolean }>(`/sessions/${sessionId}/git/stage`, {
       method: 'POST',
-      body: JSON.stringify({ files }),
+      body: JSON.stringify({ files, projectId }),
     }),
-  gitUnstage: (sessionId: string, files: string[]) =>
+  gitUnstage: (sessionId: string, files: string[], projectId?: string) =>
     request<{ success: boolean }>(`/sessions/${sessionId}/git/unstage`, {
       method: 'POST',
-      body: JSON.stringify({ files }),
+      body: JSON.stringify({ files, projectId }),
     }),
-  gitCommit: (sessionId: string, message: string) =>
+  gitCommit: (sessionId: string, message: string, projectId?: string) =>
     request<{ success: boolean; hash: string }>(`/sessions/${sessionId}/git/commit`, {
       method: 'POST',
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, projectId }),
     }),
-  gitCheckout: (sessionId: string, branch: string, create?: boolean) =>
+  gitCheckout: (sessionId: string, branch: string, create?: boolean, projectId?: string) =>
     request<{ success: boolean }>(`/sessions/${sessionId}/git/checkout`, {
       method: 'POST',
-      body: JSON.stringify({ branch, create }),
+      body: JSON.stringify({ branch, create, projectId }),
     }),
-  gitSessionPull: (sessionId: string) =>
-    request<{ success: boolean }>(`/sessions/${sessionId}/git/pull`, { method: 'POST' }),
-  gitSessionPush: (sessionId: string) =>
-    request<{ success: boolean }>(`/sessions/${sessionId}/git/push`, { method: 'POST' }),
-  gitSessionFetch: (sessionId: string) =>
-    request<{ success: boolean }>(`/sessions/${sessionId}/git/fetch`, { method: 'POST' }),
-  getSessionGitLog: (sessionId: string, limit?: number) =>
-    request<{ commits: GitLogEntry[] }>(`/sessions/${sessionId}/git/log${limit ? `?limit=${limit}` : ''}`),
-  getSessionGitBranches: (sessionId: string) =>
-    request<GitBranches>(`/sessions/${sessionId}/git/branches`),
+  gitSessionPull: (sessionId: string, projectId?: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/git/pull`, {
+      method: 'POST',
+      body: JSON.stringify({ projectId }),
+    }),
+  gitSessionPush: (sessionId: string, projectId?: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/git/push`, {
+      method: 'POST',
+      body: JSON.stringify({ projectId }),
+    }),
+  gitSessionFetch: (sessionId: string, projectId?: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/git/fetch`, {
+      method: 'POST',
+      body: JSON.stringify({ projectId }),
+    }),
+  getSessionGitLog: (sessionId: string, limit?: number, projectId?: string) => {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    if (projectId) params.set('projectId', projectId);
+    const query = params.toString();
+    return request<{ commits: GitLogEntry[] }>(`/sessions/${sessionId}/git/log${query ? `?${query}` : ''}`);
+  },
+  getSessionGitBranches: (sessionId: string, projectId?: string) => {
+    const params = new URLSearchParams();
+    if (projectId) params.set('projectId', projectId);
+    const query = params.toString();
+    return request<GitBranches>(`/sessions/${sessionId}/git/branches${query ? `?${query}` : ''}`);
+  },
 
   // Files
   getSessionFiles: (sessionId: string, path = '.') =>
@@ -681,6 +699,7 @@ export interface CreateTerminalInput {
   rows?: number;
   persist?: boolean;
   initialPrompt?: string;
+  cwd?: string;
 }
 
 export interface VersionInfo {
