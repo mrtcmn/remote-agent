@@ -42,8 +42,8 @@ export function FileExplorer({ sessionId, project, selectedProjectId: externalSe
 
   return (
     <div className={cn('flex flex-col h-full min-h-0', className)}>
-      {/* Project selector for multi-project */}
-      {project?.isMultiProject && links && links.length > 0 && (
+      {/* Project selector for multi-project — hidden when toolbar already controls selection */}
+      {project?.isMultiProject && links && links.length > 0 && externalSelectedProjectId === undefined && (
         <div className="px-2 py-1.5 border-b bg-card/20 shrink-0">
           <ProjectSelector
             links={links}

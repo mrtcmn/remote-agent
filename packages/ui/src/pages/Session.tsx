@@ -677,7 +677,9 @@ export function SessionPage() {
                   }
                   onActivate={() => {
                     if (tab.id === '__project__') {
-                      setViewMode('files');
+                      if (!session?.project?.isMultiProject || activeProject) {
+                        setViewMode('files');
+                      }
                     } else {
                       selectTerminal(tab.id);
                     }
