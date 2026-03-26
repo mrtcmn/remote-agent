@@ -43,6 +43,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/Toaster';
 import { useTerminalTheme } from '@/hooks/useTerminalTheme';
 import { ThemeSelector } from '@/components/ThemeSelector';
+import { ProjectSelector } from '@/components/ProjectSelector';
 
 type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'preview' | 'docker' | 'env';
 
@@ -481,10 +482,26 @@ export function SessionPage() {
           <div className="flex items-stretch px-1">
             {/* Nav */}
             <ToolBtn icon={ArrowLeft} onClick={() => navigate('/')} className="w-7 justify-center px-0" />
-            <ToolBtn
-              label={session?.project?.name || 'Session'}
-              className="font-semibold text-foreground/90 px-2"
-            />
+            {session?.project?.isMultiProject && session.project.childLinks && session.project.childLinks.length > 0 ? (
+              <div className="flex items-center self-stretch px-1">
+                <ProjectSelector
+                  links={session.project.childLinks}
+                  selectedProjectId={selectedProjectId}
+                  onSelect={(id) => {
+                    setSelectedProjectId(id);
+                    // Auto-switch to terminal if clearing selection while a project panel is open
+                    if (!id && viewMode !== 'terminal') {
+                      setViewMode('terminal');
+                    }
+                  }}
+                />
+              </div>
+            ) : (
+              <ToolBtn
+                label={session?.project?.name || 'Session'}
+                className="font-semibold text-foreground/90 px-2"
+              />
+            )}
 
             <AnimatePresence initial={false}>
               {!toolsCollapsed && (
