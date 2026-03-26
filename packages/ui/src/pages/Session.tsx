@@ -361,6 +361,12 @@ export function SessionPage() {
   // The project ID to pass to git operations (only for child project context)
   const gitProjectId = session?.project?.isMultiProject ? activeProject?.id : undefined;
 
+  // The alias for the selected child project (used to badge terminal names)
+  const selectedAlias = useMemo(() => {
+    if (!selectedProjectId || !session?.project?.childLinks) return null;
+    return session.project.childLinks.find(l => l.childProjectId === selectedProjectId)?.alias ?? null;
+  }, [selectedProjectId, session]);
+
   const { data: terminals = [], isLoading } = useQuery({
     queryKey: ['terminals', id],
     queryFn: () => api.getSessionTerminals(id!),
@@ -378,13 +384,17 @@ export function SessionPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (opts: { type?: TerminalType; name?: string; initialPrompt?: string } = {}) =>
-      api.createTerminal({
+    mutationFn: (opts: { type?: TerminalType; name?: string; initialPrompt?: string } = {}) => {
+      const prefix = selectedAlias ? `[${selectedAlias}] ` : '';
+      const baseName = opts.name ?? (opts.type === 'claude' ? 'Claude' : 'Shell');
+      return api.createTerminal({
         sessionId: id!,
         type: opts.type || 'shell',
-        name: opts.name,
+        name: prefix ? `${prefix}${baseName}` : opts.name,
         initialPrompt: opts.initialPrompt,
-      }),
+        cwd: activeProject?.localPath,
+      });
+    },
     onSuccess: (terminal) => {
       queryClient.invalidateQueries({ queryKey: ['terminals', id] });
       setActiveTerminalId(terminal.id);
@@ -548,6 +558,7 @@ export function SessionPage() {
                         badge={changeCount}
                         pill={gitStatus?.branch}
                         isActive={viewMode === 'git'}
+                        disabled={!!session?.project?.isMultiProject && !activeProject}
                         onClick={() => setViewMode(viewMode === 'git' ? 'terminal' : 'git')}
                       />
                     )}
@@ -562,12 +573,14 @@ export function SessionPage() {
                           icon={Play}
                           label="Run"
                           isActive={viewMode === 'run'}
+                          disabled={!!session?.project?.isMultiProject && !activeProject}
                           onClick={() => setViewMode(viewMode === 'run' ? 'terminal' : 'run')}
                         />
                         <ToolBtn
                           icon={FolderOpen}
                           label="Files"
                           isActive={viewMode === 'files'}
+                          disabled={!!session?.project?.isMultiProject && !activeProject}
                           onClick={() => setViewMode(viewMode === 'files' ? 'terminal' : 'files')}
                         />
                       </div>
@@ -582,6 +595,7 @@ export function SessionPage() {
                         icon={KeyRound}
                         label="Env"
                         isActive={viewMode === 'env'}
+                        disabled={!!session?.project?.isMultiProject && !activeProject}
                         onClick={() => setViewMode(viewMode === 'env' ? 'terminal' : 'env')}
                       />
                     )}
@@ -589,12 +603,14 @@ export function SessionPage() {
                       icon={Container}
                       label="Docker"
                       isActive={viewMode === 'docker'}
+                      disabled={!!session?.project?.isMultiProject && !activeProject}
                       onClick={() => setViewMode(viewMode === 'docker' ? 'terminal' : 'docker')}
                     />
                     <ToolBtn
                       icon={Monitor}
                       label="Preview"
                       isActive={viewMode === 'preview'}
+                      disabled={!!session?.project?.isMultiProject && !activeProject}
                       onClick={() => {
                         if (viewMode === 'preview') setViewMode('terminal');
                         else if (previewId) setViewMode('preview');
@@ -613,7 +629,7 @@ export function SessionPage() {
                           label="VS Code"
                           external
                           iconColor="#007ACC"
-                          onClick={() => openEditorMutation.mutate(session!.project!.localPath)}
+                          onClick={() => openEditorMutation.mutate(activeProject!.localPath)}
                           disabled={openEditorMutation.isPending}
                         />
                       </div>
@@ -683,7 +699,21 @@ export function SessionPage() {
       </div>
 
       {/* Mobile terminal dropdown */}
-      <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b bg-card/20 shrink-0">
+      <div className="md:hidden flex flex-col border-b bg-card/20 shrink-0">
+        {session?.project?.isMultiProject && session.project.childLinks && session.project.childLinks.length > 0 && (
+          <div className="px-3 pt-2">
+            <ProjectSelector
+              links={session.project.childLinks}
+              selectedProjectId={selectedProjectId}
+              onSelect={(id) => {
+                setSelectedProjectId(id);
+                const projectDependentViews: ViewMode[] = ['git', 'files', 'env'];
+                if (!id && projectDependentViews.includes(viewMode)) setViewMode('terminal');
+              }}
+            />
+          </div>
+        )}
+        <div className="flex items-center gap-2 px-3 py-2">
         <div className="relative flex-1">
           <Button
             variant="outline"
@@ -740,6 +770,7 @@ export function SessionPage() {
             </div>
           )}
         </div>
+        </div>
       </div>
 
       {/* ── Content Area ── */}
@@ -759,7 +790,8 @@ export function SessionPage() {
         ) : viewMode === 'git' ? (
           <GitPanel
             sessionId={id!}
-            project={session?.project}
+            project={activeProject ?? undefined}
+            projectId={gitProjectId}
             onProceed={(message) => {
               createMutation.mutate(
                 { type: 'claude', name: 'Review', initialPrompt: message },
@@ -770,9 +802,9 @@ export function SessionPage() {
               );
             }}
           />
-        ) : viewMode === 'run' ? (
+        ) : viewMode === 'run' && activeProject ? (
           <RunConfigPanel
-            projectId={session!.project!.id}
+            projectId={activeProject!.id}
             sessionId={id!}
             onTerminalCreated={(terminalId) => {
               queryClient.invalidateQueries({ queryKey: ['terminals', id] });
@@ -782,27 +814,15 @@ export function SessionPage() {
         ) : viewMode === 'docker' ? (
           <DockerPanel
             sessionId={id!}
-            projectId={session?.project?.id}
+            projectId={activeProject?.id}
             onTerminalCreated={(terminalId) => {
               queryClient.invalidateQueries({ queryKey: ['terminals', id] });
               selectTerminal(terminalId);
             }}
           />
-        ) : viewMode === 'env' && session?.project ? (
+        ) : viewMode === 'env' && activeProject ? (
           <div className="p-4 overflow-y-auto h-full">
-            <EnvEditor projectId={session.project.id} />
-            {session.project.isMultiProject && session.project.childLinks && (
-              <div className="mt-6 space-y-4">
-                {session.project.childLinks.map((link: any) => (
-                  <div key={link.id} className="border rounded-lg p-3">
-                    <p className="text-xs font-medium text-muted-foreground mb-2">
-                      {link.alias || link.childProject?.name}
-                    </p>
-                    <EnvEditor projectId={link.childProjectId} />
-                  </div>
-                ))}
-              </div>
-            )}
+            <EnvEditor projectId={activeProject.id} />
           </div>
         ) : viewMode === 'preview' && previewId ? (
           <BrowserPreview
@@ -815,7 +835,7 @@ export function SessionPage() {
             className="h-full"
           />
         ) : (
-          <FileExplorer sessionId={id!} project={session?.project} className="h-full" />
+          <FileExplorer sessionId={id!} project={session?.project} selectedProjectId={selectedProjectId} className="h-full" />
         )}
       </div>
 
