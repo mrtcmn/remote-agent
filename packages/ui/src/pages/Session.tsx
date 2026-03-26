@@ -390,7 +390,7 @@ export function SessionPage() {
       return api.createTerminal({
         sessionId: id!,
         type: opts.type || 'shell',
-        name: prefix ? `${prefix}${baseName}` : opts.name,
+        name: `${prefix}${baseName}`,
         initialPrompt: opts.initialPrompt,
         cwd: activeProject?.localPath,
       });
@@ -804,7 +804,7 @@ export function SessionPage() {
           />
         ) : viewMode === 'run' && activeProject ? (
           <RunConfigPanel
-            projectId={activeProject!.id}
+            projectId={activeProject.id}
             sessionId={id!}
             onTerminalCreated={(terminalId) => {
               queryClient.invalidateQueries({ queryKey: ['terminals', id] });
