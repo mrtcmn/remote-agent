@@ -73,7 +73,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
 
     const terminalId = nanoid();
     const userWorkspace = `/app/workspaces/${user!.id}`;
-    const cwd = session.project?.localPath || userWorkspace;
+    const cwd = body.cwd || session.project?.localPath || userWorkspace;
     const type = body.type || 'shell';
 
     // Resolve project-level env vars
@@ -152,6 +152,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
       rows: t.Optional(t.Number()),
       persist: t.Optional(t.Boolean()),
       initialPrompt: t.Optional(t.String()),
+      cwd: t.Optional(t.String()),
     }),
   })
 
