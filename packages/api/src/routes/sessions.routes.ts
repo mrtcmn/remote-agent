@@ -7,6 +7,27 @@ import { gitService } from '../services/git';
 import { notificationService } from '../services/notification';
 import { requireAuth } from '../auth/middleware';
 
+/** Resolve target path for git operations, optionally scoped to a child project. */
+async function resolveTargetPath(
+  project: { id: string; localPath: string; isMultiProject: boolean } | null | undefined,
+  projectId: string | undefined
+): Promise<string | null> {
+  if (!project) return null;
+  if (!projectId || !project.isMultiProject) return project.localPath;
+
+  const link = await db.query.projectLinks.findFirst({
+    where: and(
+      eq(projectLinks.parentProjectId, project.id),
+      eq(projectLinks.childProjectId, projectId)
+    ),
+    with: { childProject: true },
+  });
+
+  return link && (link as any).childProject
+    ? (link as any).childProject.localPath
+    : null;
+}
+
 export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   .use(requireAuth)
 
