@@ -351,14 +351,7 @@ export function SessionPage() {
   }, [session, selectedProjectId]);
 
   // The project ID to pass to git operations (only for child project context)
-  const gitProjectId = session?.project?.isMultiProject ? (activeProject?.id ?? undefined) : undefined;
-
-  // The alias for the selected child project (used to badge terminal names)
-  const selectedAlias = useMemo(() => {
-    if (!selectedProjectId || !session?.project?.childLinks) return null;
-    return session.project.childLinks.find(l => l.childProjectId === selectedProjectId)?.alias ?? null;
-  }, [selectedProjectId, session]);
-  void selectedAlias; // consumed by terminal badge in subsequent task
+  const gitProjectId = session?.project?.isMultiProject ? activeProject?.id : undefined;
 
   const { data: terminals = [], isLoading } = useQuery({
     queryKey: ['terminals', id],
@@ -367,6 +360,8 @@ export function SessionPage() {
     enabled: !!id,
   });
 
+  // Disabled when no activeProject: for multi-project sessions, aggregate git status across all
+  // child projects is not supported — status only shows for the selected child project.
   const { data: gitStatus } = useQuery({
     queryKey: ['session-git-status', id, gitProjectId],
     queryFn: () => api.getSessionGitStatus(id!, gitProjectId),
