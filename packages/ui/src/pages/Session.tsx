@@ -351,6 +351,13 @@ export function SessionPage() {
     return session.project;
   }, [session, selectedProjectId]);
 
+  // Also reset selection if project type changes (e.g., multi-project status edited while session is open)
+  useEffect(() => {
+    if (!session?.project?.isMultiProject) {
+      setSelectedProjectId(null);
+    }
+  }, [session?.project?.isMultiProject]);
+
   // The project ID to pass to git operations (only for child project context)
   const gitProjectId = session?.project?.isMultiProject ? activeProject?.id : undefined;
 
@@ -489,8 +496,9 @@ export function SessionPage() {
                   selectedProjectId={selectedProjectId}
                   onSelect={(id) => {
                     setSelectedProjectId(id);
-                    // Auto-switch to terminal if clearing selection while a project panel is open
-                    if (!id && viewMode !== 'terminal') {
+                    // Auto-switch to terminal if clearing selection while a project-dependent panel is open
+                    const projectDependentViews: ViewMode[] = ['git', 'files', 'env'];
+                    if (!id && projectDependentViews.includes(viewMode)) {
                       setViewMode('terminal');
                     }
                   }}
