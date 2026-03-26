@@ -336,13 +336,15 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       with: { project: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    const targetPath = await resolveTargetPath(session.project, body.projectId);
+    if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
-      await gitService.stage(session.project.localPath, body.files);
+      await gitService.stage(targetPath, body.files);
       return { success: true };
     } catch (error) { set.status = 500; return { error: (error as Error).message }; }
   }, {
     params: t.Object({ id: t.String() }),
-    body: t.Object({ files: t.Array(t.String()) }),
+    body: t.Object({ files: t.Array(t.String()), projectId: t.Optional(t.String()) }),
   })
 
   // Unstage files
@@ -352,13 +354,15 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       with: { project: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    const targetPath = await resolveTargetPath(session.project, body.projectId);
+    if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
-      await gitService.unstage(session.project.localPath, body.files);
+      await gitService.unstage(targetPath, body.files);
       return { success: true };
     } catch (error) { set.status = 500; return { error: (error as Error).message }; }
   }, {
     params: t.Object({ id: t.String() }),
-    body: t.Object({ files: t.Array(t.String()) }),
+    body: t.Object({ files: t.Array(t.String()), projectId: t.Optional(t.String()) }),
   })
 
   // Commit staged files
@@ -368,13 +372,15 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       with: { project: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    const targetPath = await resolveTargetPath(session.project, body.projectId);
+    if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
-      const hash = await gitService.commit(session.project.localPath, body.message);
+      const hash = await gitService.commit(targetPath, body.message);
       return { success: true, hash };
     } catch (error) { set.status = 500; return { error: (error as Error).message }; }
   }, {
     params: t.Object({ id: t.String() }),
-    body: t.Object({ message: t.String() }),
+    body: t.Object({ message: t.String(), projectId: t.Optional(t.String()) }),
   })
 
   // Checkout branch
@@ -384,53 +390,70 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       with: { project: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    const targetPath = await resolveTargetPath(session.project, body.projectId);
+    if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
-      await gitService.checkout(session.project.localPath, body.branch, body.create || false);
+      await gitService.checkout(targetPath, body.branch, body.create || false);
       return { success: true };
     } catch (error) { set.status = 500; return { error: (error as Error).message }; }
   }, {
     params: t.Object({ id: t.String() }),
-    body: t.Object({ branch: t.String(), create: t.Optional(t.Boolean()) }),
+    body: t.Object({ branch: t.String(), create: t.Optional(t.Boolean()), projectId: t.Optional(t.String()) }),
   })
 
   // Pull
-  .post('/:id/git/pull', async ({ user, params, set }) => {
+  .post('/:id/git/pull', async ({ user, params, body, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
       with: { project: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    const targetPath = await resolveTargetPath(session.project, body?.projectId);
+    if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
-      await gitService.pull(session.project.localPath);
+      await gitService.pull(targetPath);
       return { success: true };
     } catch (error) { set.status = 500; return { error: (error as Error).message }; }
-  }, { params: t.Object({ id: t.String() }) })
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Optional(t.Object({ projectId: t.Optional(t.String()) })),
+  })
 
   // Push
-  .post('/:id/git/push', async ({ user, params, set }) => {
+  .post('/:id/git/push', async ({ user, params, body, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
       with: { project: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    const targetPath = await resolveTargetPath(session.project, body?.projectId);
+    if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
-      await gitService.push(session.project.localPath);
+      await gitService.push(targetPath);
       return { success: true };
     } catch (error) { set.status = 500; return { error: (error as Error).message }; }
-  }, { params: t.Object({ id: t.String() }) })
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Optional(t.Object({ projectId: t.Optional(t.String()) })),
+  })
 
   // Fetch
-  .post('/:id/git/fetch', async ({ user, params, set }) => {
+  .post('/:id/git/fetch', async ({ user, params, body, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
       with: { project: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    const targetPath = await resolveTargetPath(session.project, body?.projectId);
+    if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
-      await gitService.fetch(session.project.localPath);
+      await gitService.fetch(targetPath);
       return { success: true };
     } catch (error) { set.status = 500; return { error: (error as Error).message }; }
-  }, { params: t.Object({ id: t.String() }) })
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Optional(t.Object({ projectId: t.Optional(t.String()) })),
+  })
 
   // Get git log
   .get('/:id/git/log', async ({ user, params, query, set }) => {
@@ -439,29 +462,36 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       with: { project: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    const targetPath = await resolveTargetPath(session.project, query.projectId);
+    if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
       const limit = query.limit ? parseInt(query.limit) : 50;
-      const commits = await gitService.log(session.project.localPath, limit);
+      const commits = await gitService.log(targetPath, limit);
       return { commits };
     } catch (error) { set.status = 500; return { error: (error as Error).message }; }
   }, {
     params: t.Object({ id: t.String() }),
-    query: t.Object({ limit: t.Optional(t.String()) }),
+    query: t.Object({ limit: t.Optional(t.String()), projectId: t.Optional(t.String()) }),
   })
 
   // List branches
-  .get('/:id/git/branches', async ({ user, params, set }) => {
+  .get('/:id/git/branches', async ({ user, params, query, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
       with: { project: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
+    const targetPath = await resolveTargetPath(session.project, query.projectId);
+    if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
-      const branches = await gitService.listBranches(session.project.localPath);
-      const status = await gitService.status(session.project.localPath);
+      const branches = await gitService.listBranches(targetPath);
+      const status = await gitService.status(targetPath);
       return { ...branches, current: status.branch };
     } catch (error) { set.status = 500; return { error: (error as Error).message }; }
-  }, { params: t.Object({ id: t.String() }) })
+  }, {
+    params: t.Object({ id: t.String() }),
+    query: t.Object({ projectId: t.Optional(t.String()) }),
+  })
   // Get sidebar tree data (projects with nested sessions)
   .get('/sidebar', async ({ user }) => {
     // Load all projects and sessions for the user
