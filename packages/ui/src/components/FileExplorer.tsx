@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { FileTree } from '@/components/FileTree';
 import { FileViewer } from '@/components/FileViewer';
@@ -10,12 +10,20 @@ import type { Project } from '@/lib/api';
 interface FileExplorerProps {
   sessionId: string;
   project?: Project;
+  selectedProjectId?: string | null;
   className?: string;
 }
 
-export function FileExplorer({ sessionId, project, className }: FileExplorerProps) {
+export function FileExplorer({ sessionId, project, selectedProjectId: externalSelectedProjectId, className }: FileExplorerProps) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(externalSelectedProjectId ?? null);
+
+  // Sync with external selection (from toolbar project selector)
+  useEffect(() => {
+    if (externalSelectedProjectId !== undefined) {
+      setSelectedProjectId(externalSelectedProjectId);
+    }
+  }, [externalSelectedProjectId]);
 
   // Load child links when multi-project
   const { data: links } = useQuery({
