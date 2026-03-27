@@ -514,6 +514,43 @@ export const api = {
   uninstallSkill: (name: string) =>
     request<{ success: boolean }>(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 
+  // ─── MCP Servers ────────────────────────────────────────────────────────────
+
+  searchMcpServers: (query: string, cursor?: string) => {
+    const params = new URLSearchParams();
+    if (query) params.set('q', query);
+    if (cursor) params.set('cursor', cursor);
+    return request<{ servers: McpRegistryServer[]; nextCursor?: string }>(`/mcp/search?${params}`);
+  },
+  getMcpServer: (name: string) =>
+    request<{ server: McpRegistryServer }>(`/mcp/servers/${encodeURIComponent(name)}`),
+  getInstalledMcpServers: () =>
+    request<{ servers: McpInstalledServer[] }>('/mcp/installed'),
+  installMcpServer: (server: McpRegistryServer, configName: string, envVars?: Record<string, string>, extraArgs?: string[]) =>
+    request<{ success: boolean }>('/mcp/install', {
+      method: 'POST',
+      body: JSON.stringify({ server, configName, envVars, extraArgs }),
+    }),
+  addCustomMcpServer: (name: string, command: string, args?: string[], env?: Record<string, string>) =>
+    request<{ success: boolean }>('/mcp/custom', {
+      method: 'POST',
+      body: JSON.stringify({ name, command, args, env }),
+    }),
+  updateMcpServer: (name: string, config: { command?: string; args?: string[]; env?: Record<string, string> }) =>
+    request<{ success: boolean }>(`/mcp/installed/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+  uninstallMcpServer: (name: string) =>
+    request<{ success: boolean }>(`/mcp/installed/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  getMcpRawConfig: () =>
+    request<{ config: Record<string, McpServerConfig> }>('/mcp/config'),
+  setMcpRawConfig: (config: Record<string, McpServerConfig>) =>
+    request<{ success: boolean }>('/mcp/config', {
+      method: 'PUT',
+      body: JSON.stringify({ config }),
+    }),
+
   // Presentation
   addPresentationAnnotation: (sessionId: string, slideId: string, text: string) =>
     request<SlideAnnotation>(`/sessions/${sessionId}/presentation/annotations`, {
@@ -1070,6 +1107,52 @@ export interface SystemStats {
   memTotal: number;
   diskUsed: number;
   diskTotal: number;
+}
+
+// ─── MCP Server Types ─────────────────────────────────────────────────────────
+
+export interface McpServerConfig {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+export interface McpInstalledServer {
+  name: string;
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+export interface McpRegistryServer {
+  name: string;
+  title?: string;
+  description: string;
+  registryType?: string;
+  packageId?: string;
+  version?: string;
+  repoUrl?: string;
+  envVars?: McpEnvVar[];
+  args?: McpArg[];
+}
+
+export interface McpEnvVar {
+  name: string;
+  description?: string;
+  isRequired?: boolean;
+  isSecret?: boolean;
+  default?: string;
+  placeholder?: string;
+}
+
+export interface McpArg {
+  name: string;
+  description?: string;
+  type: string;
+  isRequired?: boolean;
+  default?: string;
+  value?: string;
+  valueHint?: string;
 }
 
 // ─── Skills Types ────────────────────────────────────────────────────────────

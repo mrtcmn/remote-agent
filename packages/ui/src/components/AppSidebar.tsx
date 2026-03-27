@@ -9,6 +9,7 @@ import {
   ListTodo,
   Settings,
   Sparkles,
+  Plug,
   FolderGit2,
   Loader2,
   X,
@@ -361,6 +362,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
           { to: '/kanban', icon: LayoutGrid, label: 'Kanban' },
           { to: '/projects', icon: FolderGit2, label: 'Projects' },
           { to: '/skills', icon: Sparkles, label: 'Skills' },
+          { to: '/mcp-servers', icon: Plug, label: 'MCP Servers' },
           { to: '/settings', icon: Settings, label: 'Settings' },
         ].map((item) => (
           <Link key={item.to} to={item.to} onClick={onClose}>
