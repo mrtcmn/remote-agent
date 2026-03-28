@@ -11,12 +11,13 @@ interface TerminalProps {
 }
 
 export function Terminal({ terminalId, className, onExit, onTitleChanged }: TerminalProps) {
-  const { activeTheme, activeFont, activeWeight } = useTerminalTheme();
+  const { activeTheme, activeFont, activeWeight, activeFontSize } = useTerminalTheme();
   const { terminalRef, status, fit, refresh } = useTerminal({
     terminalId,
     theme: activeTheme.theme,
     fontFamily: activeFont.family,
     fontWeight: activeWeight,
+    fontSize: activeFontSize,
     onExit,
     onTitleChanged,
   });
@@ -75,7 +76,7 @@ export function Terminal({ terminalId, className, onExit, onTitleChanged }: Term
       style={{ backgroundColor: (activeTheme.theme.background as string) || '#1e1e1e' }}
     >
       {/* Status indicator */}
-      <div className="absolute top-2 right-2 z-10 flex items-center gap-2 text-xs bg-black/50 px-2 py-1 rounded">
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-2 text-xs bg-background/80 px-2 py-1 rounded">
         <div
           className={cn(
             'h-2 w-2 rounded-full',
@@ -85,13 +86,13 @@ export function Terminal({ terminalId, className, onExit, onTitleChanged }: Term
             status === 'exited' && 'bg-gray-500'
           )}
         />
-        <span className="text-white/70 capitalize text-[10px]">{status}</span>
+        <span className="text-foreground/70 capitalize text-[10px]">{status}</span>
       </div>
 
-      {/* Terminal container with horizontal padding */}
+      {/* Terminal container – left padding only so scrollbar sits flush right */}
       <div
         ref={terminalRef}
-        className="h-full w-full rounded-lg overflow-hidden px-3"
+        className={cn('h-full w-full rounded-lg overflow-hidden pl-3', activeTheme.type === 'light' && 'xterm-light-theme')}
         style={{ backgroundColor: (activeTheme.theme.background as string) || '#1e1e1e' }}
       />
     </div>

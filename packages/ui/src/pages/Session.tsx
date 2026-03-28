@@ -7,6 +7,7 @@ import {
   TerminalSquare,
   Terminal as TerminalIcon,
   Plus,
+  Minus,
   GitBranch,
   X,
   RefreshCw,
@@ -21,6 +22,7 @@ import {
   Container,
   AlertTriangle,
   Palette,
+  Type,
 } from 'lucide-react';
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -330,7 +332,7 @@ export function SessionPage() {
   }, [id]);
 
   const themeBtnRef = useRef<HTMLButtonElement>(null);
-  const { activeTheme, activeFont } = useTerminalTheme();
+  const { activeTheme, activeFont, activeFontSize, setFontSize } = useTerminalTheme();
   const { cpu, memUsed, memTotal, diskPct } = useSystemMetrics();
 
   const { data: session } = useQuery({
@@ -882,6 +884,28 @@ export function SessionPage() {
           </button>
           <ToolbarDivider />
           <ToolbarItem icon={TerminalIcon} label="bash" />
+          <ToolbarDivider />
+          {/* Font size controls */}
+          <div className="flex items-stretch">
+            <button
+              onClick={() => setFontSize(activeFontSize - 1)}
+              className="flex items-center justify-center w-6 h-full text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors duration-75 cursor-pointer"
+              title="Decrease font size"
+            >
+              <Minus className="size-[10px]" />
+            </button>
+            <span className="flex items-center px-1 h-full text-[10px] font-mono tabular-nums text-muted-foreground select-none">
+              <Type className="size-[11px] mr-0.5 opacity-60" />
+              {activeFontSize}
+            </span>
+            <button
+              onClick={() => setFontSize(activeFontSize + 1)}
+              className="flex items-center justify-center w-6 h-full text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors duration-75 cursor-pointer"
+              title="Increase font size"
+            >
+              <Plus className="size-[10px]" />
+            </button>
+          </div>
           <ToolbarDivider />
           <div className="relative flex items-stretch">
             <button

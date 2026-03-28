@@ -31,6 +31,7 @@ interface UseTerminalOptions {
   theme?: ITheme;
   fontFamily?: string;
   fontWeight?: number;
+  fontSize?: number;
   onConnect?: () => void;
   onDisconnect?: () => void;
   onExit?: (exitCode: number) => void;
@@ -46,7 +47,7 @@ interface UseTerminalReturn {
 }
 
 export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
-  const { terminalId, theme: externalTheme, fontFamily: externalFontFamily, fontWeight: externalFontWeight, onConnect, onDisconnect, onExit, onTitleChanged } = options;
+  const { terminalId, theme: externalTheme, fontFamily: externalFontFamily, fontWeight: externalFontWeight, fontSize: externalFontSize, onConnect, onDisconnect, onExit, onTitleChanged } = options;
 
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
@@ -155,7 +156,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
       xterm = new Terminal({
         cursorBlink: true,
         cursorStyle: 'block',
-        fontSize: isMobile ? 13 : 11,
+        fontSize: externalFontSize || (isMobile ? 10 : 11),
         fontFamily: externalFontFamily || '"Fira Code", "SF Mono", "Menlo", "Monaco", "Cascadia Code", "Consolas", monospace',
         fontWeight: String(externalFontWeight || 500) as any,
         fontWeightBold: String(Math.min((externalFontWeight || 500) + 100, 900)) as any,
@@ -455,12 +456,13 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
         xtermRef.current.options.fontWeight = String(externalFontWeight) as any;
         xtermRef.current.options.fontWeightBold = String(Math.min(externalFontWeight + 100, 900)) as any;
       }
+      if (externalFontSize) xtermRef.current.options.fontSize = externalFontSize;
       // Re-fit after font change to recalculate char dimensions
       if (fitAddonRef.current?.proposeDimensions()) {
         fitAddonRef.current.fit();
       }
     }
-  }, [externalTheme, externalFontFamily, externalFontWeight]);
+  }, [externalTheme, externalFontFamily, externalFontWeight, externalFontSize]);
 
   return {
     terminalRef,

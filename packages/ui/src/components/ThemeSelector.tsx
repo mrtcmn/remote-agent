@@ -1,8 +1,9 @@
 import { useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, Sun, Moon, Type } from 'lucide-react';
+import { Check, Sun, Moon, Type, Monitor, Palette } from 'lucide-react';
 import { useTerminalTheme, type TerminalThemeEntry } from '@/hooks/useTerminalTheme';
 import { cn } from '@/lib/utils';
+import { useAppTheme, type AppThemeMode } from '@/hooks/useAppTheme';
 
 function ThemeSwatch({ entry, isActive, onClick }: { entry: TerminalThemeEntry; isActive: boolean; onClick: () => void }) {
   const t = entry.theme;
@@ -16,7 +17,7 @@ function ThemeSwatch({ entry, isActive, onClick }: { entry: TerminalThemeEntry; 
     >
       {/* Color preview */}
       <div
-        className="shrink-0 w-[42px] h-[22px] rounded border border-white/10 overflow-hidden flex"
+        className="shrink-0 w-[42px] h-[22px] rounded border border-foreground/10 overflow-hidden flex"
         style={{ backgroundColor: t.background as string }}
       >
         <div className="flex-1 flex flex-col justify-center items-start pl-1 gap-px">
@@ -36,6 +37,7 @@ function ThemeSwatch({ entry, isActive, onClick }: { entry: TerminalThemeEntry; 
 
 export function ThemeSelector({ open, onClose, anchorRef }: { open: boolean; onClose: () => void; anchorRef: React.RefObject<HTMLElement> }) {
   const { darkThemes, lightThemes, activeTheme, setTheme, fonts, activeFont, activeWeight, setFont, setWeight } = useTerminalTheme();
+  const { mode: appMode, setMode: setAppMode } = useAppTheme();
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click
@@ -119,6 +121,37 @@ export function ThemeSelector({ open, onClose, anchorRef }: { open: boolean; onC
                     )}
                   >
                     {w}
+                  </button>
+                ))}
+              </div>
+
+              <div className="h-px bg-border mx-1 mb-1" />
+
+              {/* UI Theme section */}
+              <div className="flex items-center gap-1.5 px-2 pt-1.5 pb-1">
+                <Palette className="size-3 text-muted-foreground" />
+                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">UI Theme</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1 px-2 pb-2">
+                {([
+                  { id: 'dark' as AppThemeMode, label: 'Dark', icon: Moon },
+                  { id: 'light' as AppThemeMode, label: 'Light', icon: Sun },
+                  { id: 'system' as AppThemeMode, label: 'System', icon: Monitor },
+                  { id: 'terminal' as AppThemeMode, label: 'Terminal', icon: Palette },
+                ]).map((opt) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => setAppMode(opt.id)}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[10px] font-medium transition-colors',
+                      appMode === opt.id
+                        ? 'bg-secondary text-foreground'
+                        : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'
+                    )}
+                  >
+                    <opt.icon className="size-3" />
+                    {opt.label}
                   </button>
                 ))}
               </div>

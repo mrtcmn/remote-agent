@@ -11,6 +11,7 @@ import { KanbanPage } from './pages/Kanban';
 import { SkillsPage } from './pages/Skills';
 import { McpServersPage } from './pages/McpServers';
 import { Toaster } from './components/ui/Toaster';
+import { useAppTheme } from './hooks/useAppTheme';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -31,6 +32,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  useAppTheme();
+
   return (
     <>
       <Routes>
