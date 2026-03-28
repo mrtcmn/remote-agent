@@ -498,7 +498,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     const [userProjects, allSessions] = await Promise.all([
       db.query.projects.findMany({
         where: eq(projects.userId, user!.id),
-        orderBy: (p, { asc }) => [asc(p.name)],
+        orderBy: (p, { asc }) => [asc(p.sidebarPosition), asc(p.createdAt)],
       }),
       db.query.claudeSessions.findMany({
         where: eq(claudeSessions.userId, user!.id),

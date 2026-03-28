@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -13,9 +13,11 @@ import {
   FolderGit2,
   Loader2,
   X,
+  GripVertical,
 } from 'lucide-react';
 import { NewSessionModal } from '@/components/NewSessionModal';
 import { cn } from '@/lib/utils';
+import { api } from '@/lib/api';
 import type { SidebarData, SidebarProject, SidebarSession } from '@/lib/api';
 
 const ACTIVE_STATUSES = new Set(['active', 'waiting_input', 'paused']);
@@ -120,22 +122,42 @@ function ProjectGroup({
   project,
   activeSessionId,
   onSelectSession,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  isDragOver,
 }: {
   project: SidebarProject;
   activeSessionId: string | null;
   onSelectSession: (id: string) => void;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
+  isDragOver: boolean;
 }) {
   const [expanded, setExpanded] = useState(true);
   const color = projectColor(project.id);
   const initial = project.name.charAt(0).toUpperCase();
 
   return (
-    <div className="space-y-0.5">
+    <div
+      className={cn('space-y-0.5 rounded-md transition-colors', isDragOver && 'bg-secondary/60')}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
       <div
         role="button"
         onClick={() => setExpanded((v) => !v)}
         className="group/ws flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-secondary cursor-pointer select-none"
       >
+        <span
+          draggable
+          onDragStart={onDragStart}
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center shrink-0 cursor-grab active:cursor-grabbing opacity-0 group-hover/ws:opacity-100 transition-opacity"
+        >
+          <GripVertical className="size-3 text-muted-foreground/40" />
+        </span>
         <span
           className="size-4 rounded flex items-center justify-center text-[9px] font-bold leading-none shrink-0"
           style={{ backgroundColor: color + '33', border: `1px solid ${color}44`, color }}
@@ -217,6 +239,9 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
   const navigate = useNavigate();
   const params = useParams();
   const [newSessionModalOpen, setNewSessionModalOpen] = useState(false);
+  const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
+  const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null);
+  const [localProjectOrder, setLocalProjectOrder] = useState<string[] | null>(null);
 
   const activeSessionId = params.id || null;
   const activeTab = location.pathname === '/kanban' ? 'tasks' : 'workspaces';
@@ -231,18 +256,72 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
       }))
       .filter((project) => project.sessions.length > 0);
 
+    // Apply local drag order if set
+    const ordered = localProjectOrder
+      ? [...filteredProjects].sort((a, b) => {
+          const ai = localProjectOrder.indexOf(a.id);
+          const bi = localProjectOrder.indexOf(b.id);
+          return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
+        })
+      : filteredProjects;
+
     const filteredUnassigned = data.unassignedSessions.filter(isActiveSession);
 
     return {
-      activeProjects: filteredProjects,
+      activeProjects: ordered,
       activeUnassigned: filteredUnassigned,
     };
-  }, [data]);
+  }, [data, localProjectOrder]);
 
   const handleSelectSession = (sessionId: string) => {
     navigate(`/sessions/${sessionId}`);
     onClose?.();
   };
+
+  const handleProjectDragStart = useCallback((e: React.DragEvent, projectId: string) => {
+    setDraggedProjectId(projectId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', projectId);
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = '0.5';
+    }
+  }, []);
+
+  const handleProjectDragOver = useCallback((e: React.DragEvent, projectId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggedProjectId && draggedProjectId !== projectId) {
+      setDragOverProjectId(projectId);
+    }
+  }, [draggedProjectId]);
+
+  const handleProjectDrop = useCallback((e: React.DragEvent, targetProjectId: string) => {
+    e.preventDefault();
+    setDragOverProjectId(null);
+
+    if (!draggedProjectId || draggedProjectId === targetProjectId) return;
+
+    // Compute new order
+    const currentOrder = activeProjects.map((p) => p.id);
+    const fromIndex = currentOrder.indexOf(draggedProjectId);
+    const toIndex = currentOrder.indexOf(targetProjectId);
+    if (fromIndex === -1 || toIndex === -1) return;
+
+    const newOrder = [...currentOrder];
+    newOrder.splice(fromIndex, 1);
+    newOrder.splice(toIndex, 0, draggedProjectId);
+
+    setLocalProjectOrder(newOrder);
+    setDraggedProjectId(null);
+
+    // Include all project IDs (not just active ones) preserving relative order for non-visible ones
+    const allProjectIds = data?.projects.map((p) => p.id) || [];
+    const fullOrder = [...newOrder];
+    for (const id of allProjectIds) {
+      if (!fullOrder.includes(id)) fullOrder.push(id);
+    }
+    api.reorderProjects(fullOrder).catch(() => setLocalProjectOrder(null));
+  }, [draggedProjectId, activeProjects, data]);
 
   return (
     <div className="flex flex-col h-full bg-card text-foreground">
@@ -327,6 +406,10 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
                     project={project}
                     activeSessionId={activeSessionId}
                     onSelectSession={handleSelectSession}
+                    onDragStart={(e) => handleProjectDragStart(e, project.id)}
+                    onDragOver={(e) => handleProjectDragOver(e, project.id)}
+                    onDrop={(e) => handleProjectDrop(e, project.id)}
+                    isDragOver={dragOverProjectId === project.id}
                   />
                 </div>
               </div>

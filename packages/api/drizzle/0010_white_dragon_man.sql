@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "sidebar_position" integer DEFAULT 0 NOT NULL;

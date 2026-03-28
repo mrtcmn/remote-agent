@@ -571,6 +571,28 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
     }),
   })
 
+  // Reorder projects in sidebar (DnD)
+  .put('/reorder', async ({ user, body, set }) => {
+    try {
+      const { projectIds } = body;
+      await Promise.all(
+        projectIds.map((id: string, index: number) =>
+          db.update(projects)
+            .set({ sidebarPosition: index })
+            .where(and(eq(projects.id, id), eq(projects.userId, user!.id)))
+        )
+      );
+      return { success: true };
+    } catch (error) {
+      set.status = 500;
+      return { error: (error as Error).message };
+    }
+  }, {
+    body: t.Object({
+      projectIds: t.Array(t.String()),
+    }),
+  })
+
   // Delete project (requires PIN)
   .use(requirePin)
   .delete('/:id', async ({ user, params, set }) => {

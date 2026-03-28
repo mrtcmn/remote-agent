@@ -440,6 +440,8 @@ export const api = {
   // ─── Sidebar ──────────────────────────────────────────────────────────────
 
   getSidebarData: () => request<SidebarData>('/sessions/sidebar'),
+  reorderProjects: (projectIds: string[]) =>
+    request<{ success: boolean }>('/projects/reorder', { method: 'PUT', body: JSON.stringify({ projectIds }) }),
 
   // ─── Multi-Project ────────────────────────────────────────────────────────
 

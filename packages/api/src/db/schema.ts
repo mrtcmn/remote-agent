@@ -97,6 +97,7 @@ export const projects = pgTable('projects', {
   sshKeyId: text('ssh_key_id').references(() => sshKeys.id),
   isMultiProject: boolean('is_multi_project').notNull().default(false),
   env: text('env'), // JSON — Record<string, string>
+  sidebarPosition: integer('sidebar_position').notNull().default(0),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
