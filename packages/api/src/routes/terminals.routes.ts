@@ -63,7 +63,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
         eq(claudeSessions.id, body.sessionId),
         eq(claudeSessions.userId, user!.id)
       ),
-      with: { project: true },
+      with: { project: true, worktree: true },
     });
 
     if (!session) {
@@ -73,7 +73,14 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
 
     const terminalId = nanoid();
     const userWorkspace = `/app/workspaces/${user!.id}`;
-    const cwd = body.cwd || session.project?.localPath || userWorkspace;
+    // Resolve CWD: explicit > worktree > project > workspace
+    let cwd = body.cwd;
+    if (!cwd && session.worktreeId && session.worktree) {
+      cwd = session.worktree.path;
+    } else if (!cwd && session.project) {
+      cwd = session.project.localPath;
+    }
+    if (!cwd) cwd = userWorkspace;
     const type = body.type || 'shell';
 
     // Resolve project-level env vars
