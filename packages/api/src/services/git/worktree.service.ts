@@ -49,21 +49,23 @@ export class WorktreeService {
       }
     }
 
-    // Insert DB record
-    await db.insert(worktrees).values({
-      id,
-      projectId: opts.projectId,
-      userId: opts.userId,
-      name: opts.name,
-      branch: opts.branch,
-      path: wtPath,
-    });
+    // Insert DB record — clean up filesystem worktree if DB insert fails
+    try {
+      const [worktree] = await db.insert(worktrees).values({
+        id,
+        projectId: opts.projectId,
+        userId: opts.userId,
+        name: opts.name,
+        branch: opts.branch,
+        path: wtPath,
+      }).returning();
 
-    const worktree = await db.query.worktrees.findFirst({
-      where: eq(worktrees.id, id),
-    });
-
-    return worktree!;
+      return worktree;
+    } catch (err) {
+      // Roll back the filesystem worktree since DB insert failed
+      await $`git worktree remove ${wtPath} --force`.cwd(project.localPath).nothrow().quiet();
+      throw err;
+    }
   }
 
   async remove(worktreeId: string, userId: string): Promise<void> {
@@ -73,13 +75,13 @@ export class WorktreeService {
     });
     if (!worktree) throw new Error('Worktree not found');
 
-    // Terminate any sessions bound to this worktree
+    // Detach sessions from this worktree
     await db.update(claudeSessions)
       .set({ worktreeId: null })
       .where(eq(claudeSessions.worktreeId, worktreeId));
 
     // Remove git worktree from disk
-    const project = (worktree as any).project;
+    const project = worktree.project;
     if (project) {
       const result = await $`git worktree remove ${worktree.path} --force`
         .cwd(project.localPath).nothrow().quiet();
