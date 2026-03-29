@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS "worktrees" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "claude_sessions" ADD COLUMN "worktree_id" text;--> statement-breakpoint
+ALTER TABLE "claude_sessions" ADD COLUMN IF NOT EXISTS "worktree_id" text;--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "worktrees" ADD CONSTRAINT "worktrees_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION
