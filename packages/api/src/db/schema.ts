@@ -114,11 +114,23 @@ export const projectLinks = pgTable('project_links', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
+// Git worktrees (isolated branch checkouts)
+export const worktrees = pgTable('worktrees', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(),
+  branch: text('branch').notNull(),
+  path: text('path').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
 // Claude sessions
 export const claudeSessions = pgTable('claude_sessions', {
   id: text('id').primaryKey(),
   userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
   projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  worktreeId: text('worktree_id').references(() => worktrees.id, { onDelete: 'set null' }),
   claudeSessionId: text('claude_session_id'), // For --resume
   status: sessionStatusEnum('status').notNull().default('active'),
   lastMessage: text('last_message'),
@@ -434,6 +446,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   runConfigs: many(runConfigs),
   childLinks: many(projectLinks, { relationName: 'childLinks' }),
   parentLinks: many(projectLinks, { relationName: 'parentLinks' }),
+  worktrees: many(worktrees),
 }));
 
 export const projectLinksRelations = relations(projectLinks, ({ one }) => ({
@@ -447,6 +460,18 @@ export const projectLinksRelations = relations(projectLinks, ({ one }) => ({
     references: [projects.id],
     relationName: 'parentLinks',
   }),
+}));
+
+export const worktreesRelations = relations(worktrees, ({ one, many }) => ({
+  project: one(projects, {
+    fields: [worktrees.projectId],
+    references: [projects.id],
+  }),
+  user: one(user, {
+    fields: [worktrees.userId],
+    references: [user.id],
+  }),
+  sessions: many(claudeSessions),
 }));
 
 export const claudeSessionsRelations = relations(claudeSessions, ({ one, many }) => ({
@@ -464,6 +489,10 @@ export const claudeSessionsRelations = relations(claudeSessions, ({ one, many })
   reviewComments: many(reviewComments),
   notifications: many(notifications),
   artifacts: many(artifacts),
+  worktree: one(worktrees, {
+    fields: [claudeSessions.worktreeId],
+    references: [worktrees.id],
+  }),
 }));
 
 export const fcmTokensRelations = relations(fcmTokens, ({ one }) => ({
@@ -720,3 +749,5 @@ export type CodeEditor = typeof codeEditors.$inferSelect;
 export type NewCodeEditor = typeof codeEditors.$inferInsert;
 export type ProjectLink = typeof projectLinks.$inferSelect;
 export type NewProjectLink = typeof projectLinks.$inferInsert;
+export type Worktree = typeof worktrees.$inferSelect;
+export type NewWorktree = typeof worktrees.$inferInsert;
