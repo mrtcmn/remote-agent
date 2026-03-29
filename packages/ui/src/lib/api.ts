@@ -36,7 +36,8 @@ export const api = {
   // Sessions (container for terminals)
   getSessions: () => request<Session[]>('/sessions'),
   getSession: (id: string) => request<Session>(`/sessions/${id}`),
-  createSession: (projectId?: string) => request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ projectId }) }),
+  createSession: (projectId?: string, worktreeId?: string) =>
+    request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ projectId, worktreeId }) }),
   terminateSession: (id: string) => request(`/sessions/${id}`, { method: 'DELETE' }),
   getSessionGitStatus: (sessionId: string, projectId?: string) => {
     const params = new URLSearchParams();
@@ -443,6 +444,15 @@ export const api = {
   reorderProjects: (projectIds: string[]) =>
     request<{ success: boolean }>('/projects/reorder', { method: 'PUT', body: JSON.stringify({ projectIds }) }),
 
+  // ─── Worktrees ────────────────────────────────────────────────────────────
+
+  getWorktrees: (projectId: string) =>
+    request<Worktree[]>(`/worktrees/project/${projectId}`),
+  createWorktree: (data: { projectId: string; branch: string; name: string; createBranch?: boolean }) =>
+    request<{ worktree: Worktree; session: Session }>('/worktrees', { method: 'POST', body: JSON.stringify(data) }),
+  deleteWorktree: (id: string) =>
+    request<{ success: boolean }>(`/worktrees/${id}`, { method: 'DELETE' }),
+
   // ─── Multi-Project ────────────────────────────────────────────────────────
 
   createMultiProject: (data: CreateMultiProjectInput) =>
@@ -584,6 +594,8 @@ export interface Session {
   id: string;
   userId: string;
   projectId?: string;
+  worktreeId?: string;
+  worktree?: Worktree;
   status: 'active' | 'waiting_input' | 'paused' | 'terminated';
   liveStatus?: string;
   lastMessage?: string;
@@ -1058,6 +1070,16 @@ export interface ProjectLink {
   childProject?: Project;
 }
 
+export interface Worktree {
+  id: string;
+  projectId: string;
+  userId: string;
+  name: string;
+  branch: string;
+  path: string;
+  createdAt: string;
+}
+
 export interface CreateMultiProjectInput {
   name: string;
   links: Array<{ projectId: string; alias: string }>;
@@ -1070,6 +1092,9 @@ export interface SidebarSession {
   branchName: string;
   diffStats: { additions: number; deletions: number } | null;
   commentCount: number;
+  worktreeId: string | null;
+  worktreeName: string | null;
+  sessionType: 'git' | 'worktree';
 }
 
 export interface SidebarProject {
