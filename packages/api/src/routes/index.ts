@@ -20,6 +20,7 @@ import { skillsRoutes } from './skills.routes';
 import { mcpRoutes } from './mcp.routes';
 import { artifactRoutes } from './artifacts.routes';
 import { presentationRoutes } from './presentation.routes';
+import { worktreeRoutes } from './worktrees.routes';
 
 export const api = new Elysia({ prefix: '/api' })
   .use(authRoutes)
@@ -41,6 +42,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(presenceRoutes)
   .use(artifactRoutes)
   .use(presentationRoutes)
+  .use(worktreeRoutes)
   .use(versionRoutes);
 
 export { internalRoutes };

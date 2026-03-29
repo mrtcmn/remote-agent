@@ -1,17 +1,27 @@
 import { Elysia, t } from 'elysia';
 import { nanoid } from 'nanoid';
 import { eq, and, sql } from 'drizzle-orm';
-import { db, claudeSessions, projects, projectLinks, reviewComments } from '../db';
+import { db, claudeSessions, projects, projectLinks, reviewComments, worktrees } from '../db';
 import { terminalService } from '../services/terminal';
 import { gitService } from '../services/git';
 import { notificationService } from '../services/notification';
 import { requireAuth } from '../auth/middleware';
 
-/** Resolve target path for git operations, optionally scoped to a child project. */
+/** Resolve target path for git operations, supporting worktrees and multi-project. */
 async function resolveTargetPath(
-  project: { id: string; localPath: string; isMultiProject: boolean } | null | undefined,
+  session: {
+    project?: { id: string; localPath: string; isMultiProject: boolean } | null;
+    worktree?: { path: string } | null;
+    worktreeId?: string | null;
+  },
   projectId: string | undefined
 ): Promise<string | null> {
+  // Worktree takes priority
+  if (session.worktreeId && session.worktree) {
+    return session.worktree.path;
+  }
+
+  const project = session.project;
   if (!project) return null;
   if (!projectId || !project.isMultiProject) return project.localPath;
 
@@ -67,6 +77,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
             },
           },
         },
+        worktree: true,
       },
     });
 
@@ -112,6 +123,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       id: sessionId,
       userId: user!.id,
       projectId: body.projectId || null,
+      worktreeId: body.worktreeId || null,
       status: 'active',
       createdAt: new Date(),
       lastActiveAt: new Date(),
@@ -119,13 +131,14 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
 
     const session = await db.query.claudeSessions.findFirst({
       where: eq(claudeSessions.id, sessionId),
-      with: { project: true },
+      with: { project: true, worktree: true },
     });
 
     return session;
   }, {
     body: t.Object({
       projectId: t.Optional(t.String()),
+      worktreeId: t.Optional(t.String()),
     }),
   })
 
@@ -136,7 +149,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
         eq(claudeSessions.id, params.id),
         eq(claudeSessions.userId, user!.id)
       ),
-      with: { project: true },
+      with: { project: true, worktree: true },
     });
 
     if (!session) {
@@ -144,13 +157,13 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       return { error: 'Session not found' };
     }
 
-    if (!session.project) {
+    // Resolve working path (worktree > multi-project child > project)
+    let targetPath: string;
+    if (session.worktreeId && session.worktree) {
+      targetPath = session.worktree.path;
+    } else if (!session.project) {
       return { branch: '', ahead: 0, behind: 0, staged: [], modified: [], untracked: [] };
-    }
-
-    // If projectId query param provided, resolve linked project path
-    let targetPath = session.project.localPath;
-    if (query.projectId && session.project.isMultiProject) {
+    } else if (query.projectId && session.project.isMultiProject) {
       const link = await db.query.projectLinks.findFirst({
         where: and(
           eq(projectLinks.parentProjectId, session.project.id),
@@ -164,8 +177,9 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
         return { branch: '', ahead: 0, behind: 0, staged: [], modified: [], untracked: [] };
       }
     } else if (!query.projectId && session.project.isMultiProject) {
-      // Multi-project root is not a git repo
       return { branch: '', ahead: 0, behind: 0, staged: [], modified: [], untracked: [] };
+    } else {
+      targetPath = session.project.localPath;
     }
 
     try {
@@ -191,7 +205,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
         eq(claudeSessions.id, params.id),
         eq(claudeSessions.userId, user!.id)
       ),
-      with: { project: true },
+      with: { project: true, worktree: true },
     });
 
     if (!session) {
@@ -199,13 +213,13 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       return { error: 'Session not found' };
     }
 
-    if (!session.project) {
+    // Resolve working path (worktree > multi-project child > project)
+    let targetPath: string;
+    if (session.worktreeId && session.worktree) {
+      targetPath = session.worktree.path;
+    } else if (!session.project) {
       return { diff: '' };
-    }
-
-    // If projectId query param provided, resolve linked project path
-    let targetPath = session.project.localPath;
-    if (query.projectId && session.project.isMultiProject) {
+    } else if (query.projectId && session.project.isMultiProject) {
       const link = await db.query.projectLinks.findFirst({
         where: and(
           eq(projectLinks.parentProjectId, session.project.id),
@@ -220,6 +234,8 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       }
     } else if (!query.projectId && session.project.isMultiProject) {
       return { diff: '' };
+    } else {
+      targetPath = session.project.localPath;
     }
 
     try {
@@ -246,7 +262,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
         eq(claudeSessions.id, params.id),
         eq(claudeSessions.userId, user!.id)
       ),
-      with: { project: true },
+      with: { project: true, worktree: true },
     });
 
     if (!session) {
@@ -254,13 +270,13 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       return { error: 'Session not found' };
     }
 
-    if (!session.project) {
+    // Resolve working path (worktree > multi-project child > project)
+    let targetPath: string;
+    if (session.worktreeId && session.worktree) {
+      targetPath = session.worktree.path;
+    } else if (!session.project) {
       return { diff: '' };
-    }
-
-    // Resolve target path for multi-project support
-    let targetPath = session.project.localPath;
-    if (query.projectId && session.project.isMultiProject) {
+    } else if (query.projectId && session.project.isMultiProject) {
       const link = await db.query.projectLinks.findFirst({
         where: and(
           eq(projectLinks.parentProjectId, session.project.id),
@@ -275,6 +291,8 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       }
     } else if (!query.projectId && session.project.isMultiProject) {
       return { diff: '', file: query.file };
+    } else {
+      targetPath = session.project.localPath;
     }
 
     try {
@@ -333,10 +351,10 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   .post('/:id/git/stage', async ({ user, params, body, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
-      with: { project: true },
+      with: { project: true, worktree: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
-    const targetPath = await resolveTargetPath(session.project, body.projectId);
+    const targetPath = await resolveTargetPath(session, body.projectId);
     if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
       await gitService.stage(targetPath, body.files);
@@ -351,10 +369,10 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   .post('/:id/git/unstage', async ({ user, params, body, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
-      with: { project: true },
+      with: { project: true, worktree: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
-    const targetPath = await resolveTargetPath(session.project, body.projectId);
+    const targetPath = await resolveTargetPath(session, body.projectId);
     if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
       await gitService.unstage(targetPath, body.files);
@@ -369,10 +387,10 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   .post('/:id/git/commit', async ({ user, params, body, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
-      with: { project: true },
+      with: { project: true, worktree: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
-    const targetPath = await resolveTargetPath(session.project, body.projectId);
+    const targetPath = await resolveTargetPath(session, body.projectId);
     if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
       const hash = await gitService.commit(targetPath, body.message);
@@ -387,10 +405,10 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   .post('/:id/git/checkout', async ({ user, params, body, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
-      with: { project: true },
+      with: { project: true, worktree: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
-    const targetPath = await resolveTargetPath(session.project, body.projectId);
+    const targetPath = await resolveTargetPath(session, body.projectId);
     if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
       await gitService.checkout(targetPath, body.branch, body.create || false);
@@ -405,10 +423,10 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   .post('/:id/git/pull', async ({ user, params, body, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
-      with: { project: true },
+      with: { project: true, worktree: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
-    const targetPath = await resolveTargetPath(session.project, body?.projectId);
+    const targetPath = await resolveTargetPath(session, body?.projectId);
     if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
       await gitService.pull(targetPath);
@@ -423,10 +441,10 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   .post('/:id/git/push', async ({ user, params, body, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
-      with: { project: true },
+      with: { project: true, worktree: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
-    const targetPath = await resolveTargetPath(session.project, body?.projectId);
+    const targetPath = await resolveTargetPath(session, body?.projectId);
     if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
       await gitService.push(targetPath);
@@ -441,10 +459,10 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   .post('/:id/git/fetch', async ({ user, params, body, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
-      with: { project: true },
+      with: { project: true, worktree: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
-    const targetPath = await resolveTargetPath(session.project, body?.projectId);
+    const targetPath = await resolveTargetPath(session, body?.projectId);
     if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
       await gitService.fetch(targetPath);
@@ -459,10 +477,10 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   .get('/:id/git/log', async ({ user, params, query, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
-      with: { project: true },
+      with: { project: true, worktree: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
-    const targetPath = await resolveTargetPath(session.project, query.projectId);
+    const targetPath = await resolveTargetPath(session, query.projectId);
     if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
       const limit = query.limit ? parseInt(query.limit) : 50;
@@ -478,10 +496,10 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
   .get('/:id/git/branches', async ({ user, params, query, set }) => {
     const session = await db.query.claudeSessions.findFirst({
       where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
-      with: { project: true },
+      with: { project: true, worktree: true },
     });
     if (!session?.project) { set.status = 404; return { error: 'Session or project not found' }; }
-    const targetPath = await resolveTargetPath(session.project, query.projectId);
+    const targetPath = await resolveTargetPath(session, query.projectId);
     if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
       const branches = await gitService.listBranches(targetPath);
@@ -532,6 +550,12 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       }
     }
 
+    // Load worktrees
+    const allWorktrees = await db.query.worktrees.findMany({
+      where: eq(worktrees.userId, user!.id),
+    });
+    const worktreeMap = new Map(allWorktrees.map(w => [w.id, w]));
+
     // Build session data with live status and git stats
     const sessionDataMap = new Map<string, any>();
     for (const session of allSessions) {
@@ -557,15 +581,18 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
 
       let diffStats = null;
       let branchName = '';
+      const worktree = session.worktreeId ? worktreeMap.get(session.worktreeId) : null;
 
       // Only compute git stats for active sessions with a non-multi project
       if (liveStatus === 'active' && session.projectId) {
         const project = userProjects.find(p => p.id === session.projectId);
         if (project && !project.isMultiProject) {
+          // Determine the path for git ops
+          const gitPath = worktree ? worktree.path : project.localPath;
           try {
             const [status, stats] = await Promise.all([
-              gitService.status(project.localPath),
-              gitService.diffStats(project.localPath),
+              gitService.status(gitPath),
+              gitService.diffStats(gitPath),
             ]);
             branchName = status.branch;
             if (stats.additions > 0 || stats.deletions > 0) {
@@ -584,6 +611,9 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
         branchName,
         diffStats,
         commentCount: commentCounts[session.id] || 0,
+        worktreeId: session.worktreeId || null,
+        worktreeName: worktree?.name || null,
+        sessionType: session.worktreeId ? 'worktree' : 'git',
       });
     }
 
