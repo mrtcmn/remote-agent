@@ -14,6 +14,7 @@ import {
   Loader2,
   X,
   GripVertical,
+  GitBranch,
 } from 'lucide-react';
 import { NewSessionModal } from '@/components/NewSessionModal';
 import { cn } from '@/lib/utils';
@@ -68,6 +69,7 @@ function SessionRow({
 }) {
   const effectiveStatus = session.liveStatus || session.status;
   const dotClass = statusDotClass[effectiveStatus] || 'bg-gray-500';
+  const Icon = session.sessionType === 'worktree' ? Layers : GitBranch;
 
   return (
     <motion.button
@@ -95,22 +97,29 @@ function SessionRow({
         )}
       </AnimatePresence>
 
-      <span className={cn('w-2 h-2 rounded-full shrink-0 mt-1', dotClass)} />
+      <div className="relative mt-0.5 shrink-0">
+        <Icon
+          className={cn(
+            'transition-colors',
+            session.sessionType === 'worktree' ? 'size-2.5' : 'size-3',
+            isSelected ? 'text-foreground/60' : 'text-muted-foreground/40 group-hover/session:text-muted-foreground'
+          )}
+        />
+        <span className={cn('absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full', dotClass)} />
+      </div>
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-1.5">
           <span className="text-xs font-medium truncate leading-snug">
-            {session.branchName || session.id.slice(0, 8)}
+            {session.worktreeName || session.branchName || session.id.slice(0, 8)}
           </span>
           {session.diffStats && (
             <DiffStat additions={session.diffStats.additions} deletions={session.diffStats.deletions} />
           )}
         </div>
-        {session.branchName && (
-          <span className="block text-[10px] leading-snug font-mono truncate text-muted-foreground/50 mt-0.5">
-            {session.id.slice(0, 8)}
-          </span>
-        )}
+        <span className="block text-[10px] leading-snug font-mono truncate text-muted-foreground/50 mt-0.5">
+          {session.branchName || session.id.slice(0, 8)}
+        </span>
       </div>
     </motion.button>
   );
@@ -122,6 +131,7 @@ function ProjectGroup({
   project,
   activeSessionId,
   onSelectSession,
+  onAdd,
   onDragStart,
   onDragOver,
   onDrop,
@@ -130,6 +140,7 @@ function ProjectGroup({
   project: SidebarProject;
   activeSessionId: string | null;
   onSelectSession: (id: string) => void;
+  onAdd: () => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
@@ -173,6 +184,15 @@ function ProjectGroup({
         <span className="text-[10px] text-muted-foreground/40 font-mono shrink-0">
           ({project.sessions.length})
         </span>
+        <button
+          className="opacity-0 group-hover/ws:opacity-100 transition-opacity p-0.5 rounded hover:bg-border text-muted-foreground/50 hover:text-foreground"
+          onClick={(e) => {
+            e.stopPropagation();
+            onAdd();
+          }}
+        >
+          <Plus className="size-2.5" />
+        </button>
         <motion.span
           animate={{ rotate: expanded ? 0 : -90 }}
           transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
@@ -239,6 +259,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
   const navigate = useNavigate();
   const params = useParams();
   const [newSessionModalOpen, setNewSessionModalOpen] = useState(false);
+  const [newSessionProjectId, setNewSessionProjectId] = useState<string | null>(null);
   const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
   const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null);
   const [localProjectOrder, setLocalProjectOrder] = useState<string[] | null>(null);
@@ -272,6 +293,11 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
       activeUnassigned: filteredUnassigned,
     };
   }, [data, localProjectOrder]);
+
+  const handleProjectAdd = (projectId: string) => {
+    setNewSessionProjectId(projectId);
+    setNewSessionModalOpen(true);
+  };
 
   const handleSelectSession = (sessionId: string) => {
     navigate(`/sessions/${sessionId}`);
@@ -406,6 +432,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
                     project={project}
                     activeSessionId={activeSessionId}
                     onSelectSession={handleSelectSession}
+                    onAdd={() => handleProjectAdd(project.id)}
                     onDragStart={(e) => handleProjectDragStart(e, project.id)}
                     onDragOver={(e) => handleProjectDragOver(e, project.id)}
                     onDrop={(e) => handleProjectDrop(e, project.id)}
@@ -464,7 +491,14 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
         ))}
       </div>
 
-      <NewSessionModal open={newSessionModalOpen} onClose={() => setNewSessionModalOpen(false)} />
+      <NewSessionModal
+        open={newSessionModalOpen}
+        onClose={() => {
+          setNewSessionModalOpen(false);
+          setNewSessionProjectId(null);
+        }}
+        preselectedProjectId={newSessionProjectId}
+      />
     </div>
   );
 }

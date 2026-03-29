@@ -9,12 +9,20 @@ import { cn } from '@/lib/utils';
 interface NewSessionModalProps {
   open: boolean;
   onClose: () => void;
+  preselectedProjectId?: string | null;
 }
 
-export function NewSessionModal({ open, onClose }: NewSessionModalProps) {
+export function NewSessionModal({ open, onClose, preselectedProjectId }: NewSessionModalProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+
+  // Sync preselected project when modal opens
+  useEffect(() => {
+    if (open && preselectedProjectId) {
+      setSelectedProjectId(preselectedProjectId);
+    }
+  }, [open, preselectedProjectId]);
 
   const { data: projects, isLoading: projectsLoading } = useQuery({
     queryKey: ['projects'],
