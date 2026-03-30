@@ -222,17 +222,19 @@ export function ReviewDrawer({ open, onOpenChange, sessionId, projectId }: Revie
                   )}
 
                   {/* Completed slides */}
-                  <WorkerPoolContextProvider poolOptions={{ workerFactory }} highlighterOptions={{}}>
-                    {slides.map((slide) => (
-                      <SlideCard
-                        key={slide.id}
-                        slide={slide}
-                        annotations={annotations}
-                        onAddAnnotation={handleAddAnnotation}
-                        onDeleteAnnotation={handleDeleteAnnotation}
-                      />
-                    ))}
-                  </WorkerPoolContextProvider>
+                  {slides.length > 0 && (
+                    <WorkerPoolContextProvider poolOptions={{ workerFactory }} highlighterOptions={{}}>
+                      {slides.map((slide) => (
+                        <SlideCard
+                          key={slide.id}
+                          slide={slide}
+                          annotations={annotations}
+                          onAddAnnotation={handleAddAnnotation}
+                          onDeleteAnnotation={handleDeleteAnnotation}
+                        />
+                      ))}
+                    </WorkerPoolContextProvider>
+                  )}
 
                   {/* Pending slide skeletons from plan */}
                   {status === 'narrating' && plan && pendingSlideCount > 0 && (
