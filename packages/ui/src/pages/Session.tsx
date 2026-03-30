@@ -23,6 +23,7 @@ import {
   AlertTriangle,
   Palette,
   Type,
+  Presentation,
 } from 'lucide-react';
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -46,6 +47,7 @@ import { toast } from '@/components/ui/Toaster';
 import { useTerminalTheme } from '@/hooks/useTerminalTheme';
 import { ThemeSelector } from '@/components/ThemeSelector';
 import { ProjectSelector } from '@/components/ProjectSelector';
+import { ReviewDrawer } from '@/components/review/ReviewDrawer';
 
 type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'preview' | 'docker' | 'env';
 
@@ -325,6 +327,7 @@ export function SessionPage() {
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
   const [showThemeSelector, setShowThemeSelector] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [showReviewDrawer, setShowReviewDrawer] = useState(false);
 
   // Reset child project selection when navigating to a different session
   useEffect(() => {
@@ -864,6 +867,12 @@ export function SessionPage() {
               <ToolbarDivider />
             </>
           )}
+          <ToolbarItem
+            icon={Presentation}
+            label="REVIEW"
+            onClick={() => setShowReviewDrawer(true)}
+          />
+          <ToolbarDivider />
         </ToolbarGroup>
 
         <ToolbarGroup align="right">
@@ -930,6 +939,13 @@ export function SessionPage() {
           </div>
         </ToolbarGroup>
       </ToolbarRoot>
+
+      <ReviewDrawer
+        open={showReviewDrawer}
+        onOpenChange={setShowReviewDrawer}
+        sessionId={id!}
+        projectId={gitProjectId}
+      />
 
       {/* Preview URL Dialog */}
       {showPreviewDialog && (
