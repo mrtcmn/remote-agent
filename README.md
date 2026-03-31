@@ -22,20 +22,34 @@ Claude Code is powerful, but it runs in your local terminal. Close your laptop a
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/terminal.png" alt="Claude Terminal" /></td>
-    <td><img src="docs/screenshots/projects.png" alt="Project Management" /></td>
+    <td><img src="docs/screenshots/skills.png" alt="Skills Manager" /></td>
+    <td><img src="docs/screenshots/mcp-servers.png" alt="MCP Servers" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Skills</strong> — Discover, install, and manage AI agent skills</td>
+    <td align="center"><strong>MCP Servers</strong> — Browse and install Model Context Protocol servers</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/claude-terminal.png" alt="Claude Terminal" /></td>
+    <td><img src="docs/screenshots/review-changes.png" alt="Review Changes" /></td>
   </tr>
   <tr>
     <td align="center"><strong>Claude Terminal</strong> — Full PTY terminal with Claude Code running in the browser</td>
-    <td align="center"><strong>Projects</strong> — Manage git repositories with multi-project workspaces</td>
+    <td align="center"><strong>Review Changes</strong> — LLM-powered git change review with commit narratives</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/docker.png" alt="Docker Management" /></td>
-    <td><img src="docs/screenshots/run-configs.png" alt="Run Configurations" /></td>
+    <td><img src="docs/screenshots/notifications.png" alt="Notifications" /></td>
+    <td><img src="docs/screenshots/vscode-browser.png" alt="VS Code in Browser" /></td>
   </tr>
   <tr>
-    <td align="center"><strong>Docker</strong> — View containers, build images, and manage compose stacks</td>
-    <td align="center"><strong>Run Configs</strong> — Detect and run npm scripts or custom commands</td>
+    <td align="center"><strong>Notifications</strong> — Push alerts when Claude needs input, with session management</td>
+    <td align="center"><strong>VS Code</strong> — Full code-server IDE running in the browser</td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="docs/screenshots/theme-selection.png" alt="Theme Selection" width="800" /></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><strong>Themes</strong> — Choose from multiple editor and UI themes (dark and light)</td>
   </tr>
 </table>
 
