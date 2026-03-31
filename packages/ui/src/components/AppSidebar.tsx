@@ -15,11 +15,16 @@ import {
   X,
   GripVertical,
   GitBranch,
+  Bot,
+  TerminalSquare,
+  Container,
+  Code,
+  Play,
 } from 'lucide-react';
 import { NewSessionModal } from '@/components/NewSessionModal';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
-import type { SidebarData, SidebarProject, SidebarSession } from '@/lib/api';
+import type { SidebarData, SidebarProject, SidebarSession, SessionService } from '@/lib/api';
 
 const ACTIVE_STATUSES = new Set(['active', 'waiting_input', 'paused']);
 
@@ -44,6 +49,16 @@ const statusDotClass: Record<string, string> = {
   terminated: 'bg-red-500',
 };
 
+// ─── Service config ─────────────────────────────────────────────────────────
+
+const serviceConfig: Record<string, { dot: string; icon: typeof Bot }> = {
+  claude: { dot: 'bg-blue-500', icon: Bot },
+  shell: { dot: 'bg-emerald-500', icon: TerminalSquare },
+  process: { dot: 'bg-purple-500', icon: Play },
+  docker: { dot: 'bg-cyan-500', icon: Container },
+  codeServer: { dot: 'bg-emerald-500', icon: Code },
+};
+
 // ─── DiffStat ────────────────────────────────────────────────────────────────
 
 function DiffStat({ additions, deletions }: { additions: number; deletions: number }) {
@@ -53,6 +68,42 @@ function DiffStat({ additions, deletions }: { additions: number; deletions: numb
       {additions > 0 && <span className="text-emerald-400">+{additions}</span>}
       {deletions > 0 && <span className="text-red-400">-{deletions}</span>}
     </span>
+  );
+}
+
+// ─── ServiceRow ─────────────────────────────────────────────────────────────
+
+function ServiceRow({
+  sessionId,
+  service,
+  onNavigate,
+}: {
+  sessionId: string;
+  service: SessionService;
+  onNavigate: (path: string) => void;
+}) {
+  const config = serviceConfig[service.type] || serviceConfig.shell;
+  const Icon = config.icon;
+
+  const handleClick = () => {
+    if (service.type === 'codeServer' && service.url) {
+      window.open(service.url, '_blank');
+    } else if (service.type === 'docker') {
+      onNavigate(`/sessions/${sessionId}`);
+    } else {
+      onNavigate(`/sessions/${sessionId}/${service.id}`);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      className="w-full flex items-center gap-1.5 pl-7 pr-2 py-0.5 rounded text-left text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/50 transition-colors"
+    >
+      <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', config.dot)} />
+      <Icon className="size-2.5 shrink-0" />
+      <span className="text-[10px] truncate">{service.label}</span>
+    </button>
   );
 }
 
@@ -132,6 +183,7 @@ function ProjectGroup({
   activeSessionId,
   onSelectSession,
   onAdd,
+  onNavigate,
   onDragStart,
   onDragOver,
   onDrop,
@@ -141,6 +193,7 @@ function ProjectGroup({
   activeSessionId: string | null;
   onSelectSession: (id: string) => void;
   onAdd: () => void;
+  onNavigate: (path: string) => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
@@ -236,6 +289,18 @@ function ProjectGroup({
                     isSelected={session.id === activeSessionId}
                     onSelect={() => onSelectSession(session.id)}
                   />
+                  {session.services?.length > 0 && (
+                    <div className="space-y-px">
+                      {session.services.map((service) => (
+                        <ServiceRow
+                          key={service.id}
+                          sessionId={session.id}
+                          service={service}
+                          onNavigate={onNavigate}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </motion.div>
               ))}
             </motion.div>
@@ -293,6 +358,11 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
       activeUnassigned: filteredUnassigned,
     };
   }, [data, localProjectOrder]);
+
+  const handleNavigate = useCallback((path: string) => {
+    navigate(path);
+    onClose?.();
+  }, [navigate, onClose]);
 
   const handleProjectAdd = (projectId: string) => {
     setNewSessionProjectId(projectId);
@@ -433,6 +503,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
                     activeSessionId={activeSessionId}
                     onSelectSession={handleSelectSession}
                     onAdd={() => handleProjectAdd(project.id)}
+                    onNavigate={handleNavigate}
                     onDragStart={(e) => handleProjectDragStart(e, project.id)}
                     onDragOver={(e) => handleProjectDragOver(e, project.id)}
                     onDrop={(e) => handleProjectDrop(e, project.id)}
@@ -451,12 +522,25 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
                   </div>
                   <div className="space-y-0.5">
                     {activeUnassigned.map((session) => (
-                      <SessionRow
-                        key={session.id}
-                        session={session}
-                        isSelected={session.id === activeSessionId}
-                        onSelect={() => handleSelectSession(session.id)}
-                      />
+                      <div key={session.id}>
+                        <SessionRow
+                          session={session}
+                          isSelected={session.id === activeSessionId}
+                          onSelect={() => handleSelectSession(session.id)}
+                        />
+                        {session.services?.length > 0 && (
+                          <div className="space-y-px">
+                            {session.services.map((service) => (
+                              <ServiceRow
+                                key={service.id}
+                                sessionId={session.id}
+                                service={service}
+                                onNavigate={handleNavigate}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>

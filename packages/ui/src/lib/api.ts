@@ -1085,6 +1085,15 @@ export interface CreateMultiProjectInput {
   links: Array<{ projectId: string; alias: string }>;
 }
 
+export interface SessionService {
+  type: 'claude' | 'shell' | 'docker' | 'codeServer' | 'process';
+  id: string;
+  label: string;
+  status: 'running' | 'idle' | 'exited';
+  count?: number;
+  url?: string;
+}
+
 export interface SidebarSession {
   id: string;
   status: string;
@@ -1095,6 +1104,7 @@ export interface SidebarSession {
   worktreeId: string | null;
   worktreeName: string | null;
   sessionType: 'git' | 'worktree';
+  services: SessionService[];
 }
 
 export interface SidebarProject {

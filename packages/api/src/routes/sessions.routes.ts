@@ -6,6 +6,8 @@ import { terminalService } from '../services/terminal';
 import { gitService } from '../services/git';
 import { notificationService } from '../services/notification';
 import { requireAuth } from '../auth/middleware';
+import { dockerService } from '../services/docker';
+import { codeServerManager } from '../services/code-server/code-server.service';
 
 /** Resolve target path for git operations, supporting worktrees and multi-project. */
 async function resolveTargetPath(
@@ -556,6 +558,14 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     });
     const worktreeMap = new Map(allWorktrees.map(w => [w.id, w]));
 
+    // Fetch docker and code-server status once (used for all sessions)
+    const CODE_SERVER_URL = process.env.VITE_CODE_SERVER_URL || '';
+    const [dockerContainers, codeServerStatus] = await Promise.all([
+      dockerService.listContainers().catch(() => [] as any[]),
+      Promise.resolve(codeServerManager.getStatus()),
+    ]);
+    const runningContainerCount = dockerContainers.filter((c: any) => c.state === 'running').length;
+
     // Build session data with live status and git stats
     const sessionDataMap = new Map<string, any>();
     for (const session of allSessions) {
@@ -604,6 +614,50 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
         }
       }
 
+      // Build services array from running terminals
+      const services: Array<{
+        type: string;
+        id: string;
+        label: string;
+        status: string;
+        count?: number;
+        url?: string;
+      }> = [];
+
+      const runningTerminals = terminals.filter(t => t.status === 'running');
+
+      for (const term of runningTerminals) {
+        if (term.type === 'claude') {
+          services.push({ type: 'claude', id: term.id, label: 'Claude', status: 'running' });
+        } else if (term.type === 'shell') {
+          services.push({ type: 'shell', id: term.id, label: term.name || 'Shell', status: 'running' });
+        } else if (term.type === 'process') {
+          services.push({ type: 'process', id: term.id, label: term.name || 'Process', status: 'running' });
+        }
+      }
+
+      // Docker: attach to active sessions only
+      if (runningContainerCount > 0 && liveStatus === 'active') {
+        services.push({
+          type: 'docker',
+          id: 'docker',
+          label: `Docker (${runningContainerCount})`,
+          status: 'running',
+          count: runningContainerCount,
+        });
+      }
+
+      // Code Server: attach to active sessions only
+      if (codeServerStatus === 'running' && liveStatus === 'active' && CODE_SERVER_URL) {
+        services.push({
+          type: 'codeServer',
+          id: 'codeServer',
+          label: 'Code Server',
+          status: 'running',
+          url: CODE_SERVER_URL,
+        });
+      }
+
       sessionDataMap.set(session.id, {
         id: session.id,
         status: session.status,
@@ -614,6 +668,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
         worktreeId: session.worktreeId || null,
         worktreeName: worktree?.name || null,
         sessionType: session.worktreeId ? 'worktree' : 'git',
+        services,
       });
     }
 
