@@ -9,9 +9,6 @@ import {
   CheckCircle2,
   Zap,
   Clock,
-  AtSign,
-  Inbox,
-  Archive,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { api, type NotificationRecord, type NotificationOption, type NotificationAction } from '@/lib/api';
@@ -19,7 +16,7 @@ import { cn } from '@/lib/utils';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Tab = 'general' | 'mentions' | 'inbox' | 'archive';
+type Tab = 'all' | 'review' | 'finished' | 'errors';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -102,7 +99,7 @@ function ChoiceButtons({
 }: {
   choices: { id: string; label: string; variant: 'primary' | 'secondary' | 'danger' }[];
   resolved?: string | null;
-  onResolve: (id: string) => void;
+  onResolve: (id: string, label: string) => void;
 }) {
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -111,18 +108,16 @@ function ChoiceButtons({
           key={c.id}
           whileTap={{ scale: 0.95 }}
           transition={{ duration: 0.15 }}
-          onClick={(e) => { e.stopPropagation(); onResolve(c.id); }}
+          onClick={(e) => { e.stopPropagation(); onResolve(c.id, c.label); }}
           disabled={!!resolved && resolved !== c.id}
           className={cn(
             'px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-150 border max-w-[160px] truncate',
             resolved === c.id
-              ? c.variant === 'primary'
-                ? 'bg-foreground text-background border-foreground'
-                : 'bg-secondary text-foreground border-border'
+              ? 'bg-foreground text-background border-foreground'
               : resolved
               ? 'opacity-30 cursor-not-allowed border-border/40 text-muted-foreground'
               : c.variant === 'primary'
-              ? 'bg-foreground text-background border-foreground hover:opacity-90'
+              ? 'border-foreground text-foreground hover:bg-foreground hover:text-background'
               : c.variant === 'danger'
               ? 'border-red-500/40 text-red-500 hover:bg-red-500/10'
               : 'border-border text-muted-foreground hover:text-foreground hover:bg-secondary/60'
@@ -177,7 +172,7 @@ function NotifRow({
   notification: NotificationRecord;
   onMarkRead: (id: string) => void;
   onNavigate: (notification: NotificationRecord) => void;
-  onResolve: (notificationId: string, action: string) => void;
+  onResolve: (notificationId: string, action: string, label: string) => void;
 }) {
   const isUnread = notification.status === 'pending' || notification.status === 'sent';
   const isResolved = notification.status === 'resolved';
@@ -249,7 +244,7 @@ function NotifRow({
             <ChoiceButtons
               choices={choices}
               resolved={isResolved ? notification.resolvedAction : null}
-              onResolve={(action) => onResolve(notification.id, action)}
+              onResolve={(action, label) => onResolve(notification.id, action, label)}
             />
           )}
         </div>
@@ -261,18 +256,33 @@ function NotifRow({
 // ─── Tabs ────────────────────────────────────────────────────────────────────
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
-  { id: 'general', label: 'General', icon: Bell },
-  { id: 'mentions', label: 'Mentions', icon: AtSign },
-  { id: 'inbox', label: 'Inbox', icon: Inbox },
-  { id: 'archive', label: 'Archive', icon: Archive },
+  { id: 'all', label: 'All', icon: Bell },
+  { id: 'review', label: 'Review needed', icon: MessageSquare },
+  { id: 'finished', label: 'Finished', icon: CheckCircle2 },
+  { id: 'errors', label: 'Errors', icon: AlertCircle },
 ];
+
+function filterNotifications(notifications: NotificationRecord[], tab: Tab): NotificationRecord[] {
+  switch (tab) {
+    case 'review':
+      return notifications.filter(
+        (n) => n.type === 'user_input_required' || n.type === 'permission_request'
+      );
+    case 'finished':
+      return notifications.filter((n) => n.type === 'task_complete');
+    case 'errors':
+      return notifications.filter((n) => n.type === 'error');
+    default:
+      return notifications;
+  }
+}
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 export function NotificationPanel() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<Tab>('general');
+  const [activeTab, setActiveTab] = useState<Tab>('all');
 
   const { data: unreadData } = useQuery({
     queryKey: ['notifications', 'unread-count'],
@@ -300,18 +310,19 @@ export function NotificationPanel() {
   });
 
   const respondMutation = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: string }) =>
-      api.respondToNotification(id, action),
+    mutationFn: ({ id, action, label }: { id: string; action: string; label: string }) =>
+      api.respondToNotification(id, action, label),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
   });
 
   const unreadCount = unreadData?.count ?? 0;
-  const notifications = notificationsData?.notifications ?? [];
+  const allNotifications = notificationsData?.notifications ?? [];
+  const notifications = filterNotifications(allNotifications, activeTab);
 
   const handleMarkAllRead = () => {
-    const unreadIds = notifications
+    const unreadIds = allNotifications
       .filter((n) => n.status === 'pending' || n.status === 'sent')
       .map((n) => n.id);
     if (unreadIds.length > 0) {
@@ -403,7 +414,7 @@ export function NotificationPanel() {
                   notification={notification}
                   onMarkRead={(id) => markSingleReadMutation.mutate(id)}
                   onNavigate={handleNavigate}
-                  onResolve={(id, action) => respondMutation.mutate({ id, action })}
+                  onResolve={(id, action, label) => respondMutation.mutate({ id, action, label })}
                 />
               </div>
             ))}

@@ -210,13 +210,20 @@ export const notificationRoutes = new Elysia({ prefix: '/notifications' })
       // Import terminal service to write response
       const { terminalService } = await import('../services/terminal');
 
-      let response = body.action;
+      // Use the label text (what Claude actually expects the user to type)
+      // Fall back to action slug only if no text provided
+      let response: string;
       if (body.text) {
         response = body.text;
       } else if (body.action === 'approve') {
         response = 'yes';
       } else if (body.action === 'deny') {
         response = 'no';
+      } else {
+        // Look up the label from the notification's stored options
+        const options = notification.metadata?.options as { label: string; value: string }[] | undefined;
+        const matchedOption = options?.find(o => o.value === body.action);
+        response = matchedOption?.label ?? body.action;
       }
 
       try {
