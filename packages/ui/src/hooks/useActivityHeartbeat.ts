@@ -37,11 +37,22 @@ export function useActivityHeartbeat() {
       });
     };
 
+    // Send immediate heartbeat when tab becomes visible again
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        lastActivityRef.current = Date.now();
+        sendHeartbeat();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     // Send immediately on mount, then every 30s
     sendHeartbeat();
     intervalRef.current = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
 
     return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('mousemove', onActivity);
       window.removeEventListener('keydown', onActivity);
       window.removeEventListener('touchstart', onActivity);

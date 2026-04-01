@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Plus, FolderGit2, GitBranch, RefreshCw, Loader2, Terminal, Key, Layers, Check, Trash2 } from 'lucide-react';
+import { Plus, FolderGit2, GitBranch, RefreshCw, Loader2, Terminal, Key, Layers, Check, Trash2, Github, Search, Lock } from 'lucide-react';
 import { api, type Project, type SSHKey } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
+import { useGitHubApps, useGitHubAppInstallations, useInstallationRepos } from '@/hooks/useGitHubApps';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -101,6 +102,214 @@ function CreateProjectForm({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { data: githubApps } = useGitHubApps();
+  const hasGitHubApps = githubApps && githubApps.length > 0;
+  const [tab, setTab] = useState<'github' | 'ssh'>(hasGitHubApps ? 'github' : 'ssh');
+
+  // Switch tab when data loads
+  const activeTab = hasGitHubApps ? tab : 'ssh';
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Add Project</CardTitle>
+        <CardDescription>Clone a repository or create an empty project</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {hasGitHubApps && (
+          <div className="flex gap-1 mb-4 p-1 bg-muted rounded-md">
+            <button
+              onClick={() => setTab('github')}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                activeTab === 'github' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Github className="h-4 w-4" />
+              GitHub
+            </button>
+            <button
+              onClick={() => setTab('ssh')}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                activeTab === 'ssh' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Key className="h-4 w-4" />
+              SSH / URL
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'github' ? (
+          <GitHubRepoForm onClose={onClose} onSuccess={onSuccess} />
+        ) : (
+          <SSHProjectForm onClose={onClose} onSuccess={onSuccess} />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function GitHubRepoForm({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { data: apps } = useGitHubApps();
+  const [selectedAppId, setSelectedAppId] = useState<string>('');
+  const [selectedInstallationId, setSelectedInstallationId] = useState<string>('');
+  const [selectedRepo, setSelectedRepo] = useState<string>('');
+  const [name, setName] = useState('');
+  const [branch, setBranch] = useState('');
+  const [repoSearch, setRepoSearch] = useState('');
+
+  const appId = selectedAppId || apps?.[0]?.id;
+  const { data: installations } = useGitHubAppInstallations(appId);
+  const installationId = selectedInstallationId || installations?.[0]?.id;
+  const { data: repos, isLoading: loadingRepos } = useInstallationRepos(installationId);
+
+  const filteredRepos = repos?.filter(r =>
+    !repoSearch || r.full_name.toLowerCase().includes(repoSearch.toLowerCase())
+  );
+
+  const createMutation = useMutation({
+    mutationFn: api.createProject,
+    onSuccess: () => {
+      toast({ title: 'Project created' });
+      onSuccess();
+    },
+    onError: (error) => {
+      toast({ title: 'Error', description: (error as Error).message, variant: 'destructive' });
+    },
+  });
+
+  const handleSelectRepo = (fullName: string, defaultBranch: string) => {
+    setSelectedRepo(fullName);
+    const repoName = fullName.split('/').pop() || fullName;
+    setName(repoName);
+    setBranch(defaultBranch);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!installationId || !selectedRepo) return;
+    createMutation.mutate({
+      name,
+      githubAppInstallationId: installationId,
+      githubRepoFullName: selectedRepo,
+      branch: branch || undefined,
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {apps && apps.length > 1 && (
+        <div>
+          <label className="text-sm font-medium">GitHub App</label>
+          <select
+            value={appId}
+            onChange={(e) => { setSelectedAppId(e.target.value); setSelectedInstallationId(''); setSelectedRepo(''); }}
+            className="w-full h-10 rounded-md border bg-transparent px-3 py-2 text-sm"
+          >
+            {apps.map(a => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {installations && installations.length > 1 && (
+        <div>
+          <label className="text-sm font-medium">Account / Organization</label>
+          <select
+            value={installationId}
+            onChange={(e) => { setSelectedInstallationId(e.target.value); setSelectedRepo(''); }}
+            className="w-full h-10 rounded-md border bg-transparent px-3 py-2 text-sm"
+          >
+            {installations.map(i => (
+              <option key={i.id} value={i.id}>{i.accountLogin}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {installations && installations.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No installations found. Install the GitHub App on your account/org from Settings first.
+        </p>
+      )}
+
+      {installationId && (
+        <div>
+          <label className="text-sm font-medium">Repository</label>
+          <div className="relative mb-2">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={repoSearch}
+              onChange={(e) => setRepoSearch(e.target.value)}
+              placeholder="Search repositories..."
+              className="pl-9"
+            />
+          </div>
+          <div className="border rounded-md max-h-48 overflow-y-auto">
+            {loadingRepos ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            ) : filteredRepos && filteredRepos.length > 0 ? (
+              filteredRepos.map(repo => (
+                <button
+                  key={repo.id}
+                  type="button"
+                  onClick={() => handleSelectRepo(repo.full_name, repo.default_branch)}
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-accent transition-colors ${
+                    selectedRepo === repo.full_name ? 'bg-primary/10' : ''
+                  }`}
+                >
+                  {repo.private && <Lock className="h-3 w-3 text-muted-foreground shrink-0" />}
+                  <span className="flex-1 truncate">{repo.full_name}</span>
+                  {selectedRepo === repo.full_name && <Check className="h-4 w-4 text-primary shrink-0" />}
+                </button>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">No repositories found</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {selectedRepo && (
+        <>
+          <div>
+            <label className="text-sm font-medium">Project Name</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Branch</label>
+            <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
+          </div>
+        </>
+      )}
+
+      <div className="flex gap-2 justify-end">
+        <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+        <Button type="submit" disabled={createMutation.isPending || !selectedRepo || !name}>
+          {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          Clone
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function SSHProjectForm({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
   const [name, setName] = useState('');
   const [repoUrl, setRepoUrl] = useState('');
   const [branch, setBranch] = useState('');
@@ -132,80 +341,71 @@ function CreateProjectForm({
     });
   };
 
-  // Show SSH key selector when URL looks like an SSH URL
   const isSSHUrl = repoUrl.startsWith('git@') || repoUrl.includes('ssh://');
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Add Project</CardTitle>
-        <CardDescription>Clone a repository or create an empty project</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="text-sm font-medium">Name</label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="my-project"
-              required
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Repository URL (optional)</label>
-            <Input
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="git@github.com:user/repo.git"
-            />
-          </div>
-          {isSSHUrl && (
-            <div>
-              <label className="text-sm font-medium flex items-center gap-1">
-                <Key className="h-3 w-3" />
-                SSH Key
-              </label>
-              {sshKeys && sshKeys.length > 0 ? (
-                <select
-                  value={sshKeyId}
-                  onChange={(e) => setSshKeyId(e.target.value)}
-                  className="w-full h-10 rounded-md border bg-transparent px-3 py-2 text-sm"
-                >
-                  <option value="">Default (first available)</option>
-                  {sshKeys.map((key: SSHKey) => (
-                    <option key={key.id} value={key.id}>
-                      {key.name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <p className="text-sm text-muted-foreground py-2">
-                  No SSH keys configured. Add one in Settings.
-                </p>
-              )}
-            </div>
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label className="text-sm font-medium">Name</label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="my-project"
+          required
+        />
+      </div>
+      <div>
+        <label className="text-sm font-medium">Repository URL (optional)</label>
+        <Input
+          value={repoUrl}
+          onChange={(e) => setRepoUrl(e.target.value)}
+          placeholder="git@github.com:user/repo.git"
+        />
+      </div>
+      {isSSHUrl && (
+        <div>
+          <label className="text-sm font-medium flex items-center gap-1">
+            <Key className="h-3 w-3" />
+            SSH Key
+          </label>
+          {sshKeys && sshKeys.length > 0 ? (
+            <select
+              value={sshKeyId}
+              onChange={(e) => setSshKeyId(e.target.value)}
+              className="w-full h-10 rounded-md border bg-transparent px-3 py-2 text-sm"
+            >
+              <option value="">Default (first available)</option>
+              {sshKeys.map((key: SSHKey) => (
+                <option key={key.id} value={key.id}>
+                  {key.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="text-sm text-muted-foreground py-2">
+              No SSH keys configured. Add one in Settings.
+            </p>
           )}
-          <div>
-            <label className="text-sm font-medium">Branch (optional)</label>
-            <Input
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-              placeholder="main"
-            />
-          </div>
-          <div className="flex gap-2 justify-end">
-            <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Create
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+        </div>
+      )}
+      <div>
+        <label className="text-sm font-medium">Branch (optional)</label>
+        <Input
+          value={branch}
+          onChange={(e) => setBranch(e.target.value)}
+          placeholder="main"
+        />
+      </div>
+      <div className="flex gap-2 justify-end">
+        <Button type="button" variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={createMutation.isPending}>
+          {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          Create
+        </Button>
+      </div>
+    </form>
   );
 }
 

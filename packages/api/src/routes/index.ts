@@ -21,6 +21,7 @@ import { mcpRoutes } from './mcp.routes';
 import { artifactRoutes } from './artifacts.routes';
 import { presentationRoutes } from './presentation.routes';
 import { worktreeRoutes } from './worktrees.routes';
+import { githubAppRoutes } from './github-app.routes';
 
 export const api = new Elysia({ prefix: '/api' })
   .use(authRoutes)
@@ -43,6 +44,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(artifactRoutes)
   .use(presentationRoutes)
   .use(worktreeRoutes)
+  .use(githubAppRoutes)
   .use(versionRoutes);
 
 export { internalRoutes };

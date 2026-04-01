@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell, Key, Lock, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw, RefreshCw, ExternalLink, Package, Trash2, Globe, Plus, X } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Bell, Key, Lock, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw, RefreshCw, ExternalLink, Package, Trash2, Globe, Plus, X, Github, Star, ChevronDown, ChevronRight, Building2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useVersion } from '@/hooks/useVersion';
+import { useGitHubApps, useGitHubAppInstallations, useDeleteGitHubApp, useSetDefaultGitHubApp, useSyncInstallations } from '@/hooks/useGitHubApps';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -24,6 +26,7 @@ export function SettingsPage() {
       <PasswordSection />
       <PinSection hasPin={user?.hasPin || false} />
       <OriginsSection />
+      <GitHubAppsSection />
       <NotificationSection />
       <SSHKeysSection />
       <TroubleshootSection />
@@ -446,6 +449,279 @@ function OriginsSection() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function GitHubAppsSection() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { data: apps, isLoading } = useGitHubApps();
+  const deleteApp = useDeleteGitHubApp();
+  const setDefault = useSetDefaultGitHubApp();
+  const [orgName, setOrgName] = useState('');
+  const [showOrgInput, setShowOrgInput] = useState(false);
+  const [expandedApps, setExpandedApps] = useState<Set<string>>(new Set());
+  const [deletePin, setDeletePin] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Handle callback query params
+  useEffect(() => {
+    if (searchParams.get('github-app') === 'created') {
+      toast({ title: 'GitHub App created successfully' });
+      searchParams.delete('github-app');
+      setSearchParams(searchParams, { replace: true });
+    }
+    if (searchParams.get('installation') === 'added') {
+      toast({ title: 'GitHub App installed successfully' });
+      searchParams.delete('installation');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  const handleCreateApp = async () => {
+    try {
+      const { manifest, actionUrl } = await api.getGitHubAppManifest(orgName || undefined);
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = actionUrl;
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'manifest';
+      input.value = JSON.stringify(manifest);
+      form.appendChild(input);
+      document.body.appendChild(form);
+      form.submit();
+    } catch (error) {
+      toast({ title: 'Failed to create GitHub App', variant: 'destructive' });
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteApp.mutateAsync({ id, pin: deletePin || undefined });
+      setDeletingId(null);
+      setDeletePin('');
+      toast({ title: 'GitHub App deleted' });
+    } catch (error) {
+      toast({ title: (error as Error).message, variant: 'destructive' });
+    }
+  };
+
+  const toggleExpand = (id: string) => {
+    setExpandedApps(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Github className="h-5 w-5" />
+          GitHub Apps
+        </CardTitle>
+        <CardDescription>
+          Connect GitHub Apps for OAuth login and repository access.
+          Each app provides authentication and access to private repositories.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading...
+          </div>
+        ) : (
+          <>
+            {apps && apps.length > 0 && (
+              <div className="space-y-3">
+                {apps.map(app => (
+                  <GitHubAppItem
+                    key={app.id}
+                    app={app}
+                    expanded={expandedApps.has(app.id)}
+                    onToggle={() => toggleExpand(app.id)}
+                    onSetDefault={() => setDefault.mutateAsync(app.id).then(() => toast({ title: 'Default app updated' }))}
+                    onDelete={() => setDeletingId(app.id)}
+                    deleting={deletingId === app.id}
+                    deletePin={deletePin}
+                    onDeletePinChange={setDeletePin}
+                    onDeleteConfirm={() => handleDelete(app.id)}
+                    onDeleteCancel={() => { setDeletingId(null); setDeletePin(''); }}
+                  />
+                ))}
+              </div>
+            )}
+
+            {apps?.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No GitHub Apps configured. Create one to enable GitHub OAuth login and repo access.
+              </p>
+            )}
+
+            <div className="border-t pt-4 space-y-3">
+              {showOrgInput && (
+                <div className="flex gap-2 items-center">
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Organization name (optional)"
+                    value={orgName}
+                    onChange={(e) => setOrgName(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button variant="ghost" size="sm" onClick={() => { setShowOrgInput(false); setOrgName(''); }}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Button onClick={handleCreateApp} className="gap-2">
+                  <Github className="h-4 w-4" />
+                  Create GitHub App
+                </Button>
+                {!showOrgInput && (
+                  <Button variant="outline" size="sm" onClick={() => setShowOrgInput(true)}>
+                    For an organization?
+                  </Button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function GitHubAppItem({
+  app,
+  expanded,
+  onToggle,
+  onSetDefault,
+  onDelete,
+  deleting,
+  deletePin,
+  onDeletePinChange,
+  onDeleteConfirm,
+  onDeleteCancel,
+}: {
+  app: { id: string; name: string; appSlug: string; htmlUrl: string; isDefault: boolean; createdAt: string };
+  expanded: boolean;
+  onToggle: () => void;
+  onSetDefault: () => void;
+  onDelete: () => void;
+  deleting: boolean;
+  deletePin: string;
+  onDeletePinChange: (v: string) => void;
+  onDeleteConfirm: () => void;
+  onDeleteCancel: () => void;
+}) {
+  const { data: installations, isLoading } = useGitHubAppInstallations(expanded ? app.id : undefined);
+  const syncInstallations = useSyncInstallations();
+
+  return (
+    <div className="border rounded-lg p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <button onClick={onToggle} className="text-muted-foreground hover:text-foreground">
+            {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </button>
+          <Github className="h-4 w-4" />
+          <span className="font-medium text-sm">{app.name}</span>
+          {app.isDefault && (
+            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">Default</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {!app.isDefault && (
+            <Button variant="ghost" size="sm" onClick={onSetDefault} title="Set as default for login">
+              <Star className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => window.open(`https://github.com/apps/${app.appSlug}/installations/new`, '_blank')}
+            title="Install on GitHub"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onDelete} title="Delete">
+            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+          </Button>
+        </div>
+      </div>
+
+      {deleting && (
+        <div className="flex gap-2 items-center bg-destructive/5 rounded p-2">
+          <Input
+            type="password"
+            placeholder="Enter PIN to confirm"
+            value={deletePin}
+            onChange={(e) => onDeletePinChange(e.target.value)}
+            className="flex-1 h-8"
+          />
+          <Button variant="destructive" size="sm" onClick={onDeleteConfirm}>Delete</Button>
+          <Button variant="ghost" size="sm" onClick={onDeleteCancel}>Cancel</Button>
+        </div>
+      )}
+
+      {expanded && (
+        <div className="pl-6 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground font-medium">Installations</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => syncInstallations.mutate(app.id)}
+              disabled={syncInstallations.isPending}
+              className="h-6 px-2 text-xs"
+            >
+              {syncInstallations.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+              ) : (
+                <RefreshCw className="h-3 w-3 mr-1" />
+              )}
+              Sync
+            </Button>
+          </div>
+
+          {isLoading ? (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> Loading...
+            </div>
+          ) : installations && installations.length > 0 ? (
+            <div className="space-y-1">
+              {installations.map(inst => (
+                <div key={inst.id} className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {inst.accountType === 'Organization' ? (
+                    <Building2 className="h-3 w-3" />
+                  ) : (
+                    <Github className="h-3 w-3" />
+                  )}
+                  <span>{inst.accountLogin}</span>
+                  <span className="text-muted-foreground/60">
+                    ({inst.repositorySelection === 'all' ? 'all repos' : 'selected repos'})
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No installations yet.{' '}
+              <button
+                onClick={() => window.open(`https://github.com/apps/${app.appSlug}/installations/new`, '_blank')}
+                className="text-primary hover:underline"
+              >
+                Install on GitHub
+              </button>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
