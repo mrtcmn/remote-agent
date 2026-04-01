@@ -15,7 +15,9 @@
     "start": "bun run --cwd packages/api start",
     "db:generate": "bun run --cwd packages/api db:generate",
     "db:migrate": "bun run --cwd packages/api db:migrate",
-    "db:studio": "bun run --cwd packages/api db:studio"
+    "db:studio": "bun run --cwd packages/api db:studio",
+    "electron:dev": "bun run build:ui && cd packages/electron && npm run dev",
+    "electron:build": "bun run build:ui && cd packages/electron && npm run dist"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",
