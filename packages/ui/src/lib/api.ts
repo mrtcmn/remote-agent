@@ -1,10 +1,15 @@
-const API_BASE = '/api';
+import { getApiBase } from './api-config';
+
+function getApiBaseUrl(): string {
+  const base = getApiBase();
+  return base ? `${base}/api` : '/api';
+}
 
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const url = `${API_BASE}${endpoint}`;
+  const url = `${getApiBaseUrl()}${endpoint}`;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -118,7 +123,7 @@ export const api = {
     files.forEach(f => formData.append('files', f));
     formData.append('directory', directory);
 
-    const response = await fetch(`${API_BASE}/sessions/${sessionId}/files/upload`, {
+    const response = await fetch(`${getApiBaseUrl()}/sessions/${sessionId}/files/upload`, {
       method: 'POST',
       body: formData,
       credentials: 'include',
@@ -340,7 +345,7 @@ export const api = {
     formData.append('file', file);
     if (commentId) formData.append('commentId', commentId);
 
-    const response = await fetch(`${API_BASE}/kanban/tasks/${taskId}/attachments`, {
+    const response = await fetch(`${getApiBaseUrl()}/kanban/tasks/${taskId}/attachments`, {
       method: 'POST',
       body: formData,
       credentials: 'include',
@@ -353,7 +358,7 @@ export const api = {
   },
   deleteTaskAttachment: (id: string) =>
     request<{ success: boolean }>(`/kanban/attachments/${id}`, { method: 'DELETE' }),
-  getAttachmentUrl: (id: string) => `${API_BASE}/kanban/attachments/${id}/file`,
+  getAttachmentUrl: (id: string) => `${getApiBaseUrl()}/kanban/attachments/${id}/file`,
 
   // Auto-Flows
   getAutoFlows: (projectId?: string) => {

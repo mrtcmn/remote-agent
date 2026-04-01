@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { getWsBase } from '../lib/api-config';
 
 interface WebSocketMessage {
   type: string;
@@ -39,8 +40,14 @@ export function useWebSocket(sessionId: string | null, options: UseWebSocketOpti
       return;
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/session/${sessionId}`;
+    const wsBase = getWsBase();
+    let wsUrl: string;
+    if (wsBase) {
+      wsUrl = `${wsBase}/ws/session/${sessionId}`;
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsUrl = `${protocol}//${window.location.host}/ws/session/${sessionId}`;
+    }
 
     console.log('[WebSocket] Connecting to:', wsUrl);
     const ws = new WebSocket(wsUrl);

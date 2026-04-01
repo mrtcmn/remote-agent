@@ -1,0 +1,45 @@
+{
+  "name": "@remote-agent/electron",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build:main": "tsc -p tsconfig.json",
+    "start": "npm run build:main && electron dist/main.js",
+    "dev": "npm run build:main && electron dist/main.js --dev",
+    "dist": "npm run build:main && electron-builder"
+  },
+  "dependencies": {
+    "electron-store": "^10.0.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "typescript": "^5.4.0"
+  },
+  "build": {
+    "appId": "com.remote-agent.app",
+    "productName": "Remote Agent",
+    "files": [
+      "dist/**/*",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../ui/dist",
+        "to": "ui",
+        "filter": ["**/*"]
+      }
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}
