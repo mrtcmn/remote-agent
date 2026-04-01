@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useTerminal } from '@/hooks/useTerminal';
 import { useTerminalTheme } from '@/hooks/useTerminalTheme';
+import { useConnectionRecovery } from '@/hooks/useConnectionRecovery';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 interface TerminalProps {
@@ -12,7 +14,7 @@ interface TerminalProps {
 
 export function Terminal({ terminalId, className, onExit, onTitleChanged }: TerminalProps) {
   const { activeTheme, activeFont, activeWeight, activeFontSize } = useTerminalTheme();
-  const { terminalRef, status, fit, refresh } = useTerminal({
+  const { terminalRef, status, fit, refresh, reconnect } = useTerminal({
     terminalId,
     theme: activeTheme.theme,
     fontFamily: activeFont.family,
@@ -22,6 +24,14 @@ export function Terminal({ terminalId, className, onExit, onTitleChanged }: Term
     onTitleChanged,
   });
   const hasRefreshedRef = useRef(false);
+
+  // Auto-reconnect when user returns from idle or tab-hidden
+  const handleResume = useCallback(() => {
+    reconnect();
+    api.sendHeartbeat(terminalId).catch(() => {});
+  }, [reconnect, terminalId]);
+
+  useConnectionRecovery({ onResume: handleResume });
 
   // Fit terminal when container might have resized
   useEffect(() => {

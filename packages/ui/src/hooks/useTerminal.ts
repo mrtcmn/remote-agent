@@ -44,6 +44,7 @@ interface UseTerminalReturn {
   status: 'connecting' | 'connected' | 'disconnected' | 'exited';
   fit: () => void;
   refresh: () => void;
+  reconnect: () => void;
 }
 
 export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
@@ -68,6 +69,33 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
   onTitleChangedRef.current = onTitleChanged;
 
   const resizeDebounceRef = useRef<number>();
+  const connectWebSocketRef = useRef<(() => void) | null>(null);
+  const statusRef = useRef(status);
+  statusRef.current = status;
+
+  const reconnect = useCallback(() => {
+    // Don't reconnect if already connected/connecting or if process exited
+    if (
+      wsRef.current?.readyState === WebSocket.OPEN ||
+      wsRef.current?.readyState === WebSocket.CONNECTING
+    ) {
+      return;
+    }
+    if (statusRef.current === 'exited') return;
+    if (!xtermRef.current) return;
+
+    console.log('[Terminal] Reconnecting WebSocket...');
+
+    // Close stale reference if any
+    if (wsRef.current) {
+      wsRef.current.onclose = null; // prevent triggering disconnect handler
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    setStatus('connecting');
+    connectWebSocketRef.current?.();
+  }, []);
 
   const refresh = useCallback(() => {
     if (disposedRef.current || !xtermRef.current) return;
@@ -387,6 +415,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
       };
 
       wsRef.current = ws;
+      connectWebSocketRef.current = connectWebSocket;
 
       // Handle terminal input
       dataDisposable = currentXterm.onData((data) => {
@@ -470,5 +499,6 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
     status,
     fit,
     refresh,
+    reconnect,
   };
 }
