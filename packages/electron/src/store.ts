@@ -1,6 +1,6 @@
 import Store from 'electron-store';
 
-interface StoreSchema {
+export interface StoreSchema {
   apiUrl: string;
   windowBounds: {
     x?: number;
@@ -10,7 +10,14 @@ interface StoreSchema {
   };
 }
 
-export const store = new Store<StoreSchema>({
+// Cast to any to work around ESM/CJS type resolution limitations with electron-store v10
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const RawStore = Store as any;
+
+export const store: {
+  get<K extends keyof StoreSchema>(key: K): StoreSchema[K];
+  set<K extends keyof StoreSchema>(key: K, value: StoreSchema[K]): void;
+} = new RawStore({
   schema: {
     apiUrl: {
       type: 'string',
