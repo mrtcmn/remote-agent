@@ -12,6 +12,9 @@ import { SkillsPage } from './pages/Skills';
 import { McpServersPage } from './pages/McpServers';
 import { Toaster } from './components/ui/Toaster';
 import { useAppTheme } from './hooks/useAppTheme';
+import { isElectron } from './lib/electron';
+import { useApiConfig } from './lib/api-config';
+import { SetupScreen } from './components/SetupScreen';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -33,6 +36,21 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   useAppTheme();
+
+  const { isConfigured, isLoading: isConfigLoading } = useApiConfig();
+
+  // Electron: show setup screen if API URL not configured
+  if (isElectron() && isConfigLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (isElectron() && !isConfigured) {
+    return <SetupScreen />;
+  }
 
   return (
     <>
