@@ -449,7 +449,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
               />
             )}
             <span className="relative z-10 flex items-center gap-1.5">
-              {tab === 'workspaces' ? <LayoutGrid className="size-3.5" /> : <ListTodo className="size-3.5" />}
+              {tab === 'workspaces' ? <img src="/logo.png" alt="" className="size-3.5 rounded-sm" /> : <ListTodo className="size-3.5" />}
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
             </span>
           </button>

@@ -71,7 +71,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </Button>
             <div className="flex items-center gap-2">
-              <img src="/logo.svg" alt="Remote Agent" className="h-6 w-6" />
+              <img src="/logo.png" alt="Remote Agent" className="h-6 w-6 rounded" />
             </div>
             <div className="ml-auto flex items-center gap-1">
               {user && (

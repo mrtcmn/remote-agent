@@ -9,6 +9,9 @@ chown -R agent:agent /app/config 2>/dev/null || true
 mkdir -p /app/data
 chown agent:agent /app/data
 
+# Ensure agent can access mounted source code
+chown agent:agent /app/packages /app/packages/api /app/packages/ui 2>/dev/null || true
+
 # Fix ownership of Claude credentials so the agent user can read/write them
 chown -R agent:agent /home/agent/.claude 2>/dev/null || true
 
@@ -16,11 +19,9 @@ chown -R agent:agent /home/agent/.claude 2>/dev/null || true
 mkdir -p /app/workspaces /app/ssh-keys /app/config
 chown agent:agent /app/workspaces /app/ssh-keys /app/config
 
-# Initialize database if needed
-if [ ! -f "/app/data/sqlite.db" ]; then
-    echo "Initializing database..."
-    cd /app/packages/api && gosu agent bun run db:generate && gosu agent bun run db:migrate || true
-fi
+# Run database migrations
+echo "Running database migrations..."
+(cd /app/packages/api && gosu agent bun run src/db/migrate.ts) || true
 
 # Check Claude Code installation
 if command -v claude &> /dev/null; then
@@ -34,4 +35,5 @@ else
 fi
 
 # Drop privileges and execute command as agent user
+cd /app
 exec gosu agent "$@"
