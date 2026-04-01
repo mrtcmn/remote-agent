@@ -85,6 +85,36 @@ export const userProfiles = pgTable('user_profiles', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
+// GitHub Apps (for OAuth login + repo access via manifest flow)
+export const githubApps = pgTable('github_apps', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  appId: integer('app_id').notNull(),
+  appSlug: text('app_slug').notNull(),
+  name: text('name').notNull(),
+  clientId: text('client_id').notNull(),
+  clientSecret: text('client_secret').notNull(), // encrypted
+  privateKey: text('private_key').notNull(), // encrypted PEM
+  webhookSecret: text('webhook_secret'), // encrypted
+  htmlUrl: text('html_url').notNull(),
+  permissions: text('permissions'), // JSON
+  events: text('events'), // JSON
+  isDefault: boolean('is_default').notNull().default(false),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// GitHub App installations (installed on user/org accounts)
+export const githubAppInstallations = pgTable('github_app_installations', {
+  id: text('id').primaryKey(),
+  githubAppId: text('github_app_id').references(() => githubApps.id, { onDelete: 'cascade' }).notNull(),
+  installationId: integer('installation_id').notNull(),
+  accountLogin: text('account_login').notNull(),
+  accountType: text('account_type').notNull(), // "User" or "Organization"
+  repositorySelection: text('repository_selection'), // "all" or "selected"
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
 // Projects
 export const projects = pgTable('projects', {
   id: text('id').primaryKey(),
@@ -95,6 +125,7 @@ export const projects = pgTable('projects', {
   localPath: text('local_path').notNull(),
   defaultBranch: text('default_branch').default('main'),
   sshKeyId: text('ssh_key_id').references(() => sshKeys.id),
+  githubAppInstallationId: text('github_app_installation_id').references(() => githubAppInstallations.id, { onDelete: 'set null' }),
   isMultiProject: boolean('is_multi_project').notNull().default(false),
   env: text('env'), // JSON — Record<string, string>
   sidebarPosition: integer('sidebar_position').notNull().default(0),
@@ -401,6 +432,7 @@ export const userRelations = relations(user, ({ many, one }) => ({
   claudeSessions: many(claudeSessions),
   fcmTokens: many(fcmTokens),
   sshKeys: many(sshKeys),
+  githubApps: many(githubApps),
   notificationPrefs: one(notificationPrefs, {
     fields: [user.id],
     references: [notificationPrefs.userId],
@@ -439,6 +471,10 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   sshKey: one(sshKeys, {
     fields: [projects.sshKeyId],
     references: [sshKeys.id],
+  }),
+  githubAppInstallation: one(githubAppInstallations, {
+    fields: [projects.githubAppInstallationId],
+    references: [githubAppInstallations.id],
   }),
   claudeSessions: many(claudeSessions),
   kanbanTasks: many(kanbanTasks),
@@ -524,6 +560,22 @@ export const sshKeysRelations = relations(sshKeys, ({ one, many }) => ({
   user: one(user, {
     fields: [sshKeys.userId],
     references: [user.id],
+  }),
+  projects: many(projects),
+}));
+
+export const githubAppsRelations = relations(githubApps, ({ one, many }) => ({
+  user: one(user, {
+    fields: [githubApps.userId],
+    references: [user.id],
+  }),
+  installations: many(githubAppInstallations),
+}));
+
+export const githubAppInstallationsRelations = relations(githubAppInstallations, ({ one, many }) => ({
+  githubApp: one(githubApps, {
+    fields: [githubAppInstallations.githubAppId],
+    references: [githubApps.id],
   }),
   projects: many(projects),
 }));
@@ -751,3 +803,7 @@ export type ProjectLink = typeof projectLinks.$inferSelect;
 export type NewProjectLink = typeof projectLinks.$inferInsert;
 export type Worktree = typeof worktrees.$inferSelect;
 export type NewWorktree = typeof worktrees.$inferInsert;
+export type GitHubApp = typeof githubApps.$inferSelect;
+export type NewGitHubApp = typeof githubApps.$inferInsert;
+export type GitHubAppInstallation = typeof githubAppInstallations.$inferSelect;
+export type NewGitHubAppInstallation = typeof githubAppInstallations.$inferInsert;

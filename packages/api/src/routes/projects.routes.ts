@@ -2,9 +2,34 @@ import { Elysia, t } from 'elysia';
 import { nanoid } from 'nanoid';
 import { eq, and } from 'drizzle-orm';
 import { db, projects, projectLinks } from '../db';
+import type { Project } from '../db/schema';
 import { gitService } from '../services/git';
 import { workspaceService, multiProjectService } from '../services/workspace';
+import { githubAppService } from '../services/github-app';
 import { requireAuth, requirePin } from '../auth/middleware';
+
+/**
+ * Gets git credentials for a project. Returns either an SSH key path
+ * or an installation token, depending on how the project was created.
+ */
+async function getProjectCredentials(project: Project, userId: string): Promise<{ sshKeyPath?: string; token?: string }> {
+  if (project.githubAppInstallationId) {
+    const installation = await githubAppService.getAppForInstallation(project.githubAppInstallationId);
+    if (installation) {
+      const token = await githubAppService.getInstallationToken(
+        installation.installationId,
+        installation.githubAppId
+      );
+      return { token };
+    }
+  }
+
+  const sshKeyPath = project.sshKeyId
+    ? await workspaceService.getSSHKeyPath(userId, project.sshKeyId)
+    : null;
+
+  return { sshKeyPath: sshKeyPath || undefined };
+}
 
 export const projectRoutes = new Elysia({ prefix: '/projects' })
   .use(requireAuth)
@@ -106,18 +131,41 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
     try {
       let localPath: string;
 
-      if (body.repoUrl) {
-        // Clone from repository
-        const sshKey = body.sshKeyId
-          ? await workspaceService.getSSHKeyPath(user!.id, body.sshKeyId)
-          : await workspaceService.getSSHKeyPath(user!.id);
+      if (body.repoUrl || body.githubRepoFullName) {
+        const repoUrl = body.repoUrl || `https://github.com/${body.githubRepoFullName}.git`;
 
-        localPath = await gitService.cloneProject({
-          repoUrl: body.repoUrl,
-          projectName: `${user!.id}/${body.name}`,
-          sshKeyPath: sshKey || undefined,
-          branch: body.branch,
-        });
+        if (body.githubAppInstallationId) {
+          // Clone via GitHub App installation token
+          const installation = await githubAppService.getAppForInstallation(body.githubAppInstallationId);
+          if (!installation) {
+            set.status = 400;
+            return { error: 'GitHub App installation not found' };
+          }
+
+          const token = await githubAppService.getInstallationToken(
+            installation.installationId,
+            installation.githubAppId
+          );
+
+          localPath = await gitService.cloneProject({
+            repoUrl,
+            projectName: `${user!.id}/${body.name}`,
+            token,
+            branch: body.branch,
+          });
+        } else {
+          // Clone via SSH key
+          const sshKey = body.sshKeyId
+            ? await workspaceService.getSSHKeyPath(user!.id, body.sshKeyId)
+            : await workspaceService.getSSHKeyPath(user!.id);
+
+          localPath = await gitService.cloneProject({
+            repoUrl,
+            projectName: `${user!.id}/${body.name}`,
+            sshKeyPath: sshKey || undefined,
+            branch: body.branch,
+          });
+        }
       } else {
         // Initialize empty project
         localPath = await gitService.initProject(`${user!.id}/${body.name}`);
@@ -129,10 +177,11 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
         userId: user!.id,
         name: body.name,
         description: body.description,
-        repoUrl: body.repoUrl,
+        repoUrl: body.repoUrl || (body.githubRepoFullName ? `https://github.com/${body.githubRepoFullName}` : undefined),
         localPath,
         defaultBranch: body.branch || 'main',
         sshKeyId: body.sshKeyId,
+        githubAppInstallationId: body.githubAppInstallationId,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -154,6 +203,8 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
       repoUrl: t.Optional(t.String()),
       branch: t.Optional(t.String()),
       sshKeyId: t.Optional(t.String()),
+      githubAppInstallationId: t.Optional(t.String()),
+      githubRepoFullName: t.Optional(t.String()),
     }),
   })
 
@@ -172,11 +223,8 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
     }
 
     try {
-      const sshKeyPath = project.sshKeyId
-        ? await workspaceService.getSSHKeyPath(user!.id, project.sshKeyId)
-        : null;
-
-      await gitService.fetch(project.localPath, sshKeyPath || undefined);
+      const creds = await getProjectCredentials(project, user!.id);
+      await gitService.fetch(project.localPath, creds.sshKeyPath, creds.token);
       return { success: true };
     } catch (error) {
       set.status = 500;
@@ -202,11 +250,8 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
     }
 
     try {
-      const sshKeyPath = project.sshKeyId
-        ? await workspaceService.getSSHKeyPath(user!.id, project.sshKeyId)
-        : null;
-
-      await gitService.pull(project.localPath, body?.branch, sshKeyPath || undefined);
+      const creds = await getProjectCredentials(project, user!.id);
+      await gitService.pull(project.localPath, body?.branch, creds.sshKeyPath, creds.token);
       return { success: true };
     } catch (error) {
       set.status = 500;
@@ -235,11 +280,8 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
     }
 
     try {
-      const sshKeyPath = project.sshKeyId
-        ? await workspaceService.getSSHKeyPath(user!.id, project.sshKeyId)
-        : null;
-
-      await gitService.push(project.localPath, body?.branch, sshKeyPath || undefined);
+      const creds = await getProjectCredentials(project, user!.id);
+      await gitService.push(project.localPath, body?.branch, creds.sshKeyPath, creds.token);
       return { success: true };
     } catch (error) {
       set.status = 500;

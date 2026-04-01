@@ -563,6 +563,32 @@ export const api = {
       body: JSON.stringify({ config }),
     }),
 
+  // ─── GitHub Apps ──────────────────────────────────────────────────────────
+
+  getGitHubApps: () => request<GitHubAppInfo[]>('/github-app'),
+  getGitHubApp: (id: string) => request<GitHubAppInfo>(`/github-app/${id}`),
+  getGitHubAppManifest: (org?: string) => {
+    const params = new URLSearchParams();
+    if (org) params.set('org', org);
+    const query = params.toString();
+    return request<{ manifest: object; actionUrl: string }>(`/github-app/manifest${query ? `?${query}` : ''}`);
+  },
+  deleteGitHubApp: (id: string, pin?: string) =>
+    request<{ success: boolean }>(`/github-app/${id}`, {
+      method: 'DELETE',
+      headers: pin ? { 'x-pin': pin } : {},
+    }),
+  setDefaultGitHubApp: (id: string) =>
+    request<{ success: boolean }>(`/github-app/${id}/default`, { method: 'PUT' }),
+  getGitHubAppInstallations: (appId: string) =>
+    request<GitHubAppInstallationInfo[]>(`/github-app/${appId}/installations`),
+  syncGitHubAppInstallations: (appId: string) =>
+    request<GitHubAppInstallationInfo[]>(`/github-app/${appId}/installations/sync`, { method: 'POST' }),
+  getInstallationRepos: (installationId: string) =>
+    request<GitHubRepo[]>(`/github-app/installations/${installationId}/repos`),
+  getGitHubOAuthStatus: () =>
+    request<{ enabled: boolean; legacyOAuth: boolean }>('/github-app/oauth/status'),
+
   // Presentation
   addPresentationAnnotation: (sessionId: string, slideId: string, text: string) =>
     request<SlideAnnotation>(`/sessions/${sessionId}/presentation/annotations`, {
@@ -708,6 +734,44 @@ export interface CreateProjectInput {
   repoUrl?: string;
   branch?: string;
   sshKeyId?: string;
+  githubAppInstallationId?: string;
+  githubRepoFullName?: string;
+}
+
+// ─── GitHub App Types ────────────────────────────────────────────────────────
+
+export interface GitHubAppInfo {
+  id: string;
+  userId: string;
+  appId: number;
+  appSlug: string;
+  name: string;
+  clientId: string;
+  htmlUrl: string;
+  permissions: string | null;
+  events: string | null;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GitHubAppInstallationInfo {
+  id: string;
+  githubAppId: string;
+  installationId: number;
+  accountLogin: string;
+  accountType: string;
+  repositorySelection: string | null;
+  createdAt: string;
+}
+
+export interface GitHubRepo {
+  id: number;
+  name: string;
+  full_name: string;
+  private: boolean;
+  default_branch: string;
+  html_url: string;
 }
 
 export interface PairWorkspaceInput {

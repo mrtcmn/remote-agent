@@ -6,6 +6,7 @@ export interface CloneOptions {
   repoUrl: string;
   projectName: string;
   sshKeyPath?: string;
+  token?: string;
   branch?: string;
 }
 
@@ -32,6 +33,44 @@ export class GitService {
     this.workspacesRoot = workspacesRoot;
   }
 
+  /**
+   * Converts a GitHub repo URL to HTTPS with an embedded access token.
+   * Handles: git@github.com:owner/repo.git, https://github.com/owner/repo.git, owner/repo
+   */
+  private toTokenUrl(repoUrl: string, token: string): string {
+    // Handle git@github.com:owner/repo.git format
+    const sshMatch = repoUrl.match(/git@github\.com:(.+?)(?:\.git)?$/);
+    if (sshMatch) {
+      return `https://x-access-token:${token}@github.com/${sshMatch[1]}.git`;
+    }
+
+    // Handle https://github.com/owner/repo format
+    const httpsMatch = repoUrl.match(/https?:\/\/(?:[^@]+@)?github\.com\/(.+?)(?:\.git)?$/);
+    if (httpsMatch) {
+      return `https://x-access-token:${token}@github.com/${httpsMatch[1]}.git`;
+    }
+
+    // Handle owner/repo format
+    if (repoUrl.match(/^[^/]+\/[^/]+$/)) {
+      return `https://x-access-token:${token}@github.com/${repoUrl}.git`;
+    }
+
+    return repoUrl;
+  }
+
+  /**
+   * Gets env vars for token-based HTTPS auth (disables SSH for git).
+   */
+  private getTokenEnv(token: string): Record<string, string> {
+    return {
+      ...process.env as Record<string, string>,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'url.https://x-access-token:' + token + '@github.com/.insteadOf',
+      GIT_CONFIG_VALUE_0: 'https://github.com/',
+    };
+  }
+
   private getEnv(sshKeyPath?: string): Record<string, string> {
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,
@@ -53,19 +92,35 @@ export class GitService {
     // Ensure workspaces directory exists
     await mkdir(this.workspacesRoot, { recursive: true });
 
-    const env = this.getEnv(opts.sshKeyPath);
+    let env: Record<string, string>;
+    let repoUrl = opts.repoUrl;
+
+    if (opts.token) {
+      env = this.getTokenEnv(opts.token);
+      repoUrl = this.toTokenUrl(opts.repoUrl, opts.token);
+    } else {
+      env = this.getEnv(opts.sshKeyPath);
+    }
+
     const args = ['git', 'clone'];
 
     if (opts.branch) {
       args.push('--branch', opts.branch);
     }
 
-    args.push(opts.repoUrl, projectPath);
+    args.push(repoUrl, projectPath);
 
     const result = await $`${args}`.env(env).quiet();
 
     if (result.exitCode !== 0) {
       throw new Error(`Failed to clone: ${result.stderr.toString()}`);
+    }
+
+    // For token-based clones, set the remote URL without the token
+    // so it doesn't get stored in .git/config
+    if (opts.token) {
+      const cleanUrl = this.toTokenUrl(opts.repoUrl, '').replace('x-access-token:@', '');
+      await $`git remote set-url origin ${cleanUrl}`.cwd(projectPath).quiet().nothrow();
     }
 
     return projectPath;
@@ -80,19 +135,19 @@ export class GitService {
     return projectPath;
   }
 
-  async fetch(projectPath: string, sshKeyPath?: string): Promise<void> {
-    const env = this.getEnv(sshKeyPath);
+  async fetch(projectPath: string, sshKeyPath?: string, token?: string): Promise<void> {
+    const env = token ? this.getTokenEnv(token) : this.getEnv(sshKeyPath);
     await $`git fetch --all`.cwd(projectPath).env(env).quiet();
   }
 
-  async pull(projectPath: string, branch?: string, sshKeyPath?: string): Promise<void> {
-    const env = this.getEnv(sshKeyPath);
+  async pull(projectPath: string, branch?: string, sshKeyPath?: string, token?: string): Promise<void> {
+    const env = token ? this.getTokenEnv(token) : this.getEnv(sshKeyPath);
     const targetBranch = branch || 'origin/HEAD';
     await $`git pull origin ${targetBranch}`.cwd(projectPath).env(env).quiet();
   }
 
-  async push(projectPath: string, branch?: string, sshKeyPath?: string): Promise<void> {
-    const env = this.getEnv(sshKeyPath);
+  async push(projectPath: string, branch?: string, sshKeyPath?: string, token?: string): Promise<void> {
+    const env = token ? this.getTokenEnv(token) : this.getEnv(sshKeyPath);
     if (branch) {
       await $`git push -u origin ${branch}`.cwd(projectPath).env(env).quiet();
     } else {
