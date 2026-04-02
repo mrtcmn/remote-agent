@@ -58,9 +58,30 @@ export const useApiConfig = create<ApiConfigState>((set) => ({
 }));
 
 export function getApiBase(): string {
-  return useApiConfig.getState().apiBaseUrl;
+  const configured = useApiConfig.getState().apiBaseUrl;
+  if (!configured) return '';
+  // If configured URL matches the current page origin, use relative URLs
+  // so requests go through the same origin (e.g. vite proxy in dev)
+  try {
+    const configuredOrigin = new URL(configured).origin;
+    if (configuredOrigin === window.location.origin) return '';
+  } catch {
+    // invalid URL, return as-is
+  }
+  return configured;
 }
 
 export function getWsBase(): string {
-  return useApiConfig.getState().wsBaseUrl;
+  const configured = useApiConfig.getState().wsBaseUrl;
+  if (!configured) return '';
+  // If configured WS URL matches the current page origin, use relative WS
+  // so connections go through the same origin (e.g. vite proxy in dev)
+  try {
+    const configuredOrigin = new URL(configured).origin;
+    const pageWsOrigin = window.location.origin.replace(/^http/, 'ws');
+    if (configuredOrigin === pageWsOrigin) return '';
+  } catch {
+    // invalid URL, return as-is
+  }
+  return configured;
 }

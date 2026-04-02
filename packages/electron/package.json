@@ -7,6 +7,7 @@
     "build:main": "tsc -p tsconfig.json",
     "start": "npm run build:main && electron dist/main.js",
     "dev": "npm run build:main && electron dist/main.js --dev",
+    "dev:remote": "npm run build:main && electron dist/main.js --dev --remote",
     "dist": "npm run build:main && electron-builder"
   },
   "dependencies": {

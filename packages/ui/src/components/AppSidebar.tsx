@@ -421,6 +421,8 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
 
   return (
     <div className="flex flex-col h-full bg-card text-foreground">
+      {/* Electron: traffic light spacer + drag region */}
+      <div className="hidden electron-titlebar h-[38px] shrink-0 app-drag" />
       {/* Top nav tabs with sliding pill */}
       <div className="flex items-center gap-0.5 px-2 pt-3 pb-2 shrink-0">
         {(['workspaces', 'tasks'] as const).map((tab) => (

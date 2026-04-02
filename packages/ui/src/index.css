@@ -221,10 +221,10 @@
 
 /* Electron: frosted glass card */
 .frosted-card {
-  background: hsla(var(--card), 0.6);
+  background: hsl(var(--card) / 0.6);
   backdrop-filter: blur(40px) saturate(1.8);
   -webkit-backdrop-filter: blur(40px) saturate(1.8);
-  border: 1px solid hsla(var(--border), 0.3);
+  border: 1px solid hsl(var(--border) / 0.3);
   box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 hsla(0, 0%, 100%, 0.05);
@@ -238,10 +238,28 @@
   -webkit-app-region: no-drag;
 }
 
-/* Electron: transparent background for acrylic */
-.electron-app body {
+/* Electron: transparent backgrounds for acrylic/vibrancy */
+.electron-app,
+.electron-app body,
+.electron-app body.bg-background,
+.electron-app #root,
+.electron-app #root > * {
   background: transparent !important;
+  background-color: transparent !important;
 }
-.electron-app .min-h-screen {
-  background: transparent;
+
+/* Electron: translucent surfaces */
+.electron-app .bg-background:not(body):not(#root > *) {
+  background-color: hsl(var(--background) / 0.6) !important;
+}
+.electron-app .bg-card {
+  background-color: hsl(var(--card) / 0.5) !important;
+}
+.electron-app .bg-background\/95 {
+  background-color: hsl(var(--background) / 0.5) !important;
+}
+
+/* Electron: show traffic light spacer */
+.electron-app .electron-titlebar {
+  display: block !important;
 }

@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { useGitHubOAuthStatus } from '@/hooks/useGitHubApps';
-import { getApiBase } from '@/lib/api-config';
+import { getApiBase, useApiConfig } from '@/lib/api-config';
+import { isElectron, getElectronAPI } from '@/lib/electron';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -112,6 +113,23 @@ export function LoginPage() {
           <p className="text-center text-xs text-muted-foreground">
             By continuing, you agree to our terms of service and privacy policy.
           </p>
+
+          {isElectron() && (
+            <button
+              type="button"
+              onClick={async () => {
+                const electronAPI = getElectronAPI();
+                if (electronAPI) {
+                  await electronAPI.setApiUrl('');
+                }
+                useApiConfig.getState().setApiUrl('');
+                useApiConfig.setState({ isConfigured: false });
+              }}
+              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Connect to another workspace
+            </button>
+          )}
         </CardContent>
       </Card>
     </div>
