@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { useGitHubOAuthStatus } from '@/hooks/useGitHubApps';
+import { getApiBase } from '@/lib/api-config';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -18,12 +19,13 @@ export function LoginPage() {
   const oauthError = searchParams.get('error');
 
   const handleGitHubLogin = () => {
+    const base = getApiBase();
     if (oauthStatus?.enabled) {
       // Use GitHub App OAuth flow
-      window.location.href = '/api/github-app/oauth/login';
+      window.location.href = `${base}/api/github-app/oauth/login`;
     } else if (oauthStatus?.legacyOAuth) {
       // Fall back to Better Auth's built-in GitHub OAuth
-      window.location.href = '/api/auth/sign-in/social?provider=github';
+      window.location.href = `${base}/api/auth/sign-in/social?provider=github`;
     }
   };
 
@@ -33,7 +35,7 @@ export function LoginPage() {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth/sign-in/email', {
+      const response = await fetch(`${getApiBase()}/api/auth/sign-in/email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

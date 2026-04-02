@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import 'xterm/css/xterm.css';
+import { getApiBase } from '@/lib/api-config';
 
 // Proper base64 to UTF-8 decoding (atob doesn't handle multi-byte UTF-8)
 function decodeBase64(base64: string): string {
@@ -249,7 +250,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
           const formData = new FormData();
           formData.append('image', blob);
 
-          const response = await fetch(`/api/terminals/${terminalId}/paste-image`, {
+          const response = await fetch(`${getApiBase()}/api/terminals/${terminalId}/paste-image`, {
             method: 'POST',
             body: formData,
           });

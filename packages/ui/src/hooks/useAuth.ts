@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type User } from '../lib/api';
+import { getApiBase } from '../lib/api-config';
 
 export function useAuth() {
   const queryClient = useQueryClient();
@@ -23,7 +24,7 @@ export function useAuth() {
 
   const logout = () => {
     // Clear auth cookies and redirect
-    window.location.href = '/api/auth/signout';
+    window.location.href = `${getApiBase()}/api/auth/signout`;
   };
 
   return {

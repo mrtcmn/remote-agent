@@ -1,10 +1,11 @@
 import { app, BrowserWindow, ipcMain, net } from 'electron';
 import path from 'path';
-import { store } from './store';
+import { getStore } from './store';
 
 let mainWindow: BrowserWindow | null = null;
 
-function createWindow() {
+async function createWindow() {
+  const store = await getStore();
   const bounds = store.get('windowBounds');
 
   mainWindow = new BrowserWindow({
@@ -54,11 +55,13 @@ function createWindow() {
 
 // ─── IPC Handlers ────────────────────────────────────────────────────────────
 
-ipcMain.handle('get-api-url', () => {
+ipcMain.handle('get-api-url', async () => {
+  const store = await getStore();
   return store.get('apiUrl');
 });
 
-ipcMain.handle('set-api-url', (_event, url: string) => {
+ipcMain.handle('set-api-url', async (_event, url: string) => {
+  const store = await getStore();
   store.set('apiUrl', url);
 });
 
