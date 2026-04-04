@@ -42,7 +42,9 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
     rm -rf /var/lib/apt/lists/*
 
 # Install code-server (VS Code in the browser)
-RUN curl -fsSL https://code-server.dev/install.sh | sh
+# Use standalone method — then replace the bundled node binary with the system one,
+# because the bundled node can be wrong-arch when cross-building via QEMU.
+RUN curl -fsSL https://code-server.dev/install.sh | sh -s -- --method standalone --prefix=/usr/local
 
 # Create app user (no sudo access for security)
 RUN useradd -m -s /bin/bash agent
@@ -67,6 +69,10 @@ RUN curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh |
 RUN curl -fsSL https://claude.ai/install.sh | bash || \
     . "$NVM_DIR/nvm.sh" && npm install -g @anthropic-ai/claude-code || \
     echo "Claude CLI installation skipped"
+
+# Fix code-server: replace its bundled node with the nvm-installed one
+# (the bundled binary can be wrong-arch when cross-building via QEMU)
+RUN ln -sf "$NVM_DIR/default_bin/node" /usr/local/lib/code-server/lib/node
 
 # Setup git config
 RUN git config --global user.email "agent@remote-agent.local" && \
@@ -105,12 +111,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
-# Pre-install chromium browser as agent (workspaces can install others at runtime)
+# Set PATH for agent user (nvm node)
 USER agent
 ENV PATH="/home/agent/.nvm/default_bin:${PATH}"
-RUN npx playwright install chromium
 
-# Install agent-browser globally (uses Playwright chromium already installed above)
+# Install agent-browser globally
 RUN npm install -g agent-browser
 USER root
 
@@ -136,6 +141,11 @@ COPY --chown=agent:agent packages/api/package.json ./packages/api/
 COPY --chown=agent:agent packages/ui/package.json ./packages/ui/
 
 RUN bun install --frozen-lockfile || bun install
+
+# Install Playwright chromium using the project's playwright version
+# (must happen after bun install so the correct version is resolved)
+# Run as agent so browsers land in /home/agent/.cache/ms-playwright
+RUN gosu agent bunx playwright install chromium
 
 # ── App source ──
 COPY --chown=agent:agent . .

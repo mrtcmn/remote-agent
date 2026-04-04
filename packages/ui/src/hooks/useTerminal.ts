@@ -6,6 +6,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import 'xterm/css/xterm.css';
 import { getApiBase } from '@/lib/api-config';
+import { isElectron } from '@/lib/electron';
 
 // Proper base64 to UTF-8 decoding (atob doesn't handle multi-byte UTF-8)
 function decodeBase64(base64: string): string {
@@ -182,6 +183,12 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
         brightWhite: '#feffff',
       };
 
+      const inElectron = isElectron();
+      const resolvedTheme = externalTheme || defaultTheme;
+      const termTheme = inElectron
+        ? { ...resolvedTheme, background: 'transparent' }
+        : resolvedTheme;
+
       xterm = new Terminal({
         cursorBlink: true,
         cursorStyle: 'block',
@@ -193,8 +200,8 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
         letterSpacing: 0,
         scrollback: 5000,
         smoothScrollDuration: isMobile ? 100 : 0,
-        allowTransparency: false,
-        theme: externalTheme || defaultTheme,
+        allowTransparency: inElectron,
+        theme: termTheme,
       });
 
       fitAddon = new FitAddon();
@@ -480,7 +487,11 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
   // Live-update theme and font without re-creating the terminal
   useEffect(() => {
     if (xtermRef.current) {
-      if (externalTheme) xtermRef.current.options.theme = externalTheme;
+      if (externalTheme) {
+        xtermRef.current.options.theme = isElectron()
+          ? { ...externalTheme, background: 'transparent' }
+          : externalTheme;
+      }
       if (externalFontFamily) xtermRef.current.options.fontFamily = externalFontFamily;
       if (externalFontWeight) {
         xtermRef.current.options.fontWeight = String(externalFontWeight) as any;

@@ -23,6 +23,7 @@
     "productName": "Remote Agent",
     "files": [
       "dist/**/*",
+      "assets/**/*",
       "node_modules/**/*"
     ],
     "extraResources": [

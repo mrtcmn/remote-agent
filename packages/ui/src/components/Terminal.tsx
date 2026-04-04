@@ -4,6 +4,14 @@ import { useTerminalTheme } from '@/hooks/useTerminalTheme';
 import { useConnectionRecovery } from '@/hooks/useConnectionRecovery';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { isElectron } from '@/lib/electron';
+
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 interface TerminalProps {
   terminalId: string;
@@ -80,10 +88,13 @@ export function Terminal({ terminalId, className, onExit, onTitleChanged }: Term
     return () => observer.disconnect();
   }, [terminalRef, fit, refresh]);
 
+  const bgColor = (activeTheme.theme.background as string) || '#1e1e1e';
+  const termBg = isElectron() ? hexToRgba(bgColor, 0.9) : bgColor;
+
   return (
     <div
       className={cn('relative h-full w-full', className)}
-      style={{ backgroundColor: (activeTheme.theme.background as string) || '#1e1e1e' }}
+      style={{ backgroundColor: termBg }}
     >
       {/* Status indicator */}
       <div className="absolute top-2 right-2 z-10 flex items-center gap-2 text-xs bg-background/80 px-2 py-1 rounded">
@@ -103,7 +114,7 @@ export function Terminal({ terminalId, className, onExit, onTitleChanged }: Term
       <div
         ref={terminalRef}
         className={cn('h-full w-full rounded-lg overflow-hidden pl-3', activeTheme.type === 'light' && 'xterm-light-theme')}
-        style={{ backgroundColor: (activeTheme.theme.background as string) || '#1e1e1e' }}
+        style={{ backgroundColor: termBg }}
       />
     </div>
   );

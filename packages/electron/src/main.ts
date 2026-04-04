@@ -1,8 +1,9 @@
-import { app, BrowserWindow, ipcMain, net, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, net, nativeImage, shell, Tray } from 'electron';
 import path from 'path';
 import { getStore } from './store';
 
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
 
 async function createWindow() {
   const store = await getStore();
@@ -105,9 +106,53 @@ ipcMain.handle('check-connection', async (_event, url: string) => {
   }
 });
 
+// ─── Tray ───────────────────────────────────────────────────────────────────
+
+function createTray() {
+  const iconPath = path.join(__dirname, '..', 'assets', 'trayTemplate.png');
+  const icon = nativeImage.createFromPath(iconPath);
+  icon.setTemplateImage(true);
+
+  tray = new Tray(icon);
+  tray.setToolTip('Remote Agent');
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Show Window',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        } else {
+          createWindow();
+        }
+      },
+    },
+    { type: 'separator' },
+    { label: 'Quit', click: () => app.quit() },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  tray.on('click', () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) {
+        mainWindow.focus();
+      } else {
+        mainWindow.show();
+      }
+    } else {
+      createWindow();
+    }
+  });
+}
+
 // ─── App Lifecycle ───────────────────────────────────────────────────────────
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createTray();
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

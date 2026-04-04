@@ -38,18 +38,20 @@ export class WorkspaceService {
   private sshKeysRoot: string;
   private configRoot: string;
   private templatesRoot: string;
+  private agentHome: string;
 
-  constructor(opts?: { workspacesRoot?: string; sshKeysRoot?: string; configRoot?: string; templatesRoot?: string }) {
+  constructor(opts?: { workspacesRoot?: string; sshKeysRoot?: string; configRoot?: string; templatesRoot?: string; agentHome?: string }) {
     this.workspacesRoot = opts?.workspacesRoot || '/app/workspaces';
     this.sshKeysRoot = opts?.sshKeysRoot || '/app/ssh-keys';
     this.configRoot = opts?.configRoot || '/app/config';
     this.templatesRoot = opts?.templatesRoot || '/app/templates';
+    this.agentHome = opts?.agentHome || '/home/agent';
   }
 
   async createUserWorkspace(userId: string): Promise<string> {
     const userPath = join(this.workspacesRoot, userId);
     await mkdir(userPath, { recursive: true });
-    await mkdir(join(userPath, '.claude'), { recursive: true });
+    await mkdir(join(this.agentHome, '.claude'), { recursive: true });
     return userPath;
   }
 
@@ -152,7 +154,7 @@ export class WorkspaceService {
   }
 
   async storeSkills(userId: string, skills: SkillConfig[]): Promise<void> {
-    const skillsDir = join(this.workspacesRoot, userId, '.claude', 'skills');
+    const skillsDir = join(this.agentHome, '.claude', 'skills');
     await mkdir(skillsDir, { recursive: true });
 
     for (const skill of skills) {
@@ -163,19 +165,19 @@ export class WorkspaceService {
 
   async deployGlobalTemplates(userId: string): Promise<void> {
     const claudeTemplateDir = join(this.templatesRoot, 'claude');
-    const userPath = join(this.workspacesRoot, userId);
+    const claudeDir = join(this.agentHome, '.claude');
 
-    // Deploy CLAUDE.md to workspace root
+    // Deploy CLAUDE.md to agent home root
     try {
-      await copyFile(join(claudeTemplateDir, 'CLAUDE.md'), join(userPath, 'CLAUDE.md'));
+      await copyFile(join(claudeTemplateDir, 'CLAUDE.md'), join(this.agentHome, 'CLAUDE.md'));
     } catch {
       // CLAUDE.md template not found, skip
     }
 
-    // Deploy skills to .claude/skills/
+    // Deploy skills to ~/.claude/skills/
     try {
       const skillsSource = join(claudeTemplateDir, 'skills');
-      const skillsDest = join(userPath, '.claude', 'skills');
+      const skillsDest = join(claudeDir, 'skills');
       await readdir(skillsSource);
       await cp(skillsSource, skillsDest, { recursive: true, force: true });
     } catch {
@@ -184,20 +186,23 @@ export class WorkspaceService {
   }
 
   async storeHooks(userId: string, sessionId?: string, terminalId?: string, customHooks?: HookConfig): Promise<void> {
-    const settingsPath = join(this.workspacesRoot, userId, '.claude', 'settings.json');
+    const settingsPath = join(this.agentHome, '.claude', 'settings.json');
 
     // Build hook commands that read from stdin and pass actual data from Claude CLI
     const baseUrl = 'http://localhost:5100/internal/hooks';
     const sid = sessionId || '';
     const tid = terminalId || '';
 
-    // Notification hook: Claude CLI sends { session_id, message, type } via stdin
-    // We read it with jq, add our sessionId/terminalId, and POST to the API
-    const attentionCommand = `jq -c '. + {"sessionId": "${sid}", "terminalId": "${tid}"}' | curl -s -X POST "${baseUrl}/attention" -H "Content-Type: application/json" -d @- || true`;
+    // Guard: skip hooks when spawned by the classifier (prevents infinite loop)
+    const guard = '[ "$REMOTE_AGENT_CLASSIFIER" = "1" ] && exit 0;';
 
-    // Stop hook: Claude CLI sends { session_id, transcript_path, ... } via stdin
-    // We read it with jq, add our sessionId/terminalId, and POST to the API
-    const completeCommand = `jq -c '. + {"sessionId": "${sid}", "terminalId": "${tid}"}' | curl -s -X POST "${baseUrl}/complete" -H "Content-Type: application/json" -d @- || true`;
+    // Notification hook: Claude CLI sends JSON via stdin
+    // Read stdin first (synchronous), then POST async in background
+    const attentionCommand = `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '. + {"sessionId": "${sid}", "terminalId": "${tid}"}' | curl -s -X POST "${baseUrl}/attention" -H "Content-Type: application/json" -d @- &`;
+
+    // Stop hook: Claude CLI sends JSON via stdin
+    // Read stdin first (synchronous), then POST async in background
+    const completeCommand = `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '. + {"sessionId": "${sid}", "terminalId": "${tid}"}' | curl -s -X POST "${baseUrl}/complete" -H "Content-Type: application/json" -d @- &`;
 
     // Default notification hooks using commands that read from stdin
     const defaultHooks: HookConfig = {
@@ -222,7 +227,7 @@ export class WorkspaceService {
           matcher: 'mcp__agent-browser__screenshot',
           hooks: [{
             type: 'command',
-            command: `jq -c '{sessionId: "${sid}", terminalId: "${tid}", tool_name: .tool_name, tool_input: (.tool_input | tostring), tool_result: (if .tool_result.content then (.tool_result.content | if type == "array" then (map(select(.type == "text")) | .[0].text // "") else tostring end) else (.tool_result | tostring) end)}' | curl -s -X POST "${baseUrl}/artifact" -H "Content-Type: application/json" -d @- || true`,
+            command: `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '{sessionId: "${sid}", terminalId: "${tid}", tool_name: .tool_name, tool_input: (.tool_input | tostring), tool_result: (if .tool_result.content then (.tool_result.content | if type == "array" then (map(select(.type == "text")) | .[0].text // "") else tostring end) else (.tool_result | tostring) end)}' | curl -s -X POST "${baseUrl}/artifact" -H "Content-Type: application/json" -d @- &`,
           }],
         }],
       },
@@ -250,7 +255,7 @@ export class WorkspaceService {
   }
 
   async storeSettings(userId: string, settings: Record<string, unknown>): Promise<void> {
-    const settingsPath = join(this.workspacesRoot, userId, '.claude', 'settings.json');
+    const settingsPath = join(this.agentHome, '.claude', 'settings.json');
 
     // Read existing settings if any
     let existingSettings: Record<string, unknown> = {};

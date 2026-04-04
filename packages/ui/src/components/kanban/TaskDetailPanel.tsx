@@ -112,7 +112,7 @@ export function TaskDetailPanel({
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
       {/* Panel */}
       <div className="relative w-full max-w-2xl bg-background border-l shadow-xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200">

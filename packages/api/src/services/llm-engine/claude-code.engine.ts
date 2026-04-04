@@ -42,7 +42,10 @@ export class ClaudeCodeEngine implements LLMEngine {
       stdout: 'pipe',
       stderr: 'pipe',
       stdin: new TextEncoder().encode(request.prompt),
-      env: process.env as Record<string, string>,
+      env: {
+        ...(process.env as Record<string, string>),
+        REMOTE_AGENT_CLASSIFIER: '1',
+      },
     });
 
     // Read stdout and stderr in parallel to avoid pipe deadlocks

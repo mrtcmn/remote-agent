@@ -114,10 +114,8 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
       // Set session and terminal IDs for hook callbacks
       env.REMOTE_AGENT_SESSION_ID = body.sessionId;
       env.REMOTE_AGENT_TERMINAL_ID = terminalId;
-      // Set HOME to user workspace so Claude finds ~/.claude/settings.json
-      env.HOME = userWorkspace;
     } else {
-      command = body.command || ['bash'];
+      command = body.command || ['/bin/bash'];
       name = body.name || 'Terminal';
     }
 

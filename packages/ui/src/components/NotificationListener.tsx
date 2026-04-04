@@ -95,6 +95,9 @@ export function NotificationListener() {
         }
       }
 
+      // Refresh notification list and badge immediately
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+
       // Invalidate relevant queries based on notification type
       if (notification.data?.type === 'task_complete') {
         queryClient.invalidateQueries({ queryKey: ['sessions'] });

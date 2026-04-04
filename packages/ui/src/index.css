@@ -8,7 +8,7 @@
     --foreground: 0 0% 98%;
     --card: 0 0% 7%;
     --card-foreground: 0 0% 98%;
-    --primary: 142 76% 36%;
+    --primary: 18 95% 56%;
     --primary-foreground: 0 0% 98%;
     --secondary: 0 0% 15%;
     --secondary-foreground: 0 0% 98%;
@@ -20,7 +20,7 @@
     --destructive-foreground: 0 0% 98%;
     --border: 0 0% 15%;
     --input: 0 0% 15%;
-    --ring: 142 76% 36%;
+    --ring: 18 95% 56%;
     --popover: 0 0% 9%;
     --popover-foreground: 0 0% 98%;
     --radius: 0.5rem;
@@ -35,7 +35,7 @@
     --foreground: 0 0% 9%;
     --card: 0 0% 98%;
     --card-foreground: 0 0% 9%;
-    --primary: 142 76% 36%;
+    --primary: 18 95% 56%;
     --primary-foreground: 0 0% 98%;
     --secondary: 0 0% 93%;
     --secondary-foreground: 0 0% 9%;
@@ -47,7 +47,7 @@
     --destructive-foreground: 0 0% 98%;
     --border: 0 0% 85%;
     --input: 0 0% 85%;
-    --ring: 142 76% 36%;
+    --ring: 18 95% 56%;
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 9%;
     --sidebar: 0 0% 96%;
@@ -221,7 +221,7 @@
 
 /* Electron: frosted glass card */
 .frosted-card {
-  background: hsl(var(--card) / 0.6);
+  background: hsl(var(--card) / 0.9);
   backdrop-filter: blur(40px) saturate(1.8);
   -webkit-backdrop-filter: blur(40px) saturate(1.8);
   border: 1px solid hsl(var(--border) / 0.3);
@@ -248,15 +248,48 @@
   background-color: transparent !important;
 }
 
-/* Electron: translucent surfaces */
+/* Electron: base translucent fill for content areas without explicit bg */
+.electron-app main,
+.electron-app aside {
+  background-color: hsl(var(--background) / 0.85) !important;
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+}
+
+/* Electron: translucent surfaces with backdrop blur */
 .electron-app .bg-background:not(body):not(#root > *) {
-  background-color: hsl(var(--background) / 0.6) !important;
+  background-color: hsl(var(--background) / 0.85) !important;
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
 }
 .electron-app .bg-card {
-  background-color: hsl(var(--card) / 0.5) !important;
+  background-color: hsl(var(--card) / 0.9) !important;
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
 }
 .electron-app .bg-background\/95 {
-  background-color: hsl(var(--background) / 0.5) !important;
+  background-color: hsl(var(--background) / 0.9) !important;
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+}
+
+/* Electron: modal/dialog backdrop blur */
+.electron-app [role="dialog"],
+.electron-app [data-radix-popper-content-wrapper] {
+  backdrop-filter: blur(32px) saturate(1.8);
+  -webkit-backdrop-filter: blur(32px) saturate(1.8);
+}
+.electron-app [role="dialog"] > * {
+  background-color: hsl(var(--card) / 0.85) !important;
+}
+.electron-app [data-radix-popper-content-wrapper] > * {
+  background-color: hsl(var(--popover) / 0.85) !important;
+}
+
+/* Electron: terminal translucent background */
+.electron-app .xterm .xterm-viewport,
+.electron-app .xterm .xterm-screen {
+  background-color: transparent !important;
 }
 
 /* Electron: show traffic light spacer */

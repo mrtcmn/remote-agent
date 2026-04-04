@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { FolderGit2, GitBranch, Layers, Loader2, X } from 'lucide-react';
@@ -114,7 +115,7 @@ export function NewSessionModal({ open, onClose, preselectedProjectId }: NewSess
 
   const canCreate = mode === 'local' || (mode === 'worktree' && branch.trim().length > 0);
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
       onClick={handleBackdropClick}
@@ -276,6 +277,7 @@ export function NewSessionModal({ open, onClose, preselectedProjectId }: NewSess
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

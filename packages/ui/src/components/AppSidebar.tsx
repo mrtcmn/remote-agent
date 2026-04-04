@@ -168,9 +168,6 @@ function SessionRow({
             <DiffStat additions={session.diffStats.additions} deletions={session.diffStats.deletions} />
           )}
         </div>
-        <span className="block text-[10px] leading-snug font-mono truncate text-muted-foreground/50 mt-0.5">
-          {session.branchName || session.id.slice(0, 8)}
-        </span>
       </div>
     </motion.button>
   );

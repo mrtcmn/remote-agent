@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -290,10 +290,22 @@ export function NotificationPanel() {
     refetchInterval: 30000,
   });
 
-  const { data: notificationsData, isLoading } = useQuery({
+  const { data: notificationsData, isLoading, refetch: refetchList } = useQuery({
     queryKey: ['notifications', 'list'],
     queryFn: () => api.getNotifications({ status: 'pending,sent,read', limit: 30 }),
   });
+
+  // When unread count changes, debounce-refetch the list after 3s
+  const prevCountRef = useRef(unreadData?.count);
+  useEffect(() => {
+    const current = unreadData?.count;
+    if (current !== undefined && prevCountRef.current !== undefined && current !== prevCountRef.current) {
+      const timer = setTimeout(() => refetchList(), 3000);
+      prevCountRef.current = current;
+      return () => clearTimeout(timer);
+    }
+    prevCountRef.current = current;
+  }, [unreadData?.count, refetchList]);
 
   const markReadMutation = useMutation({
     mutationFn: (ids: string[]) => api.markNotificationsRead(ids),

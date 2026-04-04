@@ -54,8 +54,8 @@ function applyTheme() {
   }
 }
 
-// Initialize on load
-applyTheme();
+// Initialize on load (deferred to avoid circular import with useTerminalTheme)
+queueMicrotask(applyTheme);
 
 // Listen for system preference changes
 if (typeof window !== 'undefined') {

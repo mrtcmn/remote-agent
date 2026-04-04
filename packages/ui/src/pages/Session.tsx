@@ -320,6 +320,14 @@ export function SessionPage() {
   const terminalIdFromUrl = terminalIdFromRoute || searchParams.get('terminalId');
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(terminalIdFromUrl);
   const [viewMode, setViewMode] = useState<ViewMode>('terminal');
+
+  // Sync activeTerminalId when URL changes (e.g. clicking a service in the sidebar)
+  useEffect(() => {
+    if (terminalIdFromUrl) {
+      setActiveTerminalId(terminalIdFromUrl);
+      setViewMode('terminal');
+    }
+  }, [terminalIdFromUrl]);
   const [showTerminalDropdown, setShowTerminalDropdown] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
@@ -397,7 +405,9 @@ export function SessionPage() {
         type: opts.type || 'shell',
         name: `${prefix}${baseName}`,
         initialPrompt: opts.initialPrompt,
-        cwd: activeProject?.localPath,
+        // Only pass cwd for multi-project child selection; otherwise let the backend
+        // resolve it (worktree path > project path > workspace).
+        cwd: session?.project?.isMultiProject ? activeProject?.localPath : undefined,
       });
     },
     onSuccess: (terminal) => {
