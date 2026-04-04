@@ -60,7 +60,7 @@ export const githubAppRoutes = new Elysia({ prefix: '/github-app' })
     authUrl.searchParams.set('state', state);
     authUrl.searchParams.set('scope', 'user:email');
 
-    set.redirect = authUrl.toString();
+    return new Response(null, { status: 302, headers: { Location: authUrl.toString() } });
   })
 
   // GitHub OAuth callback
@@ -190,24 +190,25 @@ export const githubAppRoutes = new Elysia({ prefix: '/github-app' })
 
   .use(authMiddleware)
 
-  .get('/manifest/callback', async ({ query, user: authUser, set }) => {
+  .get('/manifest/callback', async ({ query, user: authUser }) => {
+    const redirect = (url: string) =>
+      new Response(null, { status: 302, headers: { Location: url } });
+
     if (!authUser) {
-      set.redirect = '/login';
-      return;
+      return redirect('/login');
     }
 
     const { code } = query;
     if (!code) {
-      set.redirect = '/settings?github-app=error&message=no-code';
-      return;
+      return redirect('/settings?github-app=error&message=no-code');
     }
 
     try {
       await githubAppService.completeManifestFlow(code, authUser.id);
-      set.redirect = '/settings?github-app=created';
+      return redirect('/settings?github-app=created');
     } catch (error) {
       console.error('Manifest flow error:', error);
-      set.redirect = `/settings?github-app=error&message=${encodeURIComponent((error as Error).message)}`;
+      return redirect(`/settings?github-app=error&message=${encodeURIComponent((error as Error).message)}`);
     }
   }, {
     query: t.Object({
@@ -216,17 +217,17 @@ export const githubAppRoutes = new Elysia({ prefix: '/github-app' })
   })
 
   // Setup callback (GitHub redirects here after app installation)
-  .get('/setup/callback', async ({ query, user: authUser, set }) => {
+  .get('/setup/callback', async ({ query, user: authUser }) => {
+    const redirect = (url: string) =>
+      new Response(null, { status: 302, headers: { Location: url } });
+
     const { installation_id } = query;
 
     if (!authUser || !installation_id) {
-      set.redirect = '/settings?installation=error';
-      return;
+      return redirect('/settings?installation=error');
     }
 
     try {
-      // Find the GitHub App this installation belongs to
-      // We try all apps owned by this user
       const apps = await db.query.githubApps.findMany({
         where: eq(githubApps.userId, authUser.id),
       });
@@ -243,14 +244,13 @@ export const githubAppRoutes = new Elysia({ prefix: '/github-app' })
       }
 
       if (!stored) {
-        set.redirect = '/settings?installation=error&message=no-matching-app';
-        return;
+        return redirect('/settings?installation=error&message=no-matching-app');
       }
 
-      set.redirect = '/settings?installation=added';
+      return redirect('/settings?installation=added');
     } catch (error) {
       console.error('Setup callback error:', error);
-      set.redirect = '/settings?installation=error';
+      return redirect('/settings?installation=error');
     }
   }, {
     query: t.Object({
