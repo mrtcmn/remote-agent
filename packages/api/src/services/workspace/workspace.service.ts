@@ -188,26 +188,21 @@ export class WorkspaceService {
   async storeHooks(userId: string, sessionId?: string, terminalId?: string, customHooks?: HookConfig): Promise<void> {
     const settingsPath = join(this.agentHome, '.claude', 'settings.json');
 
-    // Build hook commands that read from stdin and pass actual data from Claude CLI
+    // Build hook commands that read from stdin and pass actual data from Claude CLI.
+    // Use $REMOTE_AGENT_SESSION_ID and $REMOTE_AGENT_TERMINAL_ID env vars (set per-terminal
+    // in terminals.routes.ts) so hooks always report the correct session, even when
+    // multiple Claude instances share the same settings.json.
     const baseUrl = 'http://localhost:5100/internal/hooks';
-    const sid = sessionId || '';
-    const tid = terminalId || '';
 
     // Guard: skip hooks when spawned by the classifier (prevents infinite loop)
     const guard = '[ "$REMOTE_AGENT_CLASSIFIER" = "1" ] && exit 0;';
 
-    // Notification hook: Claude CLI sends JSON via stdin
-    // Read stdin first (synchronous), then POST async in background
-    const attentionCommand = `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '. + {"sessionId": "${sid}", "terminalId": "${tid}"}' | curl -s -X POST "${baseUrl}/attention" -H "Content-Type: application/json" -d @- &`;
+    const attentionCommand = `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '. + {"sessionId": env.REMOTE_AGENT_SESSION_ID, "terminalId": env.REMOTE_AGENT_TERMINAL_ID}' | curl -s -X POST "${baseUrl}/attention" -H "Content-Type: application/json" -d @- &`;
 
-    // Stop hook: Claude CLI sends JSON via stdin
-    // Read stdin first (synchronous), then POST async in background
-    const completeCommand = `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '. + {"sessionId": "${sid}", "terminalId": "${tid}"}' | curl -s -X POST "${baseUrl}/complete" -H "Content-Type: application/json" -d @- &`;
+    const completeCommand = `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '. + {"sessionId": env.REMOTE_AGENT_SESSION_ID, "terminalId": env.REMOTE_AGENT_TERMINAL_ID}' | curl -s -X POST "${baseUrl}/complete" -H "Content-Type: application/json" -d @- &`;
 
-    // Default notification hooks using commands that read from stdin
     const defaultHooks: HookConfig = {
       hooks: {
-        // Notification hook for user input and permission requests
         Notification: [{
           matcher: 'idle_prompt|permission_prompt',
           hooks: [{
@@ -215,19 +210,17 @@ export class WorkspaceService {
             command: attentionCommand,
           }],
         }],
-        // Stop hook for task completion
         Stop: [{
           hooks: [{
             type: 'command',
             command: completeCommand,
           }],
         }],
-        // PostToolUse hook for capturing artifacts (screenshots, etc.)
         PostToolUse: [{
           matcher: 'mcp__agent-browser__screenshot',
           hooks: [{
             type: 'command',
-            command: `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '{sessionId: "${sid}", terminalId: "${tid}", tool_name: .tool_name, tool_input: (.tool_input | tostring), tool_result: (if .tool_result.content then (.tool_result.content | if type == "array" then (map(select(.type == "text")) | .[0].text // "") else tostring end) else (.tool_result | tostring) end)}' | curl -s -X POST "${baseUrl}/artifact" -H "Content-Type: application/json" -d @- &`,
+            command: `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '{sessionId: env.REMOTE_AGENT_SESSION_ID, terminalId: env.REMOTE_AGENT_TERMINAL_ID, tool_name: .tool_name, tool_input: (.tool_input | tostring), tool_result: (if .tool_result.content then (.tool_result.content | if type == "array" then (map(select(.type == "text")) | .[0].text // "") else tostring end) else (.tool_result | tostring) end)}' | curl -s -X POST "${baseUrl}/artifact" -H "Content-Type: application/json" -d @- &`,
           }],
         }],
       },
