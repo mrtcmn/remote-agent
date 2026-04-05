@@ -65,14 +65,18 @@ RUN curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh |
     nvm alias default 24 && \
     ln -s "$(dirname "$(nvm which default)")" "$NVM_DIR/default_bin"
 
-# Claude Code CLI
-RUN curl -fsSL https://claude.ai/install.sh | bash || \
-    . "$NVM_DIR/nvm.sh" && npm install -g @anthropic-ai/claude-code || \
-    echo "Claude CLI installation skipped"
+# Claude Code CLI (source nvm first so npm is on PATH)
+RUN . "$NVM_DIR/nvm.sh" && \
+    (curl -fsSL https://claude.ai/install.sh | bash || \
+     npm install -g @anthropic-ai/claude-code || \
+     echo "Claude CLI installation skipped")
 
 # Fix code-server: replace its bundled node with the nvm-installed one
 # (the bundled binary can be wrong-arch when cross-building via QEMU)
-RUN ln -sf "$NVM_DIR/default_bin/node" /usr/local/lib/code-server/lib/node
+# Directory is versioned (e.g. code-server-4.114.0), so use a glob
+RUN for d in /usr/local/lib/code-server-*/lib/node; do \
+      [ -f "$d" ] && ln -sf "$NVM_DIR/default_bin/node" "$d"; \
+    done
 
 # Setup git config
 RUN git config --global user.email "agent@remote-agent.local" && \
