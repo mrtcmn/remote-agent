@@ -74,9 +74,12 @@ RUN . "$NVM_DIR/nvm.sh" && \
 # Fix code-server: replace its bundled node with the nvm-installed one
 # (the bundled binary can be wrong-arch when cross-building via QEMU)
 # Directory is versioned (e.g. code-server-4.114.0), so use a glob
+# Must run as root since code-server is installed in /usr/local
+USER root
 RUN for d in /usr/local/lib/code-server-*/lib/node; do \
       [ -f "$d" ] && ln -sf "$NVM_DIR/default_bin/node" "$d"; \
     done
+USER agent
 
 # Setup git config
 RUN git config --global user.email "agent@remote-agent.local" && \
