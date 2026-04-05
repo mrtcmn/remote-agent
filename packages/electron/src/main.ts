@@ -42,15 +42,14 @@ async function createWindow() {
   // Load the UI
   const isDev = process.argv.includes('--dev');
   const isRemote = process.argv.includes('--remote');
-  const devUrl = isRemote ? 'https://ra.grasco.dev' : 'http://localhost:5173';
-  const allowedOrigin = isDev ? new URL(devUrl).origin : 'file://';
+  const remoteUrl = 'https://ra.grasco.dev';
+  const allowedOrigin = isDev && !isRemote ? 'http://localhost:5173' : new URL(remoteUrl).origin;
 
-  if (isDev) {
-    mainWindow.loadURL(devUrl);
-    if (!isRemote) mainWindow.webContents.openDevTools();
+  if (isDev && !isRemote) {
+    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.webContents.openDevTools();
   } else {
-    const uiPath = path.join(process.resourcesPath, 'ui', 'index.html');
-    mainWindow.loadFile(uiPath);
+    mainWindow.loadURL(remoteUrl);
   }
 
   // Open external URLs in default browser, only allow the app origin
