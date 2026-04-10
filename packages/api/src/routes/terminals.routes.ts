@@ -7,6 +7,7 @@ import { db, claudeSessions, terminals } from '../db';
 import { terminalService } from '../services/terminal';
 import { workspaceService } from '../services/workspace';
 import { resolveProjectEnv } from '../services/workspace/env.service';
+import { getProjectCredentials } from '../services/git';
 import { requireAuth } from '../auth/middleware';
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN_PATH || 'claude';
@@ -96,6 +97,19 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
       HOME: '/home/agent',
       ...projectEnv,
     };
+
+    // Set GH_TOKEN for GitHub App projects so `gh` CLI and shell git commands work
+    if (session.project?.githubAppInstallationId) {
+      try {
+        const creds = await getProjectCredentials(session.project, user!.id);
+        if (creds.token) {
+          env.GH_TOKEN = creds.token;
+          env.GITHUB_TOKEN = creds.token;
+        }
+      } catch {
+        // Non-fatal: credential helper will handle git auth as fallback
+      }
+    }
 
     if (type === 'claude') {
       // cwd is inherited from the outer scope (body.cwd || project.localPath || userWorkspace)

@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, claudeSessions, projects, projectLinks, reviewComments, worktrees } from '../db';
 import { terminalService } from '../services/terminal';
-import { gitService } from '../services/git';
+import { gitService, getProjectCredentials } from '../services/git';
 import { notificationService } from '../services/notification';
 import { requireAuth } from '../auth/middleware';
 import { dockerService } from '../services/docker';
@@ -431,7 +431,8 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     const targetPath = await resolveTargetPath(session, body?.projectId);
     if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
-      await gitService.pull(targetPath);
+      const creds = await getProjectCredentials(session.project, user!.id);
+      await gitService.pull(targetPath, undefined, creds.sshKeyPath, creds.token);
       return { success: true };
     } catch (error) { set.status = 500; return { error: (error as Error).message }; }
   }, {
@@ -449,7 +450,8 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     const targetPath = await resolveTargetPath(session, body?.projectId);
     if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
-      await gitService.push(targetPath);
+      const creds = await getProjectCredentials(session.project, user!.id);
+      await gitService.push(targetPath, undefined, creds.sshKeyPath, creds.token);
       return { success: true };
     } catch (error) { set.status = 500; return { error: (error as Error).message }; }
   }, {
@@ -467,7 +469,8 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     const targetPath = await resolveTargetPath(session, body?.projectId);
     if (!targetPath) { set.status = 404; return { error: 'Linked project not found' }; }
     try {
-      await gitService.fetch(targetPath);
+      const creds = await getProjectCredentials(session.project, user!.id);
+      await gitService.fetch(targetPath, creds.sshKeyPath, creds.token);
       return { success: true };
     } catch (error) { set.status = 500; return { error: (error as Error).message }; }
   }, {

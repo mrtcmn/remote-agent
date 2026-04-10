@@ -167,6 +167,9 @@ RUN mkdir -p /app/workspaces /app/ssh-keys /app/config/hooks /app/config/skills 
 # Copy hook scripts (--chmod eliminates ghost layer from separate chmod)
 COPY --chown=agent:agent --chmod=755 docker/hooks/ /app/hooks/
 
+# Copy git credential helper for GitHub App token auth
+COPY --chown=agent:agent --chmod=755 docker/git-credential-helper.sh /usr/local/bin/git-credential-helper
+
 # Copy global CLAUDE.md + skills templates (to /app/templates, NOT /app/config which is volume-mounted)
 COPY --chown=agent:agent docker/claude/ /app/templates/claude/
 

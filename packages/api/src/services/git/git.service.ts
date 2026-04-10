@@ -126,6 +126,49 @@ export class GitService {
     return projectPath;
   }
 
+  /**
+   * Configures the git credential helper for GitHub App authentication.
+   * Sets up the repo to use the credential helper script with the project ID,
+   * and ensures the remote URL uses HTTPS so the credential helper is invoked.
+   */
+  async configureCredentialHelper(projectPath: string, projectId: string, repoUrl: string): Promise<void> {
+    // Store project ID in git config for the credential helper to read
+    await $`git config credential.projectId ${projectId}`.cwd(projectPath).quiet().nothrow();
+
+    // Set credential helper to our script
+    await $`git config credential.helper /usr/local/bin/git-credential-helper`.cwd(projectPath).quiet().nothrow();
+
+    // Ensure remote URL is HTTPS (not SSH) so git invokes the credential helper
+    const httpsUrl = this.toHttpsUrl(repoUrl);
+    if (httpsUrl) {
+      await $`git remote set-url origin ${httpsUrl}`.cwd(projectPath).quiet().nothrow();
+    }
+  }
+
+  /**
+   * Converts any GitHub repo URL to plain HTTPS format (no credentials embedded).
+   */
+  private toHttpsUrl(repoUrl: string): string | null {
+    // Handle git@github.com:owner/repo.git format
+    const sshMatch = repoUrl.match(/git@github\.com:(.+?)(?:\.git)?$/);
+    if (sshMatch) {
+      return `https://github.com/${sshMatch[1]}.git`;
+    }
+
+    // Handle https://github.com/owner/repo format (strip any embedded credentials)
+    const httpsMatch = repoUrl.match(/https?:\/\/(?:[^@]+@)?github\.com\/(.+?)(?:\.git)?$/);
+    if (httpsMatch) {
+      return `https://github.com/${httpsMatch[1]}.git`;
+    }
+
+    // Handle owner/repo format
+    if (repoUrl.match(/^[^/]+\/[^/]+$/)) {
+      return `https://github.com/${repoUrl}.git`;
+    }
+
+    return null;
+  }
+
   async initProject(projectName: string): Promise<string> {
     const projectPath = join(this.workspacesRoot, projectName);
 

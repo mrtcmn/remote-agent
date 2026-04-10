@@ -3,33 +3,10 @@ import { nanoid } from 'nanoid';
 import { eq, and } from 'drizzle-orm';
 import { db, projects, projectLinks } from '../db';
 import type { Project } from '../db/schema';
-import { gitService } from '../services/git';
+import { gitService, getProjectCredentials } from '../services/git';
 import { workspaceService, multiProjectService } from '../services/workspace';
 import { githubAppService } from '../services/github-app';
 import { requireAuth, requirePin } from '../auth/middleware';
-
-/**
- * Gets git credentials for a project. Returns either an SSH key path
- * or an installation token, depending on how the project was created.
- */
-async function getProjectCredentials(project: Project, userId: string): Promise<{ sshKeyPath?: string; token?: string }> {
-  if (project.githubAppInstallationId) {
-    const installation = await githubAppService.getAppForInstallation(project.githubAppInstallationId);
-    if (installation) {
-      const token = await githubAppService.getInstallationToken(
-        installation.installationId,
-        installation.githubAppId
-      );
-      return { token };
-    }
-  }
-
-  const sshKeyPath = project.sshKeyId
-    ? await workspaceService.getSSHKeyPath(userId, project.sshKeyId)
-    : null;
-
-  return { sshKeyPath: sshKeyPath || undefined };
-}
 
 export const projectRoutes = new Elysia({ prefix: '/projects' })
   .use(requireAuth)
@@ -153,6 +130,9 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
             token,
             branch: body.branch,
           });
+
+          // Configure credential helper so shell git commands work with GitHub App tokens
+          await gitService.configureCredentialHelper(localPath, projectId, repoUrl);
         } else {
           // Clone via SSH key
           const sshKey = body.sshKeyId

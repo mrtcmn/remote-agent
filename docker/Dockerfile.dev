@@ -44,9 +44,10 @@ ENV CONFIG_ROOT=/app/config
 ENV TEMPLATES_ROOT=/app/templates
 ENV PATH="/home/agent/.local/bin:/usr/local/bin:${PATH}"
 
-# ---- Copy hooks and templates ----
+# ---- Copy hooks, templates, and git credential helper ----
 COPY --chown=agent:agent --chmod=755 docker/hooks/ /app/hooks/
 COPY --chown=agent:agent docker/claude/ /app/templates/claude/
+COPY --chown=agent:agent --chmod=755 docker/git-credential-helper.sh /usr/local/bin/git-credential-helper
 
 EXPOSE 5100
 
