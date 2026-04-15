@@ -1,6 +1,7 @@
 import { $ } from 'bun';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { getWorkspacesRoot } from '../../config/paths';
 
 export interface CloneOptions {
   repoUrl: string;
@@ -29,8 +30,8 @@ export interface GitStatus {
 export class GitService {
   private workspacesRoot: string;
 
-  constructor(workspacesRoot = '/app/workspaces') {
-    this.workspacesRoot = workspacesRoot;
+  constructor(workspacesRoot?: string) {
+    this.workspacesRoot = workspacesRoot || getWorkspacesRoot();
   }
 
   /**
@@ -443,4 +444,4 @@ export class GitService {
 }
 
 // Singleton instance
-export const gitService = new GitService(process.env.WORKSPACES_ROOT || '/app/workspaces');
+export const gitService = new GitService();

@@ -192,7 +192,7 @@ export class WorkspaceService {
     // Use $REMOTE_AGENT_SESSION_ID and $REMOTE_AGENT_TERMINAL_ID env vars (set per-terminal
     // in terminals.routes.ts) so hooks always report the correct session, even when
     // multiple Claude instances share the same settings.json.
-    const baseUrl = 'http://localhost:5100/internal/hooks';
+    const baseUrl = `${process.env.REMOTE_AGENT_API || 'http://localhost:5100'}/internal/hooks`;
 
     // Guard: skip hooks when spawned by the classifier (prevents infinite loop)
     const guard = '[ "$REMOTE_AGENT_CLASSIFIER" = "1" ] && exit 0;';
@@ -325,10 +325,13 @@ export class WorkspaceService {
   }
 }
 
+import { getWorkspacesRoot, getSSHKeysRoot, getConfigRoot, getTemplatesRoot, getAgentHome } from '../../config/paths';
+
 // Singleton instance
 export const workspaceService = new WorkspaceService({
-  workspacesRoot: process.env.WORKSPACES_ROOT || '/app/workspaces',
-  sshKeysRoot: process.env.SSH_KEYS_ROOT || '/app/ssh-keys',
-  configRoot: process.env.CONFIG_ROOT || '/app/config',
-  templatesRoot: process.env.TEMPLATES_ROOT || '/app/templates',
+  workspacesRoot: getWorkspacesRoot(),
+  sshKeysRoot: getSSHKeysRoot(),
+  configRoot: getConfigRoot(),
+  templatesRoot: getTemplatesRoot(),
+  agentHome: getAgentHome(),
 });

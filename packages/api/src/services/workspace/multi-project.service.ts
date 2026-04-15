@@ -2,12 +2,13 @@ import { mkdir, symlink, unlink, readlink, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { db, projectLinks } from '../../db';
+import { getWorkspacesRoot } from '../../config/paths';
 
 export class MultiProjectService {
   private workspacesRoot: string;
 
-  constructor(workspacesRoot = '/app/workspaces') {
-    this.workspacesRoot = workspacesRoot;
+  constructor(workspacesRoot?: string) {
+    this.workspacesRoot = workspacesRoot || getWorkspacesRoot();
   }
 
   /**
@@ -78,6 +79,4 @@ export class MultiProjectService {
   }
 }
 
-export const multiProjectService = new MultiProjectService(
-  process.env.WORKSPACES_ROOT || '/app/workspaces'
-);
+export const multiProjectService = new MultiProjectService();

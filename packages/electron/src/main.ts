@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, net, nativeImage, shell, Tray } from 'electron';
 import path from 'path';
 import { getStore } from './store';
+import { startLocalApi, stopLocalApi } from './local-api';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -39,22 +40,48 @@ async function createWindow() {
   mainWindow.on('resize', saveBounds);
   mainWindow.on('move', saveBounds);
 
-  // Load the UI
+  // Determine mode and load UI
   const isDev = process.argv.includes('--dev');
   const isRemote = process.argv.includes('--remote');
-  const devUrl = isRemote ? 'https://ra.grasco.dev' : 'http://localhost:5173';
-  const allowedOrigin = isDev ? new URL(devUrl).origin : 'file://';
+  const mode = store.get('mode');
+
+  let loadUrl: string;
 
   if (isDev) {
-    mainWindow.loadURL(devUrl);
-    if (!isRemote) mainWindow.webContents.openDevTools();
+    // Dev mode: use Vite dev server or remote
+    loadUrl = isRemote ? 'https://ra.grasco.dev' : 'http://localhost:5173';
+  } else if (mode === 'local') {
+    // Local mode: start API and point UI to it
+    const apiUrl = store.get('apiUrl');
+    loadUrl = apiUrl || 'http://localhost:13590';
   } else {
-    const uiPath = path.join(process.resourcesPath, 'ui', 'index.html');
-    mainWindow.loadFile(uiPath);
+    // Remote/production mode: load bundled UI or stored remote URL
+    const apiUrl = store.get('apiUrl');
+    if (apiUrl) {
+      loadUrl = apiUrl;
+    } else {
+      const uiPath = path.join(process.resourcesPath, 'ui', 'index.html');
+      mainWindow.loadFile(uiPath);
+      setupWindowHandlers(mainWindow, 'file://');
+      return;
+    }
   }
 
-  // Open external URLs in default browser, only allow the app origin
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  mainWindow.loadURL(loadUrl);
+  setupWindowHandlers(mainWindow, new URL(loadUrl).origin);
+
+  if (isDev && !isRemote) {
+    mainWindow.webContents.openDevTools();
+  }
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+}
+
+function setupWindowHandlers(window: BrowserWindow, allowedOrigin: string) {
+  // Open external URLs in default browser
+  window.webContents.setWindowOpenHandler(({ url }) => {
     try {
       if (new URL(url).origin !== allowedOrigin) {
         shell.openExternal(url);
@@ -63,17 +90,13 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  mainWindow.webContents.on('will-navigate', (event, url) => {
+  window.webContents.on('will-navigate', (event, url) => {
     try {
       if (new URL(url).origin !== allowedOrigin) {
         event.preventDefault();
         shell.openExternal(url);
       }
     } catch {}
-  });
-
-  mainWindow.on('closed', () => {
-    mainWindow = null;
   });
 }
 
@@ -89,6 +112,16 @@ ipcMain.handle('set-api-url', async (_event, url: string) => {
   store.set('apiUrl', url);
 });
 
+ipcMain.handle('get-mode', async () => {
+  const store = await getStore();
+  return store.get('mode');
+});
+
+ipcMain.handle('set-mode', async (_event, mode: 'local' | 'remote') => {
+  const store = await getStore();
+  store.set('mode', mode);
+});
+
 ipcMain.handle('check-connection', async (_event, url: string) => {
   try {
     const response = await net.fetch(`${url.replace(/\/$/, '')}/health`, {
@@ -97,7 +130,7 @@ ipcMain.handle('check-connection', async (_event, url: string) => {
     if (response.ok) {
       const data = await response.json() as Record<string, unknown>;
       if (data.status === 'ok') {
-        return { ok: true };
+        return { ok: true, mode: data.mode };
       }
     }
     return { ok: false, error: `Server responded with status ${response.status}` };
@@ -149,7 +182,20 @@ function createTray() {
 
 // ─── App Lifecycle ───────────────────────────────────────────────────────────
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  const store = await getStore();
+  const mode = store.get('mode');
+
+  // Start local API if in local mode
+  if (mode === 'local') {
+    try {
+      const apiUrl = await startLocalApi();
+      store.set('apiUrl', apiUrl);
+    } catch (err: any) {
+      console.error('Failed to start local API:', err.message);
+    }
+  }
+
   createTray();
   createWindow();
 });
@@ -164,4 +210,8 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+
+app.on('before-quit', () => {
+  stopLocalApi();
 });

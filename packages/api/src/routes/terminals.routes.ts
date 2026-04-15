@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { eq, and } from 'drizzle-orm';
 import { mkdir } from 'fs/promises';
 import { join } from 'path';
+import { getWorkspacesRoot, getAgentHome } from '../config/paths';
 import { db, claudeSessions, terminals } from '../db';
 import { terminalService } from '../services/terminal';
 import { workspaceService } from '../services/workspace';
@@ -73,7 +74,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     }
 
     const terminalId = nanoid();
-    const userWorkspace = `/app/workspaces/${user!.id}`;
+    const userWorkspace = join(getWorkspacesRoot(), user!.id);
     // Resolve CWD: explicit > worktree > project > workspace
     let cwd = body.cwd;
     if (!cwd && session.worktreeId && session.worktree) {
@@ -94,7 +95,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     let name: string;
     let env: Record<string, string> = {
       ...SHARED_DEFAULT_ENV,
-      HOME: '/home/agent',
+      HOME: getAgentHome(),
       ...projectEnv,
     };
 

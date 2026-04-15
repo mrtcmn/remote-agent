@@ -3,10 +3,11 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { db } from '../db';
 import * as schema from '../db/schema';
 import { originsService } from '../services/origins';
+import { isLocalMode } from '../config/mode';
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
-    provider: 'sqlite',
+    provider: isLocalMode() ? 'sqlite' : 'pg',
     schema,
   }),
   secret: process.env.JWT_SECRET || 'secret',

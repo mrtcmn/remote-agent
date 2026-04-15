@@ -3,15 +3,34 @@ import { cors } from '@elysiajs/cors';
 import { staticPlugin } from '@elysiajs/static';
 import { api, internalRoutes } from './routes';
 import { terminalWebsocketRoutes } from './routes/terminal-websocket';
-import { previewWebsocketRoutes } from './routes/preview-websocket';
 import { notificationService } from './services/notification';
 import { terminalService } from './services/terminal';
-import { browserPreviewService } from './services/browser-preview';
-import { codeServerManager } from './services/code-server/code-server.service';
 import { originsService } from './services/origins';
 import { seedTestUser } from './auth/seed';
+import { isLocalMode, isRemoteMode } from './config/mode';
+import { getDefaultPort } from './config/paths';
+import { findAvailablePort } from './config/port';
 
-const PORT = process.env.PORT || 5100;
+// Remote-only imports (lazy loaded)
+let browserPreviewService: { shutdown: () => Promise<void> } | null = null;
+let codeServerManager: { shutdown: () => Promise<void> } | null = null;
+let previewWebsocketRoutes: any = null;
+
+if (isRemoteMode()) {
+  const browserMod = await import('./services/browser-preview');
+  browserPreviewService = browserMod.browserPreviewService;
+  const codeMod = await import('./services/code-server/code-server.service');
+  codeServerManager = codeMod.codeServerManager;
+  const previewMod = await import('./routes/preview-websocket');
+  previewWebsocketRoutes = previewMod.previewWebsocketRoutes;
+}
+
+// Resolve port
+const defaultPort = getDefaultPort();
+const PORT = isLocalMode() ? await findAvailablePort(defaultPort) : defaultPort;
+
+// Set REMOTE_AGENT_API so hooks and child processes know our URL
+process.env.REMOTE_AGENT_API = process.env.REMOTE_AGENT_API || `http://localhost:${PORT}`;
 
 // Runtime env injection for the frontend
 const HTML_PATH = '../ui/dist/index.html';
@@ -31,7 +50,9 @@ const CLIENT_ENV_KEYS = [
 ];
 
 function buildEnvScript(): string {
-  const env: Record<string, string> = {};
+  const env: Record<string, string> = {
+    VITE_AGENT_MODE: isLocalMode() ? 'local' : 'remote',
+  };
   for (const key of CLIENT_ENV_KEYS) {
     const value = process.env[key];
     if (value) env[key] = value;
@@ -40,6 +61,12 @@ function buildEnvScript(): string {
 }
 
 const indexHtml = rawHtml.replace('<head>', `<head>\n    ${buildEnvScript()}`);
+
+// Initialize local directories if needed
+if (isLocalMode()) {
+  const { initLocal } = await import('./config/init-local');
+  await initLocal();
+}
 
 // Initialize services
 await originsService.initialize();
@@ -68,14 +95,18 @@ const app = new Elysia()
   .use(internalRoutes)
 
   // Terminal WebSocket routes
-  .use(terminalWebsocketRoutes)
+  .use(terminalWebsocketRoutes);
 
-  // Browser preview WebSocket routes
-  .use(previewWebsocketRoutes)
+// Browser preview WebSocket routes (remote only)
+if (previewWebsocketRoutes) {
+  app.use(previewWebsocketRoutes);
+}
 
+app
   // Health check
   .get('/health', () => ({
     status: 'ok',
+    mode: isLocalMode() ? 'local' : 'remote',
     timestamp: new Date().toISOString(),
   }))
 
@@ -118,32 +149,27 @@ const app = new Elysia()
 
   .listen(PORT);
 
+const modeLabel = isLocalMode() ? 'LOCAL' : 'REMOTE';
 console.log(`
-🚀 Remote Agent API running at http://localhost:${PORT}
+🚀 Remote Agent API running in ${modeLabel} mode at http://localhost:${PORT}
 
 Endpoints:
   - API:        http://localhost:${PORT}/api
-  - Terminal:   ws://localhost:${PORT}/ws/terminal/:terminalId
-  - Preview:    ws://localhost:${PORT}/ws/preview/:previewId
+  - Terminal:   ws://localhost:${PORT}/ws/terminal/:terminalId${isRemoteMode() ? `\n  - Preview:    ws://localhost:${PORT}/ws/preview/:previewId` : ''}
   - Health:     http://localhost:${PORT}/health
   - UI:         http://localhost:${PORT}
 `);
 
 // Graceful shutdown
-process.on('SIGTERM', async () => {
+const shutdown = async () => {
   console.log('Shutting down...');
-  await codeServerManager.shutdown();
-  await browserPreviewService.shutdown();
+  if (codeServerManager) await codeServerManager.shutdown();
+  if (browserPreviewService) await browserPreviewService.shutdown();
   await notificationService.shutdown();
   process.exit(0);
-});
+};
 
-process.on('SIGINT', async () => {
-  console.log('Shutting down...');
-  await codeServerManager.shutdown();
-  await browserPreviewService.shutdown();
-  await notificationService.shutdown();
-  process.exit(0);
-});
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 export type App = typeof app;
