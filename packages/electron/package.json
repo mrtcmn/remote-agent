@@ -26,6 +26,22 @@
       "assets/**/*",
       "node_modules/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "../ui/dist",
+        "to": "ui",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../api",
+        "to": "api",
+        "filter": ["src/**/*", "drizzle/**/*", "drizzle-sqlite/**/*", "package.json", "tsconfig.json"]
+      },
+      {
+        "from": "resources/${os}/bun",
+        "to": "bun"
+      }
+    ],
     "mac": {
       "target": "dmg",
       "category": "public.app-category.developer-tools",

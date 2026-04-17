@@ -1,5 +1,6 @@
 import { readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
+import { getAgentHome } from '../../config/paths';
 
 const MCP_REGISTRY_BASE = 'https://registry.modelcontextprotocol.io/v0.1';
 
@@ -119,12 +120,8 @@ const RUNTIME_MAP: Record<string, { command: string; prefix: string[] }> = {
 
 // ─── Service ─────────────────────────────────────────────────────────────────
 
-function getWorkspaceRoot(): string {
-  return process.env.WORKSPACE_ROOT || '/app/workspaces';
-}
-
 function getSettingsPath(): string {
-  return join(getWorkspaceRoot(), '.claude', 'settings.json');
+  return join(getAgentHome(), '.claude', 'settings.json');
 }
 
 async function readSettings(): Promise<Record<string, unknown>> {

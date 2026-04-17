@@ -1,4 +1,5 @@
 import { Elysia } from 'elysia';
+import { isRemoteMode } from '../config/mode';
 import { authRoutes } from './auth.routes';
 import { sessionRoutes } from './sessions.routes';
 import { projectRoutes } from './projects.routes';
@@ -13,9 +14,6 @@ import { kanbanRoutes } from './kanban.routes';
 import { settingsRoutes } from './settings.routes';
 import { runConfigRoutes } from './run-configs.routes';
 import { presenceRoutes } from './presence.routes';
-import { previewRoutes } from './preview.routes';
-import { dockerRoutes } from './docker.routes';
-import { editorRoutes } from './editor.routes';
 import { skillsRoutes } from './skills.routes';
 import { mcpRoutes } from './mcp.routes';
 import { artifactRoutes } from './artifacts.routes';
@@ -23,7 +21,7 @@ import { presentationRoutes } from './presentation.routes';
 import { worktreeRoutes } from './worktrees.routes';
 import { githubAppRoutes } from './github-app.routes';
 
-export const api = new Elysia({ prefix: '/api' })
+const builder = new Elysia({ prefix: '/api' })
   .use(authRoutes)
   .use(sessionRoutes)
   .use(projectRoutes)
@@ -35,17 +33,27 @@ export const api = new Elysia({ prefix: '/api' })
   .use(kanbanRoutes)
   .use(settingsRoutes)
   .use(runConfigRoutes)
-  .use(previewRoutes)
-  .use(dockerRoutes)
-  .use(editorRoutes)
   .use(skillsRoutes)
   .use(mcpRoutes)
   .use(presenceRoutes)
   .use(artifactRoutes)
   .use(presentationRoutes)
   .use(worktreeRoutes)
-  .use(githubAppRoutes)
-  .use(versionRoutes);
+  .use(githubAppRoutes);
 
+// Remote-only routes: Docker, code editor, browser preview
+if (isRemoteMode()) {
+  const { previewRoutes } = await import('./preview.routes');
+  const { dockerRoutes } = await import('./docker.routes');
+  const { editorRoutes } = await import('./editor.routes');
+  builder
+    .use(previewRoutes)
+    .use(dockerRoutes)
+    .use(editorRoutes);
+}
+
+builder.use(versionRoutes);
+
+export const api = builder;
 export { internalRoutes };
 export { terminalRoutes } from './terminals.routes';

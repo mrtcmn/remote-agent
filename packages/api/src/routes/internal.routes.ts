@@ -6,6 +6,7 @@ import { notificationService } from '../services/notification';
 import type { NotificationType, NotificationAction } from '../services/notification/types';
 import { notificationClassifier } from '../services/notification/classifier';
 import { artifactService } from '../services/artifact';
+import { getProjectCredentialsById } from '../services/git';
 import type { NotificationClassification, ParsedOption, ClassificationResult } from '../services/notification/classifier';
 
 // Helper to get project name for a session
@@ -426,4 +427,21 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       tool_input: t.Optional(t.Any()),
       tool_result: t.Optional(t.String()),
     }, { additionalProperties: true }),
+  })
+
+  // Git credential helper endpoint — returns fresh GitHub App tokens for shell git commands
+  .get('/git-credential/:projectId', async ({ params, set }) => {
+    try {
+      const creds = await getProjectCredentialsById(params.projectId);
+      if (!creds) {
+        set.status = 404;
+        return { error: 'No credentials found for project' };
+      }
+      return creds;
+    } catch (error) {
+      set.status = 500;
+      return { error: (error as Error).message };
+    }
+  }, {
+    params: t.Object({ projectId: t.String() }),
   });

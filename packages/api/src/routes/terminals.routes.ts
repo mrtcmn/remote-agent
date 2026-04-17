@@ -3,10 +3,12 @@ import { nanoid } from 'nanoid';
 import { eq, and } from 'drizzle-orm';
 import { mkdir } from 'fs/promises';
 import { join } from 'path';
+import { getWorkspacesRoot, getAgentHome } from '../config/paths';
 import { db, claudeSessions, terminals } from '../db';
 import { terminalService } from '../services/terminal';
 import { workspaceService } from '../services/workspace';
 import { resolveProjectEnv } from '../services/workspace/env.service';
+import { getProjectCredentials } from '../services/git';
 import { requireAuth } from '../auth/middleware';
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN_PATH || 'claude';
@@ -72,7 +74,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     }
 
     const terminalId = nanoid();
-    const userWorkspace = `/app/workspaces/${user!.id}`;
+    const userWorkspace = join(getWorkspacesRoot(), user!.id);
     // Resolve CWD: explicit > worktree > project > workspace
     let cwd = body.cwd;
     if (!cwd && session.worktreeId && session.worktree) {
@@ -93,9 +95,22 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     let name: string;
     let env: Record<string, string> = {
       ...SHARED_DEFAULT_ENV,
-      HOME: '/home/agent',
+      HOME: getAgentHome(),
       ...projectEnv,
     };
+
+    // Set GH_TOKEN for GitHub App projects so `gh` CLI and shell git commands work
+    if (session.project?.githubAppInstallationId) {
+      try {
+        const creds = await getProjectCredentials(session.project, user!.id);
+        if (creds.token) {
+          env.GH_TOKEN = creds.token;
+          env.GITHUB_TOKEN = creds.token;
+        }
+      } catch {
+        // Non-fatal: credential helper will handle git auth as fallback
+      }
+    }
 
     if (type === 'claude') {
       // cwd is inherited from the outer scope (body.cwd || project.localPath || userWorkspace)

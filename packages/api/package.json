@@ -8,8 +8,11 @@
     "start": "bun run src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun --external playwright --external playwright-core",
     "db:generate": "drizzle-kit generate",
+    "db:generate:sqlite": "REMOTE_AGENT_MODE=local drizzle-kit generate",
     "db:migrate": "bun run src/db/migrate.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:migrate:sqlite": "REMOTE_AGENT_MODE=local bun run src/db/migrate.ts",
+    "db:studio": "drizzle-kit studio",
+    "start:local": "REMOTE_AGENT_MODE=local bun run src/index.ts"
   },
   "dependencies": {
     "@elysiajs/bearer": "^1.1.0",
