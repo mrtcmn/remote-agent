@@ -10,16 +10,16 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: 13591,
     proxy: {
       '/api': {
-        target: 'http://localhost:5100',
-        changeOrigin: false,  // Keep origin as localhost:5173
+        target: 'http://localhost:13590',
+        changeOrigin: false,  // Keep origin as localhost:13591
         cookieDomainRewrite: 'localhost',  // Rewrite cookie domain
         secure: false,
       },
       '/ws': {
-        target: 'ws://localhost:5100',
+        target: 'ws://localhost:13590',
         ws: true,
       },
     },

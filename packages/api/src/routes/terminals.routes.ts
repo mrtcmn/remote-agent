@@ -132,6 +132,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     } else {
       command = body.command || ['/bin/bash'];
       name = body.name || 'Terminal';
+      await workspaceService.createUserWorkspace(user!.id);
     }
 
     try {

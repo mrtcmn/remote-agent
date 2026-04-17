@@ -49,7 +49,7 @@ async function createWindow() {
 
   if (isDev) {
     // Dev mode: use Vite dev server or remote
-    loadUrl = isRemote ? 'https://ra.grasco.dev' : 'http://localhost:5173';
+    loadUrl = isRemote ? 'https://ra.grasco.dev' : 'http://localhost:13591';
   } else if (mode === 'local') {
     // Local mode: start API and point UI to it
     const apiUrl = store.get('apiUrl');
