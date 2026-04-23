@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia';
+import { getMode } from '../config/mode';
 
 // Configuration
 const GITHUB_REPO = process.env.GITHUB_REPO || 'mrtcmn/remote-agent';
@@ -104,6 +105,8 @@ export const versionRoutes = new Elysia({ prefix: '/version' })
     const current = getCurrentVersion();
     const latestInfo = await getLatestVersion(force);
 
+    const mode = getMode();
+
     if (!latestInfo) {
       return {
         current,
@@ -111,6 +114,7 @@ export const versionRoutes = new Elysia({ prefix: '/version' })
         updateAvailable: false,
         error: 'Could not fetch latest version',
         lastChecked: null,
+        mode,
       };
     }
 
@@ -124,6 +128,7 @@ export const versionRoutes = new Elysia({ prefix: '/version' })
       releaseNotes: latestInfo.releaseNotes,
       publishedAt: latestInfo.publishedAt,
       lastChecked: new Date(latestInfo.fetchedAt).toISOString(),
+      mode,
     };
   }, {
     query: t.Object({

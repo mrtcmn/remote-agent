@@ -4,6 +4,8 @@ import { eq, and } from 'drizzle-orm';
 import { db, projects, projectLinks } from '../db';
 import type { Project } from '../db/schema';
 import { gitService, getProjectCredentials } from '../services/git';
+import { DirtySourceError } from '../services/git/git.service';
+import { isLocalMode } from '../config/mode';
 import { workspaceService, multiProjectService } from '../services/workspace';
 import { githubAppService } from '../services/github-app';
 import { requireAuth, requirePin } from '../auth/middleware';
@@ -107,8 +109,32 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
 
     try {
       let localPath: string;
+      let adoptedRepoUrl: string | null = null;
+      let adoptedDefaultBranch: string | null = null;
 
-      if (body.repoUrl || body.githubRepoFullName) {
+      if (body.sourcePath) {
+        if (!isLocalMode()) {
+          set.status = 400;
+          return { error: 'Adopting a local folder is only available in local mode' };
+        }
+
+        try {
+          const result = await gitService.adoptLocalRepo({
+            sourcePath: body.sourcePath,
+            projectName: `${user!.id}/${body.name}`,
+            allowDirty: body.allowDirty,
+          });
+          localPath = result.localPath;
+          adoptedRepoUrl = result.repoUrl;
+          adoptedDefaultBranch = result.defaultBranch;
+        } catch (err) {
+          if (err instanceof DirtySourceError) {
+            set.status = 409;
+            return { error: 'dirty', changedFiles: err.changedFiles };
+          }
+          throw err;
+        }
+      } else if (body.repoUrl || body.githubRepoFullName) {
         const repoUrl = body.repoUrl || `https://github.com/${body.githubRepoFullName}.git`;
 
         if (body.githubAppInstallationId) {
@@ -157,9 +183,11 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
         userId: user!.id,
         name: body.name,
         description: body.description,
-        repoUrl: body.repoUrl || (body.githubRepoFullName ? `https://github.com/${body.githubRepoFullName}` : undefined),
+        repoUrl: adoptedRepoUrl
+          || body.repoUrl
+          || (body.githubRepoFullName ? `https://github.com/${body.githubRepoFullName}` : undefined),
         localPath,
-        defaultBranch: body.branch || 'main',
+        defaultBranch: adoptedDefaultBranch || body.branch || 'main',
         sshKeyId: body.sshKeyId,
         githubAppInstallationId: body.githubAppInstallationId,
         createdAt: new Date(),
@@ -185,6 +213,8 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
       sshKeyId: t.Optional(t.String()),
       githubAppInstallationId: t.Optional(t.String()),
       githubRepoFullName: t.Optional(t.String()),
+      sourcePath: t.Optional(t.String()),
+      allowDirty: t.Optional(t.Boolean()),
     }),
   })
 

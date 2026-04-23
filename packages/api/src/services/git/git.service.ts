@@ -1,7 +1,30 @@
 import { $ } from 'bun';
-import { mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, stat, copyFile, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { join, dirname, resolve, isAbsolute } from 'node:path';
+import { homedir } from 'node:os';
 import { getWorkspacesRoot } from '../../config/paths';
+
+export class DirtySourceError extends Error {
+  changedFiles: string[];
+  constructor(changedFiles: string[]) {
+    super('Source folder has uncommitted changes');
+    this.name = 'DirtySourceError';
+    this.changedFiles = changedFiles;
+  }
+}
+
+export interface AdoptOptions {
+  sourcePath: string;
+  projectName: string;
+  allowDirty?: boolean;
+}
+
+export interface AdoptResult {
+  localPath: string;
+  repoUrl: string | null;
+  defaultBranch: string | null;
+}
 
 export interface CloneOptions {
   repoUrl: string;
@@ -168,6 +191,118 @@ export class GitService {
     }
 
     return null;
+  }
+
+  /**
+   * Adopts an existing local git repo by cloning it into the workspaces root.
+   * Preserves commit history, branches, and the original origin remote URL.
+   * Copies untracked-but-not-gitignored files on top of the clone.
+   * Uncommitted edits to tracked files are NOT carried over.
+   */
+  async adoptLocalRepo(opts: AdoptOptions): Promise<AdoptResult> {
+    const projectPath = join(this.workspacesRoot, opts.projectName);
+
+    // Expand ~ to home, resolve to absolute
+    let source = opts.sourcePath;
+    if (source.startsWith('~')) {
+      source = join(homedir(), source.slice(1));
+    }
+    if (!isAbsolute(source)) {
+      throw new Error('sourcePath must be an absolute path');
+    }
+    source = resolve(source);
+
+    // Validate source exists and is a directory
+    let sourceStat;
+    try {
+      sourceStat = await stat(source);
+    } catch {
+      throw new Error('Source path does not exist');
+    }
+    if (!sourceStat.isDirectory()) {
+      throw new Error('Source path is not a directory');
+    }
+
+    // Validate source is a git repo
+    if (!existsSync(join(source, '.git'))) {
+      throw new Error('Source path is not a git repository');
+    }
+
+    // Reject if source resolves inside the workspaces root (would recurse)
+    const resolvedWorkspaces = resolve(this.workspacesRoot);
+    if (source === resolvedWorkspaces || source.startsWith(resolvedWorkspaces + '/')) {
+      throw new Error('Source path must not be inside the workspaces root');
+    }
+
+    // Destination must not already exist
+    if (existsSync(projectPath)) {
+      throw new Error('Destination already exists — pick a different project name');
+    }
+
+    // Dirty check
+    const statusResult = await $`git status --porcelain`.cwd(source).quiet().nothrow();
+    const dirtyLines = statusResult.stdout.toString().trim().split('\n').filter(Boolean);
+    if (dirtyLines.length > 0 && !opts.allowDirty) {
+      const changedFiles = dirtyLines.map(l =>
+        l.charAt(2) === ' ' ? l.slice(3) : l.slice(2).trimStart()
+      );
+      throw new DirtySourceError(changedFiles);
+    }
+
+    // Read original origin URL from source config before cloning
+    let originUrl: string | null = null;
+    const originResult = await $`git config --get remote.origin.url`.cwd(source).quiet().nothrow();
+    if (originResult.exitCode === 0) {
+      originUrl = originResult.stdout.toString().trim() || null;
+    }
+
+    // Read default branch name from source
+    let defaultBranch: string | null = null;
+    const branchResult = await $`git symbolic-ref --short HEAD`.cwd(source).quiet().nothrow();
+    if (branchResult.exitCode === 0) {
+      defaultBranch = branchResult.stdout.toString().trim() || null;
+    }
+
+    // Ensure workspaces parent exists
+    await mkdir(dirname(projectPath), { recursive: true });
+
+    // Clone locally — preserves history, branches, tags, committed working tree
+    const cloneResult = await $`git clone --no-hardlinks ${source} ${projectPath}`.quiet().nothrow();
+    if (cloneResult.exitCode !== 0) {
+      throw new Error(`Failed to clone source: ${cloneResult.stderr.toString()}`);
+    }
+
+    try {
+      // Rewrite origin to the source's original remote URL (or remove if none)
+      if (originUrl) {
+        await $`git remote set-url origin ${originUrl}`.cwd(projectPath).quiet().nothrow();
+      } else {
+        await $`git remote remove origin`.cwd(projectPath).quiet().nothrow();
+      }
+
+      // Copy untracked-but-not-gitignored files from source to destination
+      const untrackedResult = await $`git ls-files --others --exclude-standard -z`.cwd(source).quiet().nothrow();
+      if (untrackedResult.exitCode === 0) {
+        const raw = untrackedResult.stdout.toString();
+        const files = raw.split('\0').filter(Boolean);
+        for (const rel of files) {
+          const src = join(source, rel);
+          const dst = join(projectPath, rel);
+          try {
+            await mkdir(dirname(dst), { recursive: true });
+            await copyFile(src, dst);
+          } catch (err) {
+            console.warn(`Skipped untracked file ${rel}:`, (err as Error).message);
+          }
+        }
+      }
+    } catch (err) {
+      // Roll back the partial destination on failure
+      await rm(projectPath, { recursive: true, force: true }).catch(() => {});
+      throw err;
+    }
+
+    return { localPath: projectPath, repoUrl: originUrl, defaultBranch };
   }
 
   async initProject(projectName: string): Promise<string> {

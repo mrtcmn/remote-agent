@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, net, nativeImage, shell, Tray } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, net, nativeImage, shell, Tray, dialog } from 'electron';
 import path from 'path';
 import { getStore } from './store';
 import { startLocalApi, stopLocalApi } from './local-api';
@@ -71,7 +71,7 @@ async function createWindow() {
   setupWindowHandlers(mainWindow, new URL(loadUrl).origin);
 
   if (isDev && !isRemote) {
-    mainWindow.webContents.openDevTools();
+    // mainWindow.webContents.openDevTools();
   }
 
   mainWindow.on('closed', () => {
@@ -120,6 +120,19 @@ ipcMain.handle('get-mode', async () => {
 ipcMain.handle('set-mode', async (_event, mode: 'local' | 'remote') => {
   const store = await getStore();
   store.set('mode', mode);
+});
+
+ipcMain.handle('select-folder', async (_event, opts?: { title?: string; defaultPath?: string }) => {
+  if (!mainWindow) return { canceled: true, path: null };
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: opts?.title || 'Select folder',
+    defaultPath: opts?.defaultPath,
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return { canceled: true, path: null };
+  }
+  return { canceled: false, path: result.filePaths[0] };
 });
 
 ipcMain.handle('check-connection', async (_event, url: string) => {

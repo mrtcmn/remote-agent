@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Terminal } from 'xterm';
-import type { ITheme } from 'xterm';
+import { Terminal } from '@xterm/xterm';
+import type { ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
-import 'xterm/css/xterm.css';
+import '@xterm/xterm/css/xterm.css';
 import { getApiBase } from '@/lib/api-config';
 import { isElectron } from '@/lib/electron';
 
@@ -17,6 +17,16 @@ function decodeBase64(base64: string): string {
   }
   return new TextDecoder('utf-8').decode(bytes);
 }
+
+// Kitty keyboard protocol key codes (unicode-key-code) for keys that need
+// disambiguation. Only keys that produce legacy ambiguous encodings are
+// included — other keys fall through to xterm's default handling.
+const KITTY_KEY_CODES: Record<string, number> = {
+  Enter: 13,
+  Tab: 9,
+  Backspace: 127,
+  Escape: 27,
+};
 
 // Proper UTF-8 to base64 encoding
 function encodeBase64(str: string): string {
@@ -212,14 +222,73 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
       xterm.loadAddon(webLinksAddon);
       xterm.loadAddon(clipboardAddon);
 
+      // Kitty keyboard protocol: track enabled flags so TUIs (Claude Code, nvim,
+      // helix, etc.) can request disambiguated key events — notably Shift+Enter.
+      // https://sw.kovidgoyal.net/kitty/keyboard-protocol/
+      let kittyFlags = 0;
+      const kittyStack: number[] = [];
+
+      const sendInput = (data: string) => {
+        if (ws?.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'input', data: encodeBase64(data) }));
+        }
+      };
+
+      xterm.parser.registerCsiHandler({ prefix: '?', final: 'u' }, () => {
+        sendInput(`\x1b[?${kittyFlags}u`);
+        return true;
+      });
+      xterm.parser.registerCsiHandler({ prefix: '>', final: 'u' }, (params) => {
+        const flags = (params[0] as number) ?? 1;
+        kittyStack.push(kittyFlags);
+        kittyFlags = flags;
+        return true;
+      });
+      xterm.parser.registerCsiHandler({ prefix: '<', final: 'u' }, (params) => {
+        const count = (params[0] as number) ?? 1;
+        for (let i = 0; i < count; i++) kittyFlags = kittyStack.pop() ?? 0;
+        return true;
+      });
+      xterm.parser.registerCsiHandler({ prefix: '=', final: 'u' }, (params) => {
+        const flags = (params[0] as number) ?? 0;
+        const mode = (params[1] as number) ?? 1;
+        if (mode === 1) kittyFlags = flags;
+        else if (mode === 2) kittyFlags |= flags;
+        else if (mode === 3) kittyFlags &= ~flags;
+        return true;
+      });
+
       // Allow Ctrl+V/Cmd+V to trigger browser paste, and Ctrl+C/Cmd+C to copy selection
       xterm.attachCustomKeyEventHandler((event) => {
+        if (event.type !== 'keydown') return true;
+
         if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
           return false;
         }
         if ((event.ctrlKey || event.metaKey) && event.key === 'c' && xterm!.hasSelection()) {
           return false;
         }
+
+        // When kitty keyboard protocol is enabled by the TUI, encode modified
+        // Enter/Tab/Backspace as CSI u so Shift+Enter (and friends) are
+        // distinguishable from plain Enter.
+        if (kittyFlags & 1) {
+          const kittyCode = KITTY_KEY_CODES[event.key];
+          if (kittyCode !== undefined) {
+            const mod =
+              1 +
+              (event.shiftKey ? 1 : 0) +
+              (event.altKey ? 2 : 0) +
+              (event.ctrlKey ? 4 : 0) +
+              (event.metaKey ? 8 : 0);
+            if (mod > 1) {
+              event.preventDefault();
+              sendInput(`\x1b[${kittyCode};${mod}u`);
+              return false;
+            }
+          }
+        }
+
         return true;
       });
 

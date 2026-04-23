@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { eq, and } from 'drizzle-orm';
 import { mkdir } from 'fs/promises';
 import { join } from 'path';
+import { userInfo } from 'os';
 import { getWorkspacesRoot, getAgentHome } from '../config/paths';
 import { db, claudeSessions, terminals } from '../db';
 import { terminalService } from '../services/terminal';
@@ -12,6 +13,18 @@ import { getProjectCredentials } from '../services/git';
 import { requireAuth } from '../auth/middleware';
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN_PATH || 'claude';
+
+function getDefaultShell(): string {
+  if (process.platform === 'win32') {
+    return process.env.COMSPEC || 'cmd.exe';
+  }
+  if (process.env.SHELL) return process.env.SHELL;
+  try {
+    const info = userInfo();
+    if (info.shell) return info.shell;
+  } catch {}
+  return '/bin/bash';
+}
 
 const SHARED_DEFAULT_ENV: Record<string, string> = {
   NODE_ENV: 'development',
@@ -130,7 +143,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
       env.REMOTE_AGENT_SESSION_ID = body.sessionId;
       env.REMOTE_AGENT_TERMINAL_ID = terminalId;
     } else {
-      command = body.command || ['/bin/bash'];
+      command = body.command || [getDefaultShell(), '-l'];
       name = body.name || 'Terminal';
       await workspaceService.createUserWorkspace(user!.id);
     }

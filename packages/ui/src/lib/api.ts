@@ -5,6 +5,17 @@ function getApiBaseUrl(): string {
   return base ? `${base}/api` : '/api';
 }
 
+export class ApiError extends Error {
+  status: number;
+  data: Record<string, unknown>;
+  constructor(status: number, data: Record<string, unknown>) {
+    super(typeof data.error === 'string' ? data.error : 'Request failed');
+    this.name = 'ApiError';
+    this.status = status;
+    this.data = data;
+  }
+}
+
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -23,8 +34,8 @@ async function request<T>(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(error.error || 'Request failed');
+    const data = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new ApiError(response.status, data);
   }
 
   return response.json();
@@ -741,6 +752,8 @@ export interface CreateProjectInput {
   sshKeyId?: string;
   githubAppInstallationId?: string;
   githubRepoFullName?: string;
+  sourcePath?: string;
+  allowDirty?: boolean;
 }
 
 // ─── GitHub App Types ────────────────────────────────────────────────────────
@@ -831,6 +844,7 @@ export interface VersionInfo {
   publishedAt?: string;
   lastChecked: string | null;
   error?: string;
+  mode?: 'local' | 'remote';
 }
 
 export type LineSide = 'additions' | 'deletions';
