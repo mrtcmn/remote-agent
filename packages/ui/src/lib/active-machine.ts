@@ -65,3 +65,15 @@ export function shouldProxyEndpoint(endpoint: string): boolean {
   const path = endpoint.split('?')[0];
   return !LOCAL_ONLY_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
+
+/**
+ * Resolve a WebSocket URL that respects the active machine. When viewing a remote,
+ * routes through the local API's /ws/proxy/:machineId?path=... bridge so the master's
+ * machineToken stays server-side. When viewing self, returns the path unchanged.
+ */
+export function resolveWsPath(wsPath: string): string {
+  const activeId = getActiveMachineId();
+  if (!activeId || activeId === 'self') return wsPath;
+  const encoded = encodeURIComponent(wsPath);
+  return `/ws/proxy/${activeId}?path=${encoded}`;
+}
