@@ -30,6 +30,8 @@ export const notificationStatusEnum = pgEnum('notification_status', [
 
 export const notificationPriorityEnum = pgEnum('notification_priority', ['low', 'normal', 'high']);
 
+export const machineRoleEnum = pgEnum('machine_role', ['master', 'secondary']);
+
 // Better Auth tables
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -765,6 +767,41 @@ export const appSettings = pgTable('app_settings', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
+// Paired machines — secondaries that authenticate to this master with a machineToken
+export const machines = pgTable('machines', {
+  id: text('id').primaryKey(),
+  ownerUserId: text('owner_user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(),
+  role: machineRoleEnum('role').notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  lastSeenAt: timestamp('last_seen_at'),
+  sessionCount: integer('session_count').notNull().default(0),
+  version: text('version'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+// Short-lived pairing tokens (single-use, ~15 min TTL)
+export const pairingTokens = pgTable('pairing_tokens', {
+  tokenHash: text('token_hash').primaryKey(),
+  ownerUserId: text('owner_user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  consumedAt: timestamp('consumed_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+// Masters this machine has paired with (local/secondary side of the relationship).
+// Stores the plaintext machineToken because we need to send it as a bearer on every sync.
+export const pairedMasters = pgTable('paired_masters', {
+  id: text('id').primaryKey(),
+  ownerUserId: text('owner_user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  url: text('url').notNull(),
+  name: text('name').notNull(),
+  machineToken: text('machine_token').notNull(),
+  lastSyncAt: timestamp('last_sync_at'),
+  lastSyncError: text('last_sync_error'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
 // Type exports
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
@@ -807,3 +844,9 @@ export type GitHubApp = typeof githubApps.$inferSelect;
 export type NewGitHubApp = typeof githubApps.$inferInsert;
 export type GitHubAppInstallation = typeof githubAppInstallations.$inferSelect;
 export type NewGitHubAppInstallation = typeof githubAppInstallations.$inferInsert;
+export type Machine = typeof machines.$inferSelect;
+export type NewMachine = typeof machines.$inferInsert;
+export type PairingToken = typeof pairingTokens.$inferSelect;
+export type NewPairingToken = typeof pairingTokens.$inferInsert;
+export type PairedMaster = typeof pairedMasters.$inferSelect;
+export type NewPairedMaster = typeof pairedMasters.$inferInsert;

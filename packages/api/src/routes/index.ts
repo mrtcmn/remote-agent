@@ -22,6 +22,8 @@ import { artifactRoutes } from './artifacts.routes';
 import { presentationRoutes } from './presentation.routes';
 import { worktreeRoutes } from './worktrees.routes';
 import { githubAppRoutes } from './github-app.routes';
+import { machineRoutes } from './machines.routes';
+import { pairedMastersRoutes } from './paired-masters.routes';
 
 export const api = new Elysia({ prefix: '/api' })
   .use(authRoutes)
@@ -45,6 +47,8 @@ export const api = new Elysia({ prefix: '/api' })
   .use(presentationRoutes)
   .use(worktreeRoutes)
   .use(githubAppRoutes)
+  .use(machineRoutes)
+  .use(pairedMastersRoutes)
   .use(versionRoutes);
 
 export { internalRoutes };

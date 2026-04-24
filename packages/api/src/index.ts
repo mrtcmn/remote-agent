@@ -9,6 +9,8 @@ import { terminalService } from './services/terminal';
 import { browserPreviewService } from './services/browser-preview';
 import { codeServerManager } from './services/code-server/code-server.service';
 import { originsService } from './services/origins';
+import { masterSyncService } from './services/master-sync';
+import { machineProxyPlugin } from './plugins/machine-proxy';
 import { seedTestUser } from './auth/seed';
 
 const PORT = process.env.PORT || 5100;
@@ -45,6 +47,7 @@ const indexHtml = rawHtml.replace('<head>', `<head>\n    ${buildEnvScript()}`);
 await originsService.initialize();
 await notificationService.initialize();
 await terminalService.initialize();
+await masterSyncService.initialize();
 
 // Seed test user
 await seedTestUser();
@@ -60,6 +63,10 @@ const app = new Elysia()
     },
     credentials: true,
   }))
+
+  // Machine proxy — short-circuits requests with X-Machine-Id to paired masters.
+  // Must run before any route so local handlers never see forwarded requests.
+  .use(machineProxyPlugin)
 
   // API routes
   .use(api)
@@ -132,6 +139,7 @@ Endpoints:
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('Shutting down...');
+  await masterSyncService.shutdown();
   await codeServerManager.shutdown();
   await browserPreviewService.shutdown();
   await notificationService.shutdown();
@@ -140,6 +148,7 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('Shutting down...');
+  await masterSyncService.shutdown();
   await codeServerManager.shutdown();
   await browserPreviewService.shutdown();
   await notificationService.shutdown();

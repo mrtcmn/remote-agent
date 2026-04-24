@@ -1,6 +1,10 @@
 import { Elysia } from 'elysia';
+import { eq } from 'drizzle-orm';
 import { auth } from './index';
 import { verifyPin, hasPin } from './pin';
+import { db } from '../db';
+import { user as userTable } from '../db/schema';
+import { machineRegistry } from '../services/machine-registry';
 
 // Auth context type
 export interface AuthContext {
@@ -14,33 +18,66 @@ export interface AuthContext {
     id: string;
     userId: string;
     expiresAt: Date;
+    machineId?: string;
   } | null;
 }
 
 // Authentication middleware
 export const authMiddleware = new Elysia({ name: 'auth' })
   .derive({ as: 'global' }, async ({ request }) => {
-    // Debug: Log cookies
-    const cookies = request.headers.get('cookie');
-    // console.log('[Auth Middleware] Cookies:', cookies);
-
     const session = await auth.api.getSession({
       headers: request.headers,
     });
 
-    if (!session) {
-      return { user: null, session: null };
+    if (session) {
+      return {
+        user: {
+          id: session.user.id,
+          email: session.user.email,
+          name: session.user.name,
+          image: session.user.image ?? undefined,
+        },
+        session: {
+          id: session.session.id,
+          userId: session.session.userId,
+          expiresAt: session.session.expiresAt,
+          machineId: undefined as string | undefined,
+        },
+      };
     }
 
-    return {
-      user: {
-        id: session.user.id,
-        email: session.user.email,
-        name: session.user.name,
-        image: session.user.image ?? undefined,
-      },
-      session: session.session,
-    };
+    // Fall back to machineToken bearer auth — a paired secondary
+    // acting on behalf of the owner user.
+    const authHeader = request.headers.get('authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.slice(7).trim();
+      if (token) {
+        const machine = await machineRegistry.findByToken(token);
+        if (machine) {
+          const owner = await db.query.user.findFirst({
+            where: eq(userTable.id, machine.ownerUserId),
+          });
+          if (owner) {
+            return {
+              user: {
+                id: owner.id,
+                email: owner.email,
+                name: owner.name,
+                image: owner.image ?? undefined,
+              },
+              session: {
+                id: `machine:${machine.id}`,
+                userId: owner.id,
+                expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                machineId: machine.id as string | undefined,
+              },
+            };
+          }
+        }
+      }
+    }
+
+    return { user: null, session: null };
   });
 
 // Require authentication

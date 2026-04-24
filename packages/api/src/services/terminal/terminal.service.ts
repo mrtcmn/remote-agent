@@ -210,6 +210,10 @@ export class TerminalService extends EventEmitter {
     return this.instances.get(terminalId);
   }
 
+  getActiveCount(): number {
+    return this.instances.size;
+  }
+
   getSessionTerminals(sessionId: string): TerminalInstance[] {
     return Array.from(this.instances.values())
       .filter(t => t.sessionId === sessionId);
