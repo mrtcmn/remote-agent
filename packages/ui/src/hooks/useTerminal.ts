@@ -196,7 +196,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
       const inElectron = isElectron();
       const resolvedTheme = externalTheme || defaultTheme;
       const termTheme = inElectron
-        ? { ...resolvedTheme, background: 'transparent' }
+        ? { ...resolvedTheme, background: '#00000000' }
         : resolvedTheme;
 
       xterm = new Terminal({
@@ -553,13 +553,16 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
     };
   }, [terminalId, fit]);
 
-  // Live-update theme and font without re-creating the terminal
+  // Live-update theme and font without re-creating the terminal.
+  // xterm 6 uses reference equality to detect option changes
+  // (see xterm.d.ts: "a new object must be used ... as a reference comparison will be done"),
+  // so the theme must be a fresh object each time or the change listener never fires.
   useEffect(() => {
     if (xtermRef.current) {
       if (externalTheme) {
         xtermRef.current.options.theme = isElectron()
-          ? { ...externalTheme, background: 'transparent' }
-          : externalTheme;
+          ? { ...externalTheme, background: '#00000000' }
+          : { ...externalTheme };
       }
       if (externalFontFamily) xtermRef.current.options.fontFamily = externalFontFamily;
       if (externalFontWeight) {
@@ -571,6 +574,8 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
       if (fitAddonRef.current?.proposeDimensions()) {
         fitAddonRef.current.fit();
       }
+      // Repaint rows so new colors show on already-rendered content
+      xtermRef.current.refresh(0, xtermRef.current.rows - 1);
     }
   }, [externalTheme, externalFontFamily, externalFontWeight, externalFontSize]);
 
