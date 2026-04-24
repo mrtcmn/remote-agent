@@ -22,6 +22,7 @@ import {
   Play,
 } from 'lucide-react';
 import { NewSessionModal } from '@/components/NewSessionModal';
+import { MachineSwitcher } from '@/components/MachineSwitcher';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import type { SidebarData, SidebarProject, SidebarSession, SessionService } from '@/lib/api';
@@ -462,6 +463,11 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
             <X className="size-4" />
           </button>
         )}
+      </div>
+
+      {/* Machine switcher */}
+      <div className="px-2 pb-2 shrink-0">
+        <MachineSwitcher />
       </div>
 
       {/* New Session button */}

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { toast } from '@/components/ui/Toaster';
+import { MachinesSection } from '@/components/MachinesSection';
 
 export function SettingsPage() {
   const { user } = useAuth();
@@ -25,6 +26,7 @@ export function SettingsPage() {
       <VersionSection />
       <PasswordSection />
       <PinSection hasPin={user?.hasPin || false} />
+      <MachinesSection />
       <OriginsSection />
       <GitHubAppsSection />
       <NotificationSection />

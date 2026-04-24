@@ -1,4 +1,5 @@
 import { getApiBase } from './api-config';
+import { getActiveMachineId, shouldProxyEndpoint } from './active-machine';
 
 function getApiBaseUrl(): string {
   const base = getApiBase();
@@ -15,6 +16,11 @@ async function request<T>(
     'Content-Type': 'application/json',
     ...((options.headers as Record<string, string>) || {}),
   };
+
+  const activeId = getActiveMachineId();
+  if (activeId && activeId !== 'self' && shouldProxyEndpoint(endpoint)) {
+    headers['X-Machine-Id'] = activeId;
+  }
 
   const response = await fetch(url, {
     ...options,
@@ -610,6 +616,28 @@ export const api = {
     const query = params.toString();
     return request<SlideAnnotation[]>(`/sessions/${sessionId}/presentation/annotations${query ? `?${query}` : ''}`);
   },
+
+  // ── Machines (pairing tokens + paired secondaries) ─────────────────────────
+  createPairingToken: () =>
+    request<{ token: string; expiresAt: string; masterUrl: string }>('/machines/pairing-token', {
+      method: 'POST',
+    }),
+  listMachines: () => request<{ machines: MachineSummary[] }>('/machines'),
+  revokeMachine: (id: string) =>
+    request<{ ok: true }>(`/machines/${id}`, { method: 'DELETE' }),
+
+  // ── Paired masters (what this machine talks to) ────────────────────────────
+  listPairedMasters: () =>
+    request<{ masters: PairedMasterSummary[] }>('/paired-masters'),
+  pairMaster: (data: { url: string; token: string; name: string }) =>
+    request<{ master: PairedMasterSummary }>('/paired-masters', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  unpairMaster: (id: string) =>
+    request<{ ok: true }>(`/paired-masters/${id}`, { method: 'DELETE' }),
+  getPairedMasterPeers: (id: string) =>
+    request<{ peers: MachineSummary[] }>(`/paired-masters/${id}/peers`),
 };
 
 // Types
@@ -1330,4 +1358,28 @@ export interface PresentationSlide {
   excerpts: DiffExcerpt[];
   fullDiff: string;
   annotations: SlideAnnotation[];
+}
+
+// ── Machines types ─────────────────────────────────────────────────────────
+
+export interface MachineSummary {
+  id: string;
+  name: string;
+  role: 'master' | 'secondary';
+  online: boolean;
+  sessionCount: number;
+  lastSeenAt: string | null;
+  version: string | null;
+  ownerUserId: string;
+  createdAt: string;
+}
+
+export interface PairedMasterSummary {
+  id: string;
+  name: string;
+  url: string;
+  ownerUserId: string;
+  lastSyncAt: string | null;
+  lastSyncError: string | null;
+  createdAt: string;
 }
