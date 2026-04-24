@@ -47,6 +47,9 @@ services:
       # SSH keys
       - dev-ssh-keys:/app/ssh-keys
 
+      # Claude CLI config/credentials (persists login across rebuilds)
+      - dev-agent-claude:/home/agent/.claude
+
       # Docker socket for container management
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
@@ -99,3 +102,5 @@ volumes:
     name: remote-agent-dev-workspaces
   dev-ssh-keys:
     name: remote-agent-dev-ssh-keys
+  dev-agent-claude:
+    name: remote-agent-dev-claude

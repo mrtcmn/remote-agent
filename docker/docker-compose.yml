@@ -34,6 +34,7 @@ services:
       # Persistent data
       - workspaces:/app/workspaces
       - ssh-keys:/app/ssh-keys
+      - agent-claude:/home/agent/.claude
       # Docker socket for container management
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
@@ -89,3 +90,5 @@ volumes:
     name: remote-agent-workspaces
   ssh-keys:
     name: remote-agent-ssh-keys
+  agent-claude:
+    name: remote-agent-claude
