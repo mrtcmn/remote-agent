@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia';
 import { nanoid } from 'nanoid';
 import { eq, and } from 'drizzle-orm';
 import { mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { userInfo } from 'os';
 import { getWorkspacesRoot, getAgentHome } from '../config/paths';
@@ -14,16 +15,26 @@ import { requireAuth } from '../auth/middleware';
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN_PATH || 'claude';
 
+function isValidShellPath(shell: string | null | undefined): shell is string {
+  // Reject empty, non-absolute paths, and sentinel values like "unknown"
+  // that libc returns when /etc/passwd has no shell entry (common in minimal
+  // Docker images).
+  return !!shell && shell.startsWith('/') && existsSync(shell);
+}
+
 function getDefaultShell(): string {
   if (process.platform === 'win32') {
     return process.env.COMSPEC || 'cmd.exe';
   }
-  if (process.env.SHELL) return process.env.SHELL;
+  if (isValidShellPath(process.env.SHELL)) return process.env.SHELL!;
   try {
     const info = userInfo();
-    if (info.shell) return info.shell;
+    if (isValidShellPath(info.shell)) return info.shell;
   } catch {}
-  return '/bin/bash';
+  for (const fallback of ['/bin/bash', '/bin/sh']) {
+    if (existsSync(fallback)) return fallback;
+  }
+  return '/bin/sh';
 }
 
 const SHARED_DEFAULT_ENV: Record<string, string> = {
