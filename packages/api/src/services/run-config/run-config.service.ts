@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { eq, and, isNull } from 'drizzle-orm';
 import { db, runConfigs, runConfigInstances, projects, terminals } from '../../db';
 import { terminalService } from '../terminal';
+import { getAgentHome } from '../../config/paths';
 import { spawnAdapterRegistry } from '../spawn-adapter';
 import type { NewRunConfig } from '../../db/schema';
 import { resolveProjectEnv } from '../workspace/env.service';
@@ -156,7 +157,7 @@ export class RunConfigService extends EventEmitter {
     const cwd = config.cwd || resolved.cwd || projectPath;
     const projectEnv = await resolveProjectEnv(config.projectId);
     const env: Record<string, string> = {
-      HOME: '/home/agent',
+      HOME: getAgentHome(),
       ...projectEnv,
       ...resolved.env,
       ...(config.env ? JSON.parse(config.env) : {}),

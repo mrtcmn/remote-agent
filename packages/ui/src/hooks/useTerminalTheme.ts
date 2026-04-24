@@ -1,6 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import themeData from '@/lib/terminal-themes.json';
-import type { ITheme } from 'xterm';
+import type { ITheme } from '@xterm/xterm';
 import { notifyAppTheme } from '@/hooks/useAppTheme';
 
 export interface TerminalThemeEntry {

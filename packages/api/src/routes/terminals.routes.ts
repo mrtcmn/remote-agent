@@ -2,7 +2,10 @@ import { Elysia, t } from 'elysia';
 import { nanoid } from 'nanoid';
 import { eq, and } from 'drizzle-orm';
 import { mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
 import { join } from 'path';
+import { userInfo } from 'os';
+import { getWorkspacesRoot, getAgentHome } from '../config/paths';
 import { db, claudeSessions, terminals } from '../db';
 import { terminalService } from '../services/terminal';
 import { workspaceService } from '../services/workspace';
@@ -11,6 +14,28 @@ import { getProjectCredentials } from '../services/git';
 import { requireAuth } from '../auth/middleware';
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN_PATH || 'claude';
+
+function isValidShellPath(shell: string | null | undefined): shell is string {
+  // Reject empty, non-absolute paths, and sentinel values like "unknown"
+  // that libc returns when /etc/passwd has no shell entry (common in minimal
+  // Docker images).
+  return !!shell && shell.startsWith('/') && existsSync(shell);
+}
+
+function getDefaultShell(): string {
+  if (process.platform === 'win32') {
+    return process.env.COMSPEC || 'cmd.exe';
+  }
+  if (isValidShellPath(process.env.SHELL)) return process.env.SHELL!;
+  try {
+    const info = userInfo();
+    if (isValidShellPath(info.shell)) return info.shell;
+  } catch {}
+  for (const fallback of ['/bin/bash', '/bin/sh']) {
+    if (existsSync(fallback)) return fallback;
+  }
+  return '/bin/sh';
+}
 
 const SHARED_DEFAULT_ENV: Record<string, string> = {
   NODE_ENV: 'development',
@@ -73,7 +98,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     }
 
     const terminalId = nanoid();
-    const userWorkspace = `/app/workspaces/${user!.id}`;
+    const userWorkspace = join(getWorkspacesRoot(), user!.id);
     // Resolve CWD: explicit > worktree > project > workspace
     let cwd = body.cwd;
     if (!cwd && session.worktreeId && session.worktree) {
@@ -94,7 +119,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     let name: string;
     let env: Record<string, string> = {
       ...SHARED_DEFAULT_ENV,
-      HOME: '/home/agent',
+      HOME: getAgentHome(),
       ...projectEnv,
     };
 
@@ -129,8 +154,9 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
       env.REMOTE_AGENT_SESSION_ID = body.sessionId;
       env.REMOTE_AGENT_TERMINAL_ID = terminalId;
     } else {
-      command = body.command || ['/bin/bash'];
+      command = body.command || [getDefaultShell(), '-l'];
       name = body.name || 'Terminal';
+      await workspaceService.createUserWorkspace(user!.id);
     }
 
     try {

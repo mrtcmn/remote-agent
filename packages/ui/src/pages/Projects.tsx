@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Plus, FolderGit2, GitBranch, RefreshCw, Loader2, Terminal, Key, Layers, Check, Trash2, Github, Search, Lock } from 'lucide-react';
-import { api, type Project, type SSHKey } from '@/lib/api';
+import { Plus, FolderGit2, GitBranch, RefreshCw, Loader2, Terminal, Key, Layers, Check, Trash2, Github, Search, Lock, HardDrive, AlertTriangle } from 'lucide-react';
+import { api, ApiError, type Project, type SSHKey, type CreateProjectInput } from '@/lib/api';
+import { getElectronAPI } from '@/lib/electron';
 import { useAuth } from '@/hooks/useAuth';
 import { useGitHubApps, useGitHubAppInstallations, useInstallationRepos } from '@/hooks/useGitHubApps';
 import { Button } from '@/components/ui/Button';
@@ -103,21 +104,35 @@ function CreateProjectForm({
   onSuccess: () => void;
 }) {
   const { data: githubApps } = useGitHubApps();
+  const { data: versionInfo } = useQuery({
+    queryKey: ['version'],
+    queryFn: () => api.getVersion(),
+    staleTime: 60_000,
+  });
+  const isLocal = versionInfo?.mode === 'local';
   const hasGitHubApps = githubApps && githubApps.length > 0;
-  const [tab, setTab] = useState<'github' | 'ssh'>(hasGitHubApps ? 'github' : 'ssh');
 
-  // Switch tab when data loads
-  const activeTab = hasGitHubApps ? tab : 'ssh';
+  type Tab = 'github' | 'ssh' | 'local';
+  const defaultTab: Tab = hasGitHubApps ? 'github' : isLocal ? 'local' : 'ssh';
+  const [tab, setTab] = useState<Tab>(defaultTab);
+
+  const activeTab: Tab = !hasGitHubApps && tab === 'github'
+    ? (isLocal ? 'local' : 'ssh')
+    : (!isLocal && tab === 'local' ? 'ssh' : tab);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Add Project</CardTitle>
-        <CardDescription>Clone a repository or create an empty project</CardDescription>
+        <CardDescription>
+          {isLocal
+            ? 'Clone, start empty, or adopt a local folder'
+            : 'Clone a repository or create an empty project'}
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        {hasGitHubApps && (
-          <div className="flex gap-1 mb-4 p-1 bg-muted rounded-md">
+        <div className="flex gap-1 mb-4 p-1 bg-muted rounded-md">
+          {hasGitHubApps && (
             <button
               onClick={() => setTab('github')}
               className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
@@ -127,25 +142,190 @@ function CreateProjectForm({
               <Github className="h-4 w-4" />
               GitHub
             </button>
+          )}
+          <button
+            onClick={() => setTab('ssh')}
+            className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              activeTab === 'ssh' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Key className="h-4 w-4" />
+            SSH / URL
+          </button>
+          {isLocal && (
             <button
-              onClick={() => setTab('ssh')}
+              onClick={() => setTab('local')}
               className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                activeTab === 'ssh' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                activeTab === 'local' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Key className="h-4 w-4" />
-              SSH / URL
+              <HardDrive className="h-4 w-4" />
+              Local Folder
             </button>
-          </div>
-        )}
+          )}
+        </div>
 
-        {activeTab === 'github' ? (
-          <GitHubRepoForm onClose={onClose} onSuccess={onSuccess} />
-        ) : (
-          <SSHProjectForm onClose={onClose} onSuccess={onSuccess} />
-        )}
+        {activeTab === 'github' && <GitHubRepoForm onClose={onClose} onSuccess={onSuccess} />}
+        {activeTab === 'ssh' && <SSHProjectForm onClose={onClose} onSuccess={onSuccess} />}
+        {activeTab === 'local' && <LocalFolderForm onClose={onClose} onSuccess={onSuccess} />}
       </CardContent>
     </Card>
+  );
+}
+
+function LocalFolderForm({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const electron = getElectronAPI();
+  const [sourcePath, setSourcePath] = useState('');
+  const [name, setName] = useState('');
+  const [nameEdited, setNameEdited] = useState(false);
+  const [dirty, setDirty] = useState<{ files: string[] } | null>(null);
+  const recentPaths = (() => {
+    try {
+      const raw = localStorage.getItem('recent-local-project-paths');
+      return raw ? (JSON.parse(raw) as string[]) : [];
+    } catch {
+      return [] as string[];
+    }
+  })();
+
+  const createMutation = useMutation<Project, ApiError, CreateProjectInput>({
+    mutationFn: (input) => api.createProject(input) as Promise<Project>,
+    onSuccess: () => {
+      // Persist recent path
+      try {
+        const next = [sourcePath, ...recentPaths.filter(p => p !== sourcePath)].slice(0, 5);
+        localStorage.setItem('recent-local-project-paths', JSON.stringify(next));
+      } catch { /* ignore */ }
+      toast({ title: 'Project added' });
+      onSuccess();
+    },
+    onError: (err) => {
+      if (err.status === 409 && err.data.error === 'dirty') {
+        setDirty({ files: (err.data.changedFiles as string[]) || [] });
+        return;
+      }
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const handleBrowse = async () => {
+    if (!electron) return;
+    const result = await electron.selectFolder({ title: 'Pick a git repository folder' });
+    if (result.canceled || !result.path) return;
+    handlePathChange(result.path);
+  };
+
+  const handlePathChange = (value: string) => {
+    setSourcePath(value);
+    if (!nameEdited) {
+      const base = value.replace(/\/+$/, '').split('/').pop() || '';
+      setName(base);
+    }
+    setDirty(null);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sourcePath || !name) return;
+    createMutation.mutate({ name, sourcePath });
+  };
+
+  const handleConfirmDirty = () => {
+    createMutation.mutate({ name, sourcePath, allowDirty: true });
+    setDirty(null);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label className="text-sm font-medium">Folder</label>
+        <div className="flex gap-2">
+          <Input
+            value={sourcePath}
+            onChange={(e) => handlePathChange(e.target.value)}
+            placeholder={electron ? 'Click Browse to pick a folder' : '/Users/you/code/my-repo'}
+            readOnly={!!electron}
+            required
+            list="recent-local-paths"
+            className="flex-1"
+          />
+          {electron ? (
+            <Button type="button" variant="outline" onClick={handleBrowse} className="gap-2 shrink-0">
+              <HardDrive className="h-4 w-4" />
+              Browse
+            </Button>
+          ) : null}
+        </div>
+        {recentPaths.length > 0 && !electron && (
+          <datalist id="recent-local-paths">
+            {recentPaths.map(p => <option key={p} value={p} />)}
+          </datalist>
+        )}
+        <p className="text-xs text-muted-foreground mt-1">
+          Local git repository. The folder is copied into the workspace — the original is not touched.
+        </p>
+      </div>
+      <div>
+        <label className="text-sm font-medium">Project Name</label>
+        <Input
+          value={name}
+          onChange={(e) => { setName(e.target.value); setNameEdited(true); }}
+          placeholder="my-repo"
+          required
+        />
+      </div>
+
+      {dirty && (
+        <div className="border border-yellow-500/40 bg-yellow-500/10 rounded-md p-3 space-y-2">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-medium">Uncommitted changes detected</p>
+              <p className="text-muted-foreground text-xs mt-1">
+                Only committed files will be copied. Your local edits stay in the original folder.
+              </p>
+            </div>
+          </div>
+          <div className="text-xs font-mono bg-background/50 rounded p-2 max-h-32 overflow-y-auto">
+            {dirty.files.slice(0, 20).map(f => <div key={f}>{f}</div>)}
+            {dirty.files.length > 20 && (
+              <div className="text-muted-foreground">…and {dirty.files.length - 20} more</div>
+            )}
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button type="button" size="sm" variant="outline" onClick={() => setDirty(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleConfirmDirty}
+              disabled={createMutation.isPending}
+            >
+              {createMutation.isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+              Copy anyway
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2 justify-end">
+        <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+        <Button
+          type="submit"
+          disabled={createMutation.isPending || !sourcePath || !name || !!dirty}
+        >
+          {createMutation.isPending && !dirty && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          Add
+        </Button>
+      </div>
+    </form>
   );
 }
 

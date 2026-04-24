@@ -18,7 +18,7 @@
     "db:studio": "bun run --cwd packages/api db:studio",
     "electron:dev": "bun run build:ui && cd packages/electron && npm run dev",
     "electron:dev:remote": "cd packages/electron && npm run dev:remote",
-    "electron:build": "bun run build:ui && cd packages/electron && npm run dist"
+    "electron:build": "cd packages/electron && npm run dist"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",

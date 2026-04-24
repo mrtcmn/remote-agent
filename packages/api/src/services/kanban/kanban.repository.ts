@@ -353,7 +353,7 @@ class KanbanRepository {
     // Get counts per status
     const result = await db.select({
       status: kanbanTasks.status,
-      count: sql<number>`count(*)::int`,
+      count: sql<number>`cast(count(*) as integer)`,
     })
       .from(kanbanTasks)
       .where(and(...conditions))

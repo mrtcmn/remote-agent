@@ -1,6 +1,7 @@
 import { readdir, readFile, symlink, unlink, stat, mkdir, rm } from 'fs/promises';
 import { join, basename } from 'path';
 import { existsSync } from 'fs';
+import { getWorkspacesRoot } from '../../config/paths';
 
 export interface SkillMeta {
   name: string;
@@ -42,7 +43,7 @@ const PRIMARY_SKILL_DIR = '.claude/skills';
 const SHARED_SKILLS_DIR = '.skills-cache';
 
 function getWorkspaceRoot(): string {
-  return process.env.WORKSPACE_ROOT || '/app/workspaces';
+  return getWorkspacesRoot();
 }
 
 function getSkillsCacheDir(): string {

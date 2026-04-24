@@ -1,4 +1,5 @@
 export interface StoreSchema {
+  mode: 'local' | 'remote';
   apiUrl: string;
   windowBounds: {
     x?: number;
@@ -24,6 +25,11 @@ export async function getStore(): Promise<StoreInstance> {
 
   const instance: StoreInstance = new Store({
     schema: {
+      mode: {
+        type: 'string',
+        enum: ['local', 'remote'],
+        default: 'local',
+      },
       apiUrl: {
         type: 'string',
         default: '',

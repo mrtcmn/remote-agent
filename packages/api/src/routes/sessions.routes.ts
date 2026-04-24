@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { nanoid } from 'nanoid';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, inArray } from 'drizzle-orm';
 import { db, claudeSessions, projects, projectLinks, reviewComments, worktrees } from '../db';
 import { terminalService } from '../services/terminal';
 import { gitService, getProjectCredentials } from '../services/git';
@@ -544,10 +544,10 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       const counts = await db
         .select({
           sessionId: reviewComments.sessionId,
-          count: sql<number>`count(*)::int`,
+          count: sql<number>`cast(count(*) as integer)`,
         })
         .from(reviewComments)
-        .where(sql`${reviewComments.sessionId} IN ${sessionIds}`)
+        .where(inArray(reviewComments.sessionId, sessionIds))
         .groupBy(reviewComments.sessionId);
 
       for (const row of counts) {

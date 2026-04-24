@@ -64,7 +64,12 @@ class OriginsService {
     }
 
     // Always include common dev origins
-    for (const dev of ['http://localhost:5173', 'http://localhost:5100']) {
+    for (const dev of [
+      'http://localhost:5173',
+      'http://localhost:5100',
+      'http://localhost:13590',
+      'http://localhost:13591',
+    ]) {
       if (!defaults.includes(dev)) defaults.push(dev);
     }
 

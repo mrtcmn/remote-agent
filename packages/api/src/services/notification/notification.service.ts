@@ -4,6 +4,7 @@ import type { NotificationAdapter, NotificationPayload, CreateNotificationInput,
 import { FirebaseAdapter, WebhookAdapter } from './adapters';
 import { notificationRepository } from './notification.repository';
 import { presenceManager } from '../presence';
+import { isRemoteMode } from '../../config/mode';
 
 export class NotificationService {
   private adapters = new Map<string, NotificationAdapter>();
@@ -14,8 +15,10 @@ export class NotificationService {
   private static DEBOUNCE_WINDOW_MS = 2 * 60 * 1000; // 2 minutes
 
   constructor() {
-    // Register default adapters
-    this.registerAdapter(new FirebaseAdapter());
+    // Register default adapters — Firebase only in remote mode
+    if (isRemoteMode()) {
+      this.registerAdapter(new FirebaseAdapter());
+    }
     this.registerAdapter(new WebhookAdapter());
   }
 
