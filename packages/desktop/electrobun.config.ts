@@ -19,8 +19,9 @@ export default {
       // Vite-built UI -> bundled view assets (views://mainview/...).
       "dist/index.html": "views/mainview/index.html",
       "dist/assets": "views/mainview/assets",
-      // The API server bundle (runnable JS, run by the vendored Bun).
-      "dist-server/index.js": "server/index.js",
+      // The API server bundle + its file-import assets (runnable by the vendored Bun).
+      // Copy the whole outdir so asset paths baked by bun build resolve correctly.
+      "dist-server": "server",
       // Drizzle migration files the server needs at runtime.
       "../api/drizzle": "server/drizzle",
       "../api/drizzle-sqlite": "server/drizzle-sqlite",
