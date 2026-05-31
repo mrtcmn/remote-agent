@@ -430,9 +430,9 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
   return (
     <div className="flex flex-col h-full bg-card text-foreground">
       {/* Electron: traffic light spacer + drag region */}
-      <div className="hidden electron-titlebar h-[38px] shrink-0 app-drag" />
-      {/* Top nav tabs with sliding pill */}
-      <div className="flex items-center gap-0.5 px-2 pt-3 pb-2 shrink-0">
+      <div className="hidden electron-titlebar h-[44px] shrink-0 app-drag" />
+      {/* Top nav tabs with sliding pill — right side is a drag handle */}
+      <div className="flex items-center gap-0.5 px-2 pt-3 pb-2 shrink-0 app-drag">
         {(['workspaces', 'tasks'] as const).map((tab) => (
           <button
             key={tab}
@@ -445,7 +445,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
               onClose?.();
             }}
             className={cn(
-              'relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium capitalize transition-colors duration-150',
+              'relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium capitalize transition-colors duration-150 app-no-drag',
               activeTab === tab
                 ? 'text-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
@@ -468,7 +468,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
         {onClose && (
           <button
             onClick={onClose}
-            className="ml-auto md:hidden p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary"
+            className="ml-auto md:hidden p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary app-no-drag"
           >
             <X className="size-4" />
           </button>
@@ -498,7 +498,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
       <div className="h-px bg-border mb-2 shrink-0" />
 
       {/* Project list */}
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -563,6 +563,8 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
             )}
           </div>
         )}
+        {/* Empty space below sessions is a window drag handle */}
+        <div className="flex-1 min-h-[48px] app-drag" />
       </div>
 
       {/* Bottom nav */}

@@ -351,9 +351,9 @@ export function NotificationPanel() {
 
   return (
     <div className="flex flex-col h-full bg-card">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 h-9 shrink-0">
-        <div className="flex items-center gap-2">
+      {/* Header — doubles as window drag handle on the desktop shell */}
+      <div className="flex items-center justify-between px-4 h-9 shrink-0 app-drag">
+        <div className="flex items-center gap-2 pointer-events-none">
           <Bell className="size-3.5 text-muted-foreground/60" />
           <span className="text-sm font-semibold text-foreground tracking-tight">Notifications</span>
         </div>
@@ -365,7 +365,7 @@ export function NotificationPanel() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.5, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-              className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-orange-500 text-white text-[9px] font-bold px-1 tabular-nums"
+              className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-orange-500 text-white text-[9px] font-bold px-1 tabular-nums pointer-events-none"
             >
               {unreadCount}
             </motion.span>
