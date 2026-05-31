@@ -517,12 +517,12 @@ export function SessionPage() {
   return (
     <div className="flex flex-col h-full">
       {/* ── Tools Menu Toolbar ── */}
-      <div className="flex items-stretch h-9 border-b border-border bg-card overflow-hidden w-full shrink-0 app-drag">
+      <div className="flex items-stretch h-9 border-b border-border bg-card overflow-hidden w-full shrink-0 electrobun-webkit-app-region-drag">
         <div
           className="flex-1 min-w-0 flex items-stretch overflow-x-auto"
           style={{ scrollbarWidth: 'none' }}
         >
-          <div className="flex items-stretch px-1 app-no-drag">
+          <div className="flex items-stretch px-1 electrobun-webkit-app-region-no-drag">
             {/* Nav */}
             <ToolBtn icon={ArrowLeft} onClick={() => navigate('/')} className="w-7 justify-center px-0" />
             {session?.project?.isMultiProject && session.project.childLinks && session.project.childLinks.length > 0 ? (
@@ -681,7 +681,7 @@ export function SessionPage() {
         </div>
 
         {/* Collapse toggle */}
-        <div className="shrink-0 flex items-stretch border-l border-border/60 app-no-drag">
+        <div className="shrink-0 flex items-stretch border-l border-border/60 electrobun-webkit-app-region-no-drag">
           <button
             onClick={() => setToolsCollapsed((v) => !v)}
             className="flex items-center justify-center w-8 h-full text-muted-foreground/40 hover:text-muted-foreground hover:bg-secondary/60 transition-colors"
@@ -698,12 +698,12 @@ export function SessionPage() {
       </div>
 
       {/* ── Tab Bar ── */}
-      <div className="hidden md:flex items-stretch h-8 border-b border-border bg-card w-full shrink-0 app-drag">
+      <div className="hidden md:flex items-stretch h-8 border-b border-border bg-card w-full shrink-0 electrobun-webkit-app-region-drag">
         <div
           className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden"
           style={{ scrollbarWidth: 'none' }}
         >
-          <div className="flex items-stretch h-full app-no-drag">
+          <div className="flex items-stretch h-full electrobun-webkit-app-region-no-drag">
             <AnimatePresence initial={false}>
               {tabData.map((tab) => (
                 <TabItem
@@ -733,7 +733,7 @@ export function SessionPage() {
         {/* Add tab */}
         <button
           onClick={() => createMutation.mutate({ type: 'shell' })}
-          className="flex items-center justify-center w-8 h-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-secondary transition-colors shrink-0 border-l border-border app-no-drag"
+          className="flex items-center justify-center w-8 h-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-secondary transition-colors shrink-0 border-l border-border electrobun-webkit-app-region-no-drag"
         >
           <Plus className="size-3.5" />
         </button>

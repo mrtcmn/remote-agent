@@ -228,11 +228,13 @@
     inset 0 1px 0 hsla(0, 0%, 100%, 0.05);
 }
 
-/* Electron: window drag regions */
-.app-drag {
-  -webkit-app-region: drag;
+/* Desktop shell: window drag regions.
+   Electrobun (WKWebView) detects .electrobun-webkit-app-region-drag via its
+   preload JS — CSS -webkit-app-region is Chromium-only and ignored here. */
+.electrobun-webkit-app-region-drag {
+  -webkit-app-region: drag; /* kept for Electron/Chromium fallback */
 }
-.app-no-drag {
+.electrobun-webkit-app-region-no-drag {
   -webkit-app-region: no-drag;
 }
 

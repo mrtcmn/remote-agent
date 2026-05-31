@@ -352,7 +352,7 @@ export function NotificationPanel() {
   return (
     <div className="flex flex-col h-full bg-card">
       {/* Header — doubles as window drag handle on the desktop shell */}
-      <div className="flex items-center justify-between px-4 h-9 shrink-0 app-drag">
+      <div className="flex items-center justify-between px-4 h-9 shrink-0 electrobun-webkit-app-region-drag">
         <div className="flex items-center gap-2 pointer-events-none">
           <Bell className="size-3.5 text-muted-foreground/60" />
           <span className="text-sm font-semibold text-foreground tracking-tight">Notifications</span>
