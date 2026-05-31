@@ -1,0 +1,25 @@
+{
+  "name": "@remote-agent/desktop",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"bun run dev:ui\" \"electrobun dev\"",
+    "dev:ui": "vite",
+    "build:ui": "vite build",
+    "build:server": "bun build ../api/src/index.ts --target=bun --outfile dist-server/index.js --external playwright --external playwright-core",
+    "build": "bun run build:ui && bun run build:server && electrobun build",
+    "build:stable": "bun run build:ui && bun run build:server && electrobun build --env=stable",
+    "tsc": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@remote-agent/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "electrobun": "beta",
+    "concurrently": "^9.0.0",
+    "vite": "^6.0.0",
+    "typescript": "^5.4.0"
+  }
+}
