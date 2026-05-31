@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/mount.tsx",
+    "./mount": "./src/mount.tsx",
+    "./src/index.css": "./src/index.css"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
