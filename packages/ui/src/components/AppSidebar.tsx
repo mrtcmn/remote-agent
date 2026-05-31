@@ -23,11 +23,12 @@ import {
 } from 'lucide-react';
 import { NewSessionModal } from '@/components/NewSessionModal';
 import { MachineSwitcher } from '@/components/MachineSwitcher';
+import { AIModelIcon, detectAIModel } from '@/components/AIModelIcon';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import type { SidebarData, SidebarProject, SidebarSession, SessionService } from '@/lib/api';
 
-const ACTIVE_STATUSES = new Set(['active', 'waiting_input', 'paused']);
+const ACTIVE_STATUSES = new Set(['active', 'waiting_input']);
 
 function isActiveSession(session: SidebarSession): boolean {
   const effectiveStatus = session.liveStatus || session.status;
@@ -85,6 +86,10 @@ function ServiceRow({
 }) {
   const config = serviceConfig[service.type] || serviceConfig.shell;
   const Icon = config.icon;
+  // Claude terminals use the brand AI icon resolved from the terminal title —
+  // same `detectAIModel(name)` mechanism the top tab bar uses, so a Codex /
+  // Gemini / OpenAI session shows the right brand instead of a generic bot.
+  const isAi = service.type === 'claude';
 
   const handleClick = () => {
     if (service.type === 'codeServer' && service.url) {
@@ -100,9 +105,14 @@ function ServiceRow({
     <button
       onClick={handleClick}
       className="w-full flex items-center gap-1.5 pl-7 pr-2 py-0.5 rounded text-left text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/50 transition-colors"
+      title={service.label}
     >
       <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', config.dot)} />
-      <Icon className="size-2.5 shrink-0" />
+      {isAi ? (
+        <AIModelIcon model={detectAIModel(service.label)} size={10} className="shrink-0" />
+      ) : (
+        <Icon className="size-2.5 shrink-0" />
+      )}
       <span className="text-[10px] truncate">{service.label}</span>
     </button>
   );

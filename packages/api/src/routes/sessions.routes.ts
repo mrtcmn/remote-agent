@@ -576,9 +576,9 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       const hasActiveTerminals = terminals.some(t => t.status === 'running');
       let liveStatus = hasActiveTerminals ? 'active' : session.status;
 
-      // Auto-detect stale sessions: if status is 'active' or 'waiting_input' but
+      // Auto-detect stale sessions: if status is active/waiting_input/paused but
       // no terminals are running and last activity was > 2 minutes ago, treat as terminated
-      if (!hasActiveTerminals && (session.status === 'active' || session.status === 'waiting_input')) {
+      if (!hasActiveTerminals && (session.status === 'active' || session.status === 'waiting_input' || session.status === 'paused')) {
         const staleThreshold = 2 * 60 * 1000; // 2 minutes
         const lastActive = new Date(session.lastActiveAt).getTime();
         if (Date.now() - lastActive > staleThreshold) {
@@ -631,7 +631,9 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
 
       for (const term of runningTerminals) {
         if (term.type === 'claude') {
-          services.push({ type: 'claude', id: term.id, label: 'Claude', status: 'running' });
+          // Use the terminal's name so the sidebar shows the actual title
+          // (e.g. "Load Hetzner JSON") rather than a generic "Claude".
+          services.push({ type: 'claude', id: term.id, label: term.name || 'Claude', status: 'running' });
         } else if (term.type === 'shell') {
           services.push({ type: 'shell', id: term.id, label: term.name || 'Shell', status: 'running' });
         } else if (term.type === 'process') {
