@@ -17,11 +17,11 @@ export function installElectronApiShim() {
   const ev = new Electroview({ rpc });
 
   (window as any).electronAPI = {
-    getApiUrl: () => ev.rpc.request.getApiUrl({}),
-    setApiUrl: (url: string) => ev.rpc.request.setApiUrl({ url }),
-    checkConnection: (url: string) => ev.rpc.request.checkConnection({ url }),
+    getApiUrl: () => ev.rpc!.request.getApiUrl({}),
+    setApiUrl: (url: string) => ev.rpc!.request.setApiUrl({ url }),
+    checkConnection: (url: string) => ev.rpc!.request.checkConnection({ url }),
     selectFolder: (opts?: { title?: string; defaultPath?: string }) =>
-      ev.rpc.request.selectFolder(opts ?? {}),
+      ev.rpc!.request.selectFolder(opts ?? {}),
     isElectron: true, // UI's detection key (lib/electron.ts) — keep it
   };
 }

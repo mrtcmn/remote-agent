@@ -10,7 +10,11 @@
     "types": ["bun-types"],
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["../ui/src/*"]
+    }
   },
   "include": ["src", "electrobun.config.ts", "vite.config.ts"]
 }
