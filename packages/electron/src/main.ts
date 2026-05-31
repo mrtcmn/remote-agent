@@ -19,11 +19,7 @@ async function createWindow() {
     minHeight: 600,
     frame: false,
     titleBarStyle: 'hiddenInset',
-    transparent: true,
-    vibrancy: 'under-window',
-    visualEffectState: 'active',
-    backgroundMaterial: 'acrylic',
-    backgroundColor: '#00000000',
+    backgroundColor: '#0a0a0a',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

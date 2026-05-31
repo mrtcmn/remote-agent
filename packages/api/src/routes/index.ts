@@ -12,6 +12,7 @@ import { fileRoutes } from './files.routes';
 import { kanbanRoutes } from './kanban.routes';
 import { settingsRoutes } from './settings.routes';
 import { runConfigRoutes } from './run-configs.routes';
+import { runFlowRoutes } from './run-flows.routes';
 import { presenceRoutes } from './presence.routes';
 import { previewRoutes } from './preview.routes';
 import { dockerRoutes } from './docker.routes';
@@ -37,6 +38,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(kanbanRoutes)
   .use(settingsRoutes)
   .use(runConfigRoutes)
+  .use(runFlowRoutes)
   .use(previewRoutes)
   .use(dockerRoutes)
   .use(editorRoutes)

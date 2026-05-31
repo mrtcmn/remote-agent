@@ -24,6 +24,7 @@ import {
   Palette,
   Type,
   Presentation,
+  Workflow,
 } from 'lucide-react';
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -32,6 +33,7 @@ import { AIModelIcon, detectAIModel } from '@/components/AIModelIcon';
 import { GitPanel } from '@/components/git';
 import { FileExplorer } from '@/components/FileExplorer';
 import { RunConfigPanel } from '@/components/RunConfigPanel';
+import { RunFlowView } from '@/components/run-flow/RunFlowView';
 import { BrowserPreview } from '@/components/BrowserPreview';
 import { DockerPanel } from '@/components/DockerPanel';
 import { EnvEditor } from '@/components/EnvEditor';
@@ -48,8 +50,9 @@ import { useTerminalTheme } from '@/hooks/useTerminalTheme';
 import { ThemeSelector } from '@/components/ThemeSelector';
 import { ProjectSelector } from '@/components/ProjectSelector';
 import { ReviewDrawer } from '@/components/review/ReviewDrawer';
+import { OpenInEditorButton } from '@/components/OpenInEditorButton';
 
-type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'preview' | 'docker' | 'env';
+type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'flow' | 'preview' | 'docker' | 'env';
 
 // ─── Tools Menu Primitives ──────────────────────────────────────────────────
 
@@ -447,6 +450,13 @@ export function SessionPage() {
     staleTime: 60000,
   });
 
+  const { data: versionInfo } = useQuery({
+    queryKey: ['version'],
+    queryFn: () => api.getVersion(),
+    staleTime: 60_000,
+  });
+  const isLocalMode = versionInfo?.mode === 'local';
+
   const openEditorMutation = useMutation({
     mutationFn: (folder: string) => api.openEditor(folder),
     onSuccess: (data) => { window.open(data.url, '_blank'); },
@@ -456,6 +466,7 @@ export function SessionPage() {
   });
 
   const canOpenEditor = !!editorStatus?.configured && !!activeProject?.localPath;
+  const canOpenLocalEditor = isLocalMode && !!activeProject?.localPath;
   const activeTerminals = terminals.filter((t) => (t.liveStatus || t.status) === 'running');
 
   if (!activeTerminalId && activeTerminals.length > 0 && !isLoading) {
@@ -592,6 +603,12 @@ export function SessionPage() {
                           onClick={() => setViewMode(viewMode === 'run' ? 'terminal' : 'run')}
                         />
                         <ToolBtn
+                          icon={Workflow}
+                          label="Flow"
+                          isActive={viewMode === 'flow'}
+                          onClick={() => setViewMode(viewMode === 'flow' ? 'terminal' : 'flow')}
+                        />
+                        <ToolBtn
                           icon={FolderOpen}
                           label="Files"
                           isActive={viewMode === 'files'}
@@ -635,7 +652,14 @@ export function SessionPage() {
                   </div>
 
                   {/* Editor */}
-                  {canOpenEditor && (
+                  {canOpenLocalEditor ? (
+                    <>
+                      <Divider />
+                      <div className="flex items-stretch gap-0.5">
+                        <OpenInEditorButton folder={activeProject!.localPath} />
+                      </div>
+                    </>
+                  ) : canOpenEditor ? (
                     <>
                       <Divider />
                       <div className="flex items-stretch gap-0.5">
@@ -649,7 +673,7 @@ export function SessionPage() {
                         />
                       </div>
                     </>
-                  )}
+                  ) : null}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -826,6 +850,17 @@ export function SessionPage() {
             onTerminalCreated={(terminalId) => {
               queryClient.invalidateQueries({ queryKey: ['terminals', id] });
               selectTerminal(terminalId);
+            }}
+          />
+        ) : viewMode === 'flow' && session?.project ? (
+          <RunFlowView
+            projectId={session.project.id}
+            sessionId={id!}
+            isMultiProject={!!session.project.isMultiProject}
+            onOpenTerminal={(terminalId) => {
+              queryClient.invalidateQueries({ queryKey: ['terminals', id] });
+              selectTerminal(terminalId);
+              setViewMode('terminal');
             }}
           />
         ) : viewMode === 'docker' ? (

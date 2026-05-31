@@ -7,6 +7,17 @@ export class ClaudeCodeEngine implements LLMEngine {
     return process.env.CLAUDE_BIN_PATH || 'claude';
   }
 
+  /**
+   * Model used for notification classification/summarization. Defaults to
+   * Haiku — it's the fastest model and the task (classify + 100-char summary)
+   * is light, so latency matters far more than reasoning depth. Pass an alias
+   * ("haiku"/"sonnet"/"opus") or a full model id; the alias resolves to the
+   * latest model in that family. Override with CLASSIFIER_MODEL if needed.
+   */
+  private getModel(): string {
+    return process.env.CLASSIFIER_MODEL || 'haiku';
+  }
+
   async isAvailable(): Promise<boolean> {
     try {
       const proc = Bun.spawn([this.getClaudePath(), '--version'], { stdout: 'pipe', stderr: 'pipe' });
@@ -28,7 +39,7 @@ export class ClaudeCodeEngine implements LLMEngine {
   }
 
   private async run(request: LLMRequest): Promise<string> {
-    const args = [this.getClaudePath(), '--print', '--output-format', 'json'];
+    const args = [this.getClaudePath(), '--print', '--output-format', 'json', '--model', this.getModel()];
 
     if (request.systemPrompt) {
       args.push('--system-prompt', request.systemPrompt);

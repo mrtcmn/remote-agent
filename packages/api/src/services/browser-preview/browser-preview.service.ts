@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { chromium, type Browser, type Page, type CDPSession } from 'playwright';
+import type { Browser, Page, CDPSession } from 'playwright';
 import { nanoid } from 'nanoid';
 import type {
   IBrowserPreviewService,
@@ -43,6 +43,7 @@ export class BrowserPreviewService extends EventEmitter implements IBrowserPrevi
     }
 
     console.log('[BrowserPreview] Launching Chromium...');
+    const { chromium } = await import('playwright');
     this.browser = await chromium.launch({
       headless: true,
       args: [

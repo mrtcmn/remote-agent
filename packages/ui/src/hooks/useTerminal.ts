@@ -6,16 +6,26 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import '@xterm/xterm/css/xterm.css';
 import { getApiBase } from '@/lib/api-config';
-import { isElectron } from '@/lib/electron';
+import { getActiveMachineId, resolveWsPath } from '@/lib/active-machine';
 
-// Proper base64 to UTF-8 decoding (atob doesn't handle multi-byte UTF-8)
-function decodeBase64(base64: string): string {
+// Decode a base64 WebSocket payload to raw bytes. We hand the Uint8Array
+// straight to xterm.write(), which runs a single UTF-8 decoder whose state is
+// preserved across writes — so multi-byte glyphs (box-drawing, emoji, …) that
+// the PTY splits across separate `output` messages get reassembled correctly.
+//
+// Previously each message was decoded to a string here with a fresh,
+// non-streaming TextDecoder. Any UTF-8 sequence straddling a chunk boundary
+// decoded to replacement chars on both sides (E2 94 80 → "─" became "��"),
+// surfacing as garbled box-drawing during TUI redraws like arrow-key
+// navigation. The one-shot scrollback replay is a single message, so it never
+// split — which is why the initial paint looked fine and only interaction broke.
+function base64ToBytes(base64: string): Uint8Array {
   const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
-  return new TextDecoder('utf-8').decode(bytes);
+  return bytes;
 }
 
 // Kitty keyboard protocol key codes (unicode-key-code) for keys that need
@@ -193,11 +203,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
         brightWhite: '#feffff',
       };
 
-      const inElectron = isElectron();
       const resolvedTheme = externalTheme || defaultTheme;
-      const termTheme = inElectron
-        ? { ...resolvedTheme, background: '#00000000' }
-        : resolvedTheme;
 
       xterm = new Terminal({
         cursorBlink: true,
@@ -210,8 +216,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
         letterSpacing: 0,
         scrollback: 5000,
         smoothScrollDuration: isMobile ? 100 : 0,
-        allowTransparency: inElectron,
-        theme: termTheme,
+        theme: resolvedTheme,
       });
 
       fitAddon = new FitAddon();
@@ -326,8 +331,14 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
           const formData = new FormData();
           formData.append('image', blob);
 
+          const headers: Record<string, string> = {};
+          const activeId = getActiveMachineId();
+          if (activeId && activeId !== 'self') headers['X-Machine-Id'] = activeId;
+
           const response = await fetch(`${getApiBase()}/api/terminals/${terminalId}/paste-image`, {
             method: 'POST',
+            headers,
+            credentials: 'include',
             body: formData,
           });
           const result = await response.json();
@@ -401,10 +412,30 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
         if (fitAddon.proposeDimensions()) {
           fitAddon.fit();
         }
+        // Connect WebSocket only AFTER initial fit. On localhost the WS
+        // handshake completes in ~1ms — without this ordering, `ws.onopen`
+        // would race the rAF-deferred fit and send the pre-fit xterm default
+        // (80×24) as the PTY size. The PTY then wraps at 80 cols while xterm
+        // renders at the container width, garbling output (chars overwrite,
+        // lines bleed into each other). Symptom is local-mode-specific.
+        connectWebSocket();
       });
 
-      // Now connect WebSocket
-      connectWebSocket();
+      // xterm computes the column count from the character cell width, which
+      // depends on the loaded font. The initial fits above can run before the
+      // web font ("Fira Code") has loaded, so they measure with a fallback
+      // font's metrics and lock in the wrong cols (e.g. 72 when only 70 fit).
+      // The cell width changes when the real font swaps in, but nothing
+      // re-fits — a font swap doesn't resize the container, so the
+      // ResizeObserver never fires. That's why output stays garbled until a
+      // manual resize. Re-fit (and notify the PTY via fit()) once fonts are
+      // ready so the measurement uses the real glyph metrics from the start.
+      if (typeof document !== 'undefined' && document.fonts?.ready) {
+        document.fonts.ready.then(() => {
+          if (isDisposed) return;
+          fit();
+        });
+      }
     };
 
     const connectWebSocket = () => {
@@ -412,7 +443,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
 
       // Connect WebSocket
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/terminal/${terminalId}`;
+      const wsUrl = `${protocol}//${window.location.host}${resolveWsPath(`/ws/terminal/${terminalId}`)}`;
       ws = new WebSocket(wsUrl);
 
       const currentXterm = xterm;
@@ -424,7 +455,13 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
         setStatus('connected');
         onConnectRef.current?.();
 
-        // Send initial size
+        // Fit one more time immediately before reading dimensions, so the size
+        // sent to the PTY reflects the actual container — not any stale xterm
+        // default. The earlier rAF-deferred fit usually already ran, but if the
+        // container resized between init and connect, this catches it.
+        if (currentFitAddon.proposeDimensions()) {
+          currentFitAddon.fit();
+        }
         const { cols, rows } = currentXterm;
         ws?.send(JSON.stringify({
           type: 'resize',
@@ -446,16 +483,15 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
 
           switch (message.type) {
             case 'output': {
-              // Decode base64 to UTF-8 and write to terminal
-              const data = decodeBase64(message.data);
-              currentXterm.write(data);
+              // Write raw bytes; xterm decodes UTF-8 with streaming state so
+              // glyphs split across messages survive (see base64ToBytes).
+              currentXterm.write(base64ToBytes(message.data));
               break;
             }
 
             case 'scrollback': {
-              // Restore scrollback
-              const data = decodeBase64(message.data);
-              currentXterm.write(data, () => {
+              // Restore scrollback (raw bytes — see base64ToBytes)
+              currentXterm.write(base64ToBytes(message.data), () => {
                 // Refresh terminal display after scrollback is written
                 currentXterm.refresh(0, currentXterm.rows - 1);
                 // Scroll to bottom to show latest content
@@ -472,10 +508,15 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
             }
 
             case 'connected': {
-              // Fit and refresh terminal when connected
-              if (currentFitAddon?.proposeDimensions()) {
-                currentFitAddon.fit();
-              }
+              // Route through fit() (NOT fitAddon.fit() directly) so the
+              // freshly measured cols/rows are also sent to the PTY. A bare
+              // fitAddon.fit() changes xterm's grid without telling the
+              // server, so the PTY keeps wrapping at the stale width while
+              // xterm renders at the new one — output overwrites itself and
+              // lines bleed together (the "70 visible but server thinks 72"
+              // mismatch). Manually resizing the window only papered over it
+              // because that path does notify the PTY.
+              fit();
               // Refresh display to ensure content is visible
               currentXterm.refresh(0, currentXterm.rows - 1);
               break;
@@ -560,9 +601,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
   useEffect(() => {
     if (xtermRef.current) {
       if (externalTheme) {
-        xtermRef.current.options.theme = isElectron()
-          ? { ...externalTheme, background: '#00000000' }
-          : { ...externalTheme };
+        xtermRef.current.options.theme = { ...externalTheme };
       }
       if (externalFontFamily) xtermRef.current.options.fontFamily = externalFontFamily;
       if (externalFontWeight) {
@@ -570,14 +609,16 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
         xtermRef.current.options.fontWeightBold = String(Math.min(externalFontWeight + 100, 900)) as any;
       }
       if (externalFontSize) xtermRef.current.options.fontSize = externalFontSize;
-      // Re-fit after font change to recalculate char dimensions
-      if (fitAddonRef.current?.proposeDimensions()) {
-        fitAddonRef.current.fit();
-      }
+      // Go through the `fit` callback (not fitAddon directly) so the PTY
+      // gets notified of the new cols/rows — font size changes the char
+      // dimensions, which changes how many cols fit in the container.
+      // Without this the PTY keeps wrapping at the old width and output
+      // overwrites itself.
+      fit();
       // Repaint rows so new colors show on already-rendered content
       xtermRef.current.refresh(0, xtermRef.current.rows - 1);
     }
-  }, [externalTheme, externalFontFamily, externalFontWeight, externalFontSize]);
+  }, [externalTheme, externalFontFamily, externalFontWeight, externalFontSize, fit]);
 
   return {
     terminalRef,

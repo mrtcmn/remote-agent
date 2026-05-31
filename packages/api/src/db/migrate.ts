@@ -1,6 +1,6 @@
 export {}; // Ensure this file is treated as a module
 
-const isLocal = process.env.REMOTE_AGENT_MODE === 'local';
+const isLocal = (process.env.RA_MODE || process.env.REMOTE_AGENT_MODE) === 'local';
 
 if (isLocal) {
   const { migrate } = await import('drizzle-orm/bun-sqlite/migrator');

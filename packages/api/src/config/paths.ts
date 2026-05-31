@@ -36,7 +36,8 @@ export function getLocalDbPath(): string {
 }
 
 export function getDefaultPort(): number {
-  if (process.env.PORT) return parseInt(process.env.PORT, 10);
+  const raw = process.env.RA_PORT || process.env.PORT;
+  if (raw) return parseInt(raw, 10);
   if (isLocalMode()) return 13590;
   return 5100;
 }

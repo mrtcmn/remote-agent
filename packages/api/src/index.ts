@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia';
 import { cors } from '@elysiajs/cors';
-import { staticPlugin } from '@elysiajs/static';
+import { getAssetPath, uiServingMode } from './ui-assets';
 import { api, internalRoutes } from './routes';
 import { terminalWebsocketRoutes } from './routes/terminal-websocket';
 import { previewWebsocketRoutes } from './routes/preview-websocket';
@@ -13,12 +13,7 @@ import { masterSyncService } from './services/master-sync';
 import { machineProxyPlugin } from './plugins/machine-proxy';
 import { seedTestUser } from './auth/seed';
 
-const PORT = process.env.PORT || 5100;
-
-// Runtime env injection for the frontend
-const HTML_PATH = '../ui/dist/index.html';
-const htmlFile = Bun.file(HTML_PATH);
-const rawHtml = await htmlFile.exists() ? await htmlFile.text() : '';
+const PORT = process.env.RA_PORT || process.env.PORT || 5100;
 
 const CLIENT_ENV_KEYS = [
   'VITE_FIREBASE_API_KEY',
@@ -41,7 +36,15 @@ function buildEnvScript(): string {
   return `<script>window.__ENV__=${JSON.stringify(env)}</script>`;
 }
 
-const indexHtml = rawHtml.replace('<head>', `<head>\n    ${buildEnvScript()}`);
+// Index HTML is resolved per-request in dev so it always reflects the latest
+// Vite build (hashed `<script>` tags). In compiled-binary mode the lookup is
+// cached by getAssetPath.
+async function loadIndexHtml(): Promise<string | null> {
+  const path = await getAssetPath('/index.html');
+  if (!path) return null;
+  const raw = await Bun.file(path).text();
+  return raw.replace('<head>', `<head>\n    ${buildEnvScript()}`);
+}
 
 // Initialize services
 await originsService.initialize();
@@ -86,24 +89,25 @@ const app = new Elysia()
     timestamp: new Date().toISOString(),
   }))
 
-  // Serve static UI files in production
-  .use(staticPlugin({
-    assets: '../ui/dist',
-    prefix: '/',
-  }))
-
   // Serve index.html for root path (with runtime env injection)
-  .get('/', ({ set }) => {
-    if (!indexHtml) return { error: 'Not found' };
+  .get('/', async ({ set }) => {
+    const html = await loadIndexHtml();
+    if (!html) return { error: 'Not found' };
     set.headers['content-type'] = 'text/html';
-    return indexHtml;
+    return html;
   })
 
-  // Fallback to index.html for SPA routing (client-side routes)
-  .get('*', ({ set }) => {
-    if (!indexHtml) return { error: 'Not found' };
+  // Serve embedded UI assets, with SPA fallback to index.html
+  .get('*', async ({ params, set }) => {
+    const assetKey = `/${params['*'] ?? ''}`;
+    const filePath = await getAssetPath(assetKey);
+    if (filePath) {
+      return new Response(Bun.file(filePath));
+    }
+    const html = await loadIndexHtml();
+    if (!html) return { error: 'Not found' };
     set.headers['content-type'] = 'text/html';
-    return indexHtml;
+    return html;
   })
 
   .onError(({ code, error, set }) => {
@@ -133,7 +137,7 @@ Endpoints:
   - Terminal:   ws://localhost:${PORT}/ws/terminal/:terminalId
   - Preview:    ws://localhost:${PORT}/ws/preview/:previewId
   - Health:     http://localhost:${PORT}/health
-  - UI:         http://localhost:${PORT}
+  - UI:         http://localhost:${PORT} (mode: ${uiServingMode})
 `);
 
 // Graceful shutdown

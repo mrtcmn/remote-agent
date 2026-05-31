@@ -2,6 +2,7 @@ import { isLocalMode } from '../config/mode';
 import { getLocalDbPath } from '../config/paths';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import * as schema from './schema';
 
 // Typed as `any` because Drizzle's PG and SQLite database types have
 // incompatible method signatures (insert/update/delete builders differ).
@@ -11,7 +12,6 @@ let db: any;
 
 if (isLocalMode()) {
   const { Database } = await import('bun:sqlite');
-  const sqliteSchema = await import('./schema.sqlite');
   const { drizzle } = await import('drizzle-orm/bun-sqlite');
 
   const dbPath = getLocalDbPath();
@@ -21,16 +21,15 @@ if (isLocalMode()) {
   sqlite.exec('PRAGMA journal_mode = WAL;');
   sqlite.exec('PRAGMA foreign_keys = ON;');
 
-  db = drizzle(sqlite, { schema: sqliteSchema });
+  db = drizzle(sqlite, { schema });
 } else {
   const { default: postgres } = await import('postgres');
-  const pgSchema = await import('./schema.pg');
   const { drizzle } = await import('drizzle-orm/postgres-js');
 
   const connectionString = process.env.DATABASE_URL || 'postgres://agent:agent@localhost:5432/remote_agent';
   const client = postgres(connectionString);
 
-  db = drizzle(client, { schema: pgSchema });
+  db = drizzle(client, { schema });
 }
 
 export { db };

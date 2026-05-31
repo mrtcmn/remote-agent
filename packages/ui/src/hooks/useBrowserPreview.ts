@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getWsBase } from '../lib/api-config';
+import { resolveWsPath } from '../lib/active-machine';
 import type { ViewportPreset } from '@/lib/api';
 
 interface PreviewStatus {
@@ -36,12 +37,13 @@ export function useBrowserPreview(previewId: string | null) {
     }
 
     const wsBase = getWsBase();
+    const path = resolveWsPath(`/ws/preview/${previewId}`);
     let wsUrl: string;
     if (wsBase) {
-      wsUrl = `${wsBase}/ws/preview/${previewId}`;
+      wsUrl = `${wsBase}${path}`;
     } else {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      wsUrl = `${protocol}//${window.location.host}/ws/preview/${previewId}`;
+      wsUrl = `${protocol}//${window.location.host}${path}`;
     }
 
     const ws = new WebSocket(wsUrl);

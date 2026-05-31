@@ -8,7 +8,7 @@
     "start": "npm run build:main && electron dist/main.js",
     "dev": "npm run build:main && electron dist/main.js --dev",
     "dev:remote": "npm run build:main && electron dist/main.js --dev --remote",
-    "dist": "npm run build:main && electron-builder"
+    "dist": "bun run --cwd ../ui build && bun run --cwd ../api build && npm run build:main && PYTHON_PATH=${PYTHON_PATH:-/usr/bin/python3} electron-builder"
   },
   "dependencies": {
     "electron-store": "^10.0.0"
@@ -28,18 +28,9 @@
     ],
     "extraResources": [
       {
-        "from": "../ui/dist",
-        "to": "ui",
-        "filter": ["**/*"]
-      },
-      {
         "from": "../api",
         "to": "api",
-        "filter": ["src/**/*", "drizzle/**/*", "drizzle-sqlite/**/*", "package.json", "tsconfig.json"]
-      },
-      {
-        "from": "resources/${os}/bun",
-        "to": "bun"
+        "filter": ["dist/server*", "drizzle/**/*", "drizzle-sqlite/**/*"]
       }
     ],
     "mac": {

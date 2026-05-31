@@ -5,12 +5,14 @@ const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
 
 /**
- * Derives a 32-byte encryption key from JWT_SECRET using SHA-256.
+ * Derives a 32-byte encryption key from the auth secret using SHA-256.
+ * Reads RA_JWT_SECRET (set by the local launcher) first, falls back to
+ * JWT_SECRET (used by docker-compose / production deploys).
  */
 export function getEncryptionKey(): Buffer {
-  const secret = process.env.JWT_SECRET;
+  const secret = process.env.RA_JWT_SECRET || process.env.JWT_SECRET;
   if (!secret) {
-    throw new Error('JWT_SECRET is required for encryption');
+    throw new Error('RA_JWT_SECRET / JWT_SECRET is required for encryption');
   }
   return createHash('sha256').update(secret).digest();
 }

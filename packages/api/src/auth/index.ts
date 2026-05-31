@@ -10,7 +10,7 @@ export const auth = betterAuth({
     provider: isLocalMode() ? 'sqlite' : 'pg',
     schema,
   }),
-  secret: process.env.JWT_SECRET || 'secret',
+  secret: process.env.RA_JWT_SECRET || process.env.JWT_SECRET || 'secret',
   baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:3000',
   emailAndPassword: {
     enabled: true,

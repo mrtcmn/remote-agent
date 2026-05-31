@@ -436,6 +436,33 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ sessionId }) },
     ),
 
+  // ─── Run Flows ─────────────────────────────────────────────────────────────
+
+  listRunFlows: (projectId: string) =>
+    request<RunFlow[]>(`/run-flows/project/${projectId}`),
+  getRunFlow: (id: string) =>
+    request<RunFlowDetail>(`/run-flows/${id}`),
+  createRunFlow: (data: { projectId: string; name: string }) =>
+    request<RunFlow>('/run-flows', { method: 'POST', body: JSON.stringify(data) }),
+  updateRunFlow: (id: string, data: UpdateRunFlowInput) =>
+    request<RunFlowDetail>(`/run-flows/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteRunFlow: (id: string) =>
+    request<{ success: boolean }>(`/run-flows/${id}`, { method: 'DELETE' }),
+  runFlow: (id: string, sessionId: string) =>
+    request<{ success: boolean; started: Array<{ nodeId: string; terminalId: string }> }>(
+      `/run-flows/${id}/run`,
+      { method: 'POST', body: JSON.stringify({ sessionId }) },
+    ),
+  runFlowFromNode: (id: string, nodeId: string, sessionId: string) =>
+    request<{ success: boolean; started: Array<{ nodeId: string; terminalId: string }> }>(
+      `/run-flows/${id}/nodes/${nodeId}/run`,
+      { method: 'POST', body: JSON.stringify({ sessionId }) },
+    ),
+  stopFlow: (id: string) =>
+    request<{ success: boolean }>(`/run-flows/${id}/stop`, { method: 'POST' }),
+  getFlowStatus: (id: string) =>
+    request<RunFlowNodeStatus[]>(`/run-flows/${id}/status`),
+
   // ─── Browser Preview ────────────────────────────────────────────────────────
 
   startPreview: (url: string, sessionId: string, viewport?: ViewportPreset) =>
@@ -1156,6 +1183,70 @@ export interface UpdateRunConfigInput {
   env?: Record<string, string> | null;
   autoRestart?: boolean;
   position?: number;
+}
+
+// ─── Run Flow Types ───────────────────────────────────────────────────────────
+
+export interface RunFlowViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export interface RunFlow {
+  id: string;
+  projectId: string;
+  userId: string;
+  name: string;
+  viewport: RunFlowViewport | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RunFlowNodeData {
+  id: string;
+  flowId: string;
+  runConfigId: string;
+  x: number;
+  y: number;
+  runConfig?: RunConfig;
+}
+
+export interface RunFlowEdgeData {
+  id: string;
+  flowId: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  readyDelayMs: number;
+}
+
+export interface RunFlowDetail extends RunFlow {
+  nodes: RunFlowNodeData[];
+  edges: RunFlowEdgeData[];
+}
+
+export interface RunFlowNodeStatus {
+  nodeId: string;
+  runConfigId: string;
+  isRunning: boolean;
+  activeTerminalId: string | null;
+}
+
+export interface UpdateRunFlowInput {
+  name?: string;
+  viewport?: RunFlowViewport | null;
+  nodes?: Array<{
+    id?: string;
+    runConfigId: string;
+    x: number;
+    y: number;
+  }>;
+  edges?: Array<{
+    id?: string;
+    sourceNodeId: string;
+    targetNodeId: string;
+    readyDelayMs?: number;
+  }>;
 }
 
 // ─── Browser Preview Types ────────────────────────────────────────────────────

@@ -1,5 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { requireAuth } from '../auth/middleware';
+import { isLocalMode } from '../config/mode';
+import { getLocalSystemStats } from '../services/system-stats';
 import { dockerService } from '../services/docker';
 import { terminalService } from '../services/terminal';
 import { nanoid } from 'nanoid';
@@ -298,10 +300,14 @@ export const dockerRoutes = new Elysia({ prefix: '/docker' })
     params: t.Object({ projectId: t.String() }),
   })
 
-  // System stats (CPU, memory, disk) from Docker
+  // System stats (CPU, memory, disk). In local mode there is no Docker, so we
+  // report the host machine (the Mac) directly; in remote mode we read the
+  // agent container's stats via Docker.
   .get('/stats', async ({ set }) => {
     try {
-      const stats = await dockerService.getHostStats();
+      const stats = isLocalMode()
+        ? await getLocalSystemStats()
+        : await dockerService.getHostStats();
       return stats;
     } catch (error) {
       set.status = 500;
