@@ -860,7 +860,7 @@ export interface PairWorkspaceInput {
   claudeSettings?: Record<string, unknown>;
 }
 
-export type TerminalType = 'shell' | 'claude' | 'process';
+export type TerminalType = 'shell' | 'claude' | 'opencode' | 'process';
 
 export interface TerminalInfo {
   id: string;

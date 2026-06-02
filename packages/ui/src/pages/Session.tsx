@@ -62,30 +62,22 @@ function Divider() {
 
 function ToolBadge({ count }: { count: number }) {
   return (
-    <motion.span
-      initial={{ scale: 0.4, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-      className="flex items-center justify-center min-w-[14px] h-3.5 rounded-full bg-orange-500 text-white text-[8px] font-bold leading-none px-1 shrink-0 tabular-nums"
-    >
+    <span className="flex items-center justify-center min-w-[14px] h-3.5 rounded-full bg-orange-500 text-white text-[8px] font-bold leading-none px-1 shrink-0 tabular-nums">
       {count}
-    </motion.span>
+    </span>
   );
 }
 
 function PulseDot({ active }: { active: boolean }) {
-  const color = active ? '#10b981' : 'rgba(128,128,128,0.3)';
   return (
     <span className="relative flex size-1.5 shrink-0">
       {active && (
-        <motion.span
-          className="absolute inset-0 rounded-full"
-          style={{ backgroundColor: color }}
-          animate={{ scale: [1, 2.2, 1], opacity: [0.7, 0, 0.7] }}
-          transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
-        />
+        <span className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-60" />
       )}
-      <span className="relative rounded-full h-full w-full" style={{ backgroundColor: color }} />
+      <span
+        className="relative rounded-full h-full w-full"
+        style={{ backgroundColor: active ? '#10b981' : 'rgba(128,128,128,0.3)' }}
+      />
     </span>
   );
 }
@@ -123,18 +115,12 @@ function ToolBtn({
   disabled,
   className,
 }: ToolBtnProps) {
-  const [hovered, setHovered] = useState(false);
-
   return (
-    <motion.button
-      whileTap={{ scale: 0.94 }}
-      transition={{ duration: 0.1 }}
-      onHoverStart={() => setHovered(true)}
-      onHoverEnd={() => setHovered(false)}
+    <button
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'relative flex items-center gap-1.5 px-2 my-[2px] self-stretch text-xs font-medium rounded-md transition-colors duration-100 shrink-0 select-none cursor-pointer',
+        'group relative flex items-center gap-1.5 px-2 my-[2px] self-stretch text-xs font-medium rounded-md transition-colors duration-100 shrink-0 select-none cursor-pointer active:scale-95',
         isActive
           ? 'bg-secondary/80 text-foreground'
           : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60',
@@ -142,21 +128,10 @@ function ToolBtn({
         className
       )}
     >
-      {isActive && accentColor && activeGlow && (
-        <motion.span
-          className="absolute inset-0 rounded-md pointer-events-none"
-          style={{ backgroundColor: accentColor }}
-          animate={{ opacity: [0.06, 0.12, 0.06] }}
-          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-        />
-      )}
-
       {isActive && accentColor && (
-        <motion.span
-          layoutId="tool-indicator"
+        <span
           className="absolute -top-px left-1/2 -translate-x-1/2 h-px w-4/5 rounded-full pointer-events-none"
           style={{ backgroundColor: accentColor }}
-          transition={{ type: 'spring', stiffness: 400, damping: 35 }}
         />
       )}
 
@@ -166,7 +141,7 @@ function ToolBtn({
       {!customIcon && Icon && (
         <Icon
           className="size-3.5 shrink-0 transition-colors"
-          style={iconColor && (isActive || hovered) ? { color: iconColor } : undefined}
+          style={iconColor && isActive ? { color: iconColor } : undefined}
         />
       )}
 
@@ -179,11 +154,9 @@ function ToolBtn({
       )}
 
       {external && (
-        <motion.span animate={{ opacity: hovered ? 0.5 : 0.2 }} transition={{ duration: 0.12 }}>
-          <ExternalLink className="size-2.5" />
-        </motion.span>
+        <ExternalLink className="size-2.5 opacity-20 group-hover:opacity-50 transition-opacity" />
       )}
-    </motion.button>
+    </button>
   );
 }
 
@@ -200,12 +173,27 @@ interface TabData {
 function StatusDot({ color = '#22c55e' }: { color?: string }) {
   return (
     <span
-      className="size-3.5 rounded-full shrink-0 flex items-center justify-center"
-      style={{ border: `2px solid ${color}`, backgroundColor: `${color}22` }}
-    >
-      <span className="size-[5px] rounded-full" style={{ backgroundColor: color }} />
-    </span>
+      className="size-3 rounded-full shrink-0"
+      style={{
+        background: `radial-gradient(circle at 35% 30%, ${color}, ${color}88)`,
+        boxShadow: `0 0 5px ${color}66`,
+      }}
+    />
   );
+}
+
+function getTabAccent(tab: TabData): string {
+  if (tab.type === 'process') return tab.color ?? '#22c55e';
+  if (tab.type === 'opencode') return '#38bdf8';
+  if (tab.type === 'project') return '#60a5fa';
+  if (tab.type === 'shell') return '#94a3b8';
+  if (tab.type === 'claude') {
+    const model = detectAIModel(tab.label);
+    if (model === 'gemini') return '#4285F4';
+    if (model === 'openai' || model === 'codex') return '#10a37f';
+    return '#D97757';
+  }
+  return '#94a3b8';
 }
 
 function TabItem({
@@ -213,77 +201,76 @@ function TabItem({
   isActive,
   onActivate,
   onClose,
+  compact,
 }: {
   tab: TabData;
   isActive: boolean;
   onActivate: () => void;
   onClose?: () => void;
+  compact?: boolean;
 }) {
-  const [hovered, setHovered] = useState(false);
-  const showClose = !tab.pinned && (isActive || hovered);
+  const accent = getTabAccent(tab);
 
   const typeIcon = tab.type === 'claude' ? (
-    <AIModelIcon model={detectAIModel(tab.label)} size={14} />
+    <AIModelIcon model={detectAIModel(tab.label)} size={13} />
+  ) : tab.type === 'opencode' ? (
+    <AIModelIcon model="opencode" size={13} />
   ) : tab.type === 'process' ? (
-    <StatusDot color="#22c55e" />
+    <StatusDot color={tab.color ?? '#22c55e'} />
   ) : tab.type === 'project' ? (
-    <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
+    <FolderOpen className="size-3 text-muted-foreground shrink-0" />
   ) : (
-    <TerminalSquare className="size-3.5 text-muted-foreground shrink-0" />
+    <TerminalSquare className="size-3 text-muted-foreground shrink-0" />
   );
 
+  const activeBg = `linear-gradient(135deg, ${accent}00 0%, ${accent}0a 100%), hsl(var(--secondary))`;
+  const activeBorderColor = `color-mix(in srgb, ${accent} 25%, hsl(var(--border)))`;
+
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, filter: 'blur(2px)' }}
-      animate={{ opacity: 1, filter: 'blur(0px)' }}
-      exit={{ opacity: 0, filter: 'blur(2px)' }}
-      transition={{ duration: 0.12 }}
+    <div
       onClick={onActivate}
-      onHoverStart={() => setHovered(true)}
-      onHoverEnd={() => setHovered(false)}
       className={cn(
-        'relative flex items-center gap-1.5 h-full px-3 cursor-pointer select-none shrink-0 overflow-hidden',
-        'border-r border-border',
+        'group relative flex items-center rounded-full select-none overflow-hidden',
+        'border transition-all duration-150',
+        compact ? 'gap-1 h-[26px] px-2' : 'gap-1.5 h-[28px] px-3',
         isActive
-          ? 'bg-secondary text-foreground'
-          : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+          ? 'text-foreground'
+          : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border/40 hover:bg-secondary/40'
       )}
-      style={{ maxWidth: 180 }}
+      style={{
+        maxWidth: compact ? 150 : 200,
+        background: isActive ? activeBg : undefined,
+        borderColor: isActive ? activeBorderColor : undefined,
+      }}
     >
       {typeIcon}
 
-      <span className="text-xs font-medium truncate flex-1 min-w-0 leading-none">
-        {tab.label}
-      </span>
-
-      <AnimatePresence>
-        {showClose && (
-          <motion.button
-            key="close"
-            initial={{ opacity: 0, width: 0, marginLeft: 0 }}
-            animate={{ opacity: 1, width: 14, marginLeft: 2 }}
-            exit={{ opacity: 0, width: 0, marginLeft: 0 }}
-            transition={{ duration: 0.1 }}
-            className="flex items-center justify-center size-3.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose?.();
-            }}
-          >
-            <X className="size-2.5" />
-          </motion.button>
-        )}
-      </AnimatePresence>
-
-      {isActive && (
-        <motion.span
-          layoutId="terminal-tab-underline"
-          className="absolute bottom-0 left-0 right-0 h-px bg-foreground/20"
-          transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-        />
+      {isActive ? (
+        <span
+          className="text-[11px] font-medium truncate flex-1 min-w-0 leading-none select-none"
+          style={{
+            background: `linear-gradient(to right, color-mix(in srgb, ${accent} 60%, white), rgba(255,255,255,0.88))`,
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+          }}
+        >
+          {tab.label}
+        </span>
+      ) : (
+        <span className="text-[11px] font-medium truncate flex-1 min-w-0 leading-none">
+          {tab.label}
+        </span>
       )}
-    </motion.div>
+
+      {!tab.pinned && onClose && (
+        <button
+          className="flex items-center justify-center size-3 rounded-full bg-foreground/10 hover:bg-foreground/20 text-foreground/60 hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-100 ml-0.5"
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+        >
+          <X className="size-2" />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -293,7 +280,7 @@ function useSystemMetrics() {
   const { data } = useQuery({
     queryKey: ['system-stats'],
     queryFn: () => api.getSystemStats(),
-    refetchInterval: 5000,
+    refetchInterval: 30000,
   });
 
   const toGB = (bytes: number) => bytes / 1024 ** 3;
@@ -386,7 +373,7 @@ export function SessionPage() {
   const { data: terminals = [], isLoading } = useQuery({
     queryKey: ['terminals', id],
     queryFn: () => api.getSessionTerminals(id!),
-    refetchInterval: 5000,
+    refetchInterval: 15000,
     enabled: !!id,
   });
 
@@ -395,14 +382,14 @@ export function SessionPage() {
   const { data: gitStatus } = useQuery({
     queryKey: ['session-git-status', id, gitProjectId],
     queryFn: () => api.getSessionGitStatus(id!, gitProjectId),
-    refetchInterval: 3000,
+    refetchInterval: 10000,
     enabled: !!id && !!activeProject,
   });
 
   const createMutation = useMutation({
     mutationFn: (opts: { type?: TerminalType; name?: string; initialPrompt?: string } = {}) => {
       const prefix = selectedAlias ? `[${selectedAlias}] ` : '';
-      const baseName = opts.name ?? (opts.type === 'claude' ? 'Claude' : 'Shell');
+      const baseName = opts.name ?? (opts.type === 'claude' ? 'Claude' : opts.type === 'opencode' ? 'Opencode' : 'Shell');
       return api.createTerminal({
         sessionId: id!,
         type: opts.type || 'shell',
@@ -467,22 +454,31 @@ export function SessionPage() {
 
   const canOpenEditor = !!editorStatus?.configured && !!activeProject?.localPath;
   const canOpenLocalEditor = isLocalMode && !!activeProject?.localPath;
-  const activeTerminals = terminals.filter((t) => (t.liveStatus || t.status) === 'running');
-
-  if (!activeTerminalId && activeTerminals.length > 0 && !isLoading) {
-    setActiveTerminalId(activeTerminals[0].id);
-  }
-
-  if (searchParams.get('terminalId') && terminals.length > 0 && !isLoading) {
-    const tid = searchParams.get('terminalId');
-    navigate(`/sessions/${id}/${tid}`, { replace: true });
-  }
+  const activeTerminals = useMemo(
+    () => terminals.filter((t) => (t.liveStatus || t.status) === 'running'),
+    [terminals]
+  );
 
   const selectTerminal = (terminalId: string) => {
     setActiveTerminalId(terminalId);
     setViewMode('terminal');
     navigate(`/sessions/${id}/${terminalId}`, { replace: true });
   };
+
+  // Auto-select first terminal when none is active
+  useEffect(() => {
+    if (!activeTerminalId && activeTerminals.length > 0 && !isLoading) {
+      setActiveTerminalId(activeTerminals[0].id);
+    }
+  }, [activeTerminalId, activeTerminals, isLoading]);
+
+  // Redirect legacy ?terminalId= query param to path-based URL
+  useEffect(() => {
+    const tid = searchParams.get('terminalId');
+    if (tid && terminals.length > 0 && !isLoading) {
+      navigate(`/sessions/${id}/${tid}`, { replace: true });
+    }
+  }, [searchParams, terminals, isLoading, id, navigate]);
 
   const activeTerminal = terminals.find((t) => t.id === activeTerminalId);
 
@@ -508,11 +504,44 @@ export function SessionPage() {
         id: t.id,
         label: t.name,
         type: t.type,
-        color: t.type === 'claude' ? '#f97316' : t.type === 'process' ? '#22c55e' : undefined,
+        color: t.type === 'claude' ? '#f97316' : t.type === 'opencode' ? '#6366f1' : t.type === 'process' ? '#22c55e' : undefined,
       });
     });
     return tabs;
   }, [activeTerminals, session]);
+
+  // Ordered tabs for DnD — syncs with tabData while preserving user-dragged order
+  const [orderedTabs, setOrderedTabs] = useState<TabData[]>(tabData);
+  const pointerDragRef = useRef<{ id: string; startX: number; lastX: number } | null>(null);
+  useEffect(() => {
+    setOrderedTabs(prev => {
+      const incoming = new Map(tabData.map(t => [t.id, t]));
+      const merged = prev
+        .filter(t => incoming.has(t.id))
+        .map(t => incoming.get(t.id)!);
+      tabData.forEach(t => { if (!merged.find(m => m.id === t.id)) merged.push(t); });
+      return merged;
+    });
+  }, [tabData]);
+
+  const handleTabPointerDown = (e: React.PointerEvent, id: string) => {
+    if (e.button !== 0) return;
+    pointerDragRef.current = { id, startX: e.clientX, lastX: e.clientX };
+  };
+  const handleTabPointerMove = (e: React.PointerEvent, overId: string) => {
+    const drag = pointerDragRef.current;
+    if (!drag || Math.abs(e.clientX - drag.startX) < 6) return;
+    if (drag.id === overId) { drag.lastX = e.clientX; return; }
+    setOrderedTabs(prev => {
+      const from = prev.findIndex(t => t.id === drag.id);
+      const to = prev.findIndex(t => t.id === overId);
+      if (from < 0 || to < 0) return prev;
+      const next = [...prev];
+      next.splice(to, 0, next.splice(from, 1)[0]);
+      return next;
+    });
+  };
+  const handleTabPointerUp = () => { pointerDragRef.current = null; };
 
   return (
     <div className="flex flex-col h-full">
@@ -564,6 +593,12 @@ export function SessionPage() {
                       customIcon={<AIModelIcon model="claude" size={14} />}
                       label="Claude"
                       onClick={() => createMutation.mutate({ type: 'claude' })}
+                      disabled={createMutation.isPending}
+                    />
+                    <ToolBtn
+                      customIcon={<AIModelIcon model="opencode" size={14} />}
+                      label="Opencode"
+                      onClick={() => createMutation.mutate({ type: 'opencode' })}
                       disabled={createMutation.isPending}
                     />
                   </div>
@@ -698,17 +733,23 @@ export function SessionPage() {
       </div>
 
       {/* ── Tab Bar ── */}
-      <div className="hidden md:flex items-stretch h-8 border-b border-border bg-card w-full shrink-0 electrobun-webkit-app-region-drag">
+      <div className="hidden md:flex items-center h-10 border-b border-border bg-card w-full shrink-0 electrobun-webkit-app-region-drag px-1 gap-0.5">
         <div
           className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden"
           style={{ scrollbarWidth: 'none' }}
         >
-          <div className="flex items-stretch h-full electrobun-webkit-app-region-no-drag">
-            <AnimatePresence initial={false}>
-              {tabData.map((tab) => (
+          <div className="flex items-center h-10 gap-0.5 electrobun-webkit-app-region-no-drag">
+            {orderedTabs.map((tab) => (
+              <div
+                key={tab.id}
+                className="flex items-center px-0.5 h-full shrink-0"
+                onPointerDown={(e) => handleTabPointerDown(e, tab.id)}
+                onPointerMove={(e) => handleTabPointerMove(e, tab.id)}
+                onPointerUp={handleTabPointerUp}
+              >
                 <TabItem
-                  key={tab.id}
                   tab={tab}
+                  compact={orderedTabs.length > 5}
                   isActive={
                     tab.id === '__project__'
                       ? viewMode !== 'terminal'
@@ -725,17 +766,18 @@ export function SessionPage() {
                   }}
                   onClose={tab.pinned ? undefined : () => closeMutation.mutate(tab.id)}
                 />
-              ))}
-            </AnimatePresence>
+              </div>
+            ))}
           </div>
         </div>
 
         {/* Add tab */}
+        <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
         <button
           onClick={() => createMutation.mutate({ type: 'shell' })}
-          className="flex items-center justify-center w-8 h-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-secondary transition-colors shrink-0 border-l border-border electrobun-webkit-app-region-no-drag"
+          className="flex items-center justify-center size-6 rounded-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-secondary/60 transition-colors shrink-0 electrobun-webkit-app-region-no-drag"
         >
-          <Plus className="size-3.5" />
+          <Plus className="size-3" />
         </button>
       </div>
 
@@ -767,6 +809,8 @@ export function SessionPage() {
                 <>
                   {activeTerminal.type === 'claude' ? (
                     <AIModelIcon model={detectAIModel(activeTerminal.name)} size={14} />
+                  ) : activeTerminal.type === 'opencode' ? (
+                    <AIModelIcon model="opencode" size={14} />
                   ) : activeTerminal.type === 'process' ? (
                     <Play className="h-3.5 w-3.5 text-green-500" />
                   ) : (
@@ -797,6 +841,8 @@ export function SessionPage() {
                 >
                   {terminal.type === 'claude' ? (
                     <AIModelIcon model={detectAIModel(terminal.name)} size={16} />
+                  ) : terminal.type === 'opencode' ? (
+                    <AIModelIcon model="opencode" size={16} />
                   ) : terminal.type === 'process' ? (
                     <Play className="h-4 w-4 text-green-500" />
                   ) : (

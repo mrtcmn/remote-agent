@@ -1,7 +1,7 @@
 import type { Subprocess, Terminal as BunTerminal } from 'bun';
 
 export type TerminalStatus = 'running' | 'exited';
-export type TerminalType = 'shell' | 'claude' | 'process';
+export type TerminalType = 'shell' | 'claude' | 'opencode' | 'process';
 
 export interface TerminalInstance {
   id: string;

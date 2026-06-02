@@ -113,7 +113,7 @@ function ServiceRow({
       ) : (
         <Icon className="size-2.5 shrink-0" />
       )}
-      <span className="text-[10px] truncate">{service.label}</span>
+      <span className="text-[12px] font-semibold truncate">{service.label}</span>
     </button>
   );
 }
@@ -242,7 +242,7 @@ function ProjectGroup({
         {project.isMultiProject && (
           <Layers className="size-2.5 text-muted-foreground/40 shrink-0" />
         )}
-        <span className="text-[10px] text-muted-foreground/40 font-mono shrink-0">
+        <span className="text-[12px] font-semibold text-muted-foreground/40 font-mono shrink-0">
           ({project.sessions.length})
         </span>
         <button
@@ -532,7 +532,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
               <>
                 {activeProjects.length > 0 && <div className="h-px bg-border my-1" />}
                 <div className="px-1">
-                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground/40 font-medium">
+                  <div className="px-2 py-1 text-[12px] uppercase tracking-wider text-muted-foreground/40 font-semibold">
                     Unassigned
                   </div>
                   <div className="space-y-0.5">

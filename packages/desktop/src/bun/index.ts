@@ -1,4 +1,4 @@
-import Electrobun, { Utils } from "electrobun/bun";
+import Electrobun, { ApplicationMenu, Utils } from "electrobun/bun";
 import { createStore } from "./store";
 import { createRpc } from "./rpc";
 import {
@@ -32,6 +32,35 @@ function openWindow() {
   });
 }
 
+// macOS application menu — required for Cmd+C/V/X/A to work in WKWebView.
+// Electrobun does not create a default menu unlike Electron.
+ApplicationMenu.setApplicationMenu([
+  {
+    label: "Remote Agent",
+    submenu: [
+      { role: "hide" },
+      { role: "hideOthers" },
+      { role: "showAll" },
+      { type: "divider" },
+      { role: "quit" },
+    ],
+  },
+  {
+    label: "Edit",
+    submenu: [
+      { role: "undo" },
+      { role: "redo" },
+      { type: "divider" },
+      { role: "cut" },
+      { role: "copy" },
+      { role: "paste" },
+      { role: "pasteAndMatchStyle" },
+      { role: "delete" },
+      { role: "selectAll" },
+    ],
+  },
+]);
+
 // Boot: start local API if in local mode, then create tray + window.
 // (Electrobun runs top-level code at boot — there is no app.whenReady.)
 (async () => {
@@ -43,7 +72,11 @@ function openWindow() {
       console.error("Failed to start local API:", err?.message);
     }
   }
-  createTray(openWindow);
+  createTray(
+    openWindow,
+    () => win?.webview?.executeJavascript("location.reload()"),
+    () => win?.webview?.openDevTools(),
+  );
   openWindow();
 })();
 

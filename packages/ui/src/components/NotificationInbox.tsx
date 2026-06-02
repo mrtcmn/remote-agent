@@ -184,10 +184,10 @@ function NotificationItem({
                     isResolved && notification.resolvedAction === c.id
                       ? 'bg-foreground text-background border-foreground'
                       : isResolved
-                      ? 'opacity-30 cursor-not-allowed border-border/40 text-muted-foreground'
+                      ? 'opacity-30 cursor-not-allowed border-foreground/10 text-muted-foreground'
                       : i === 0
                       ? 'bg-foreground text-background border-foreground hover:opacity-90'
-                      : 'border-border text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+                      : 'border-foreground/20 text-muted-foreground hover:text-foreground hover:border-foreground/40 hover:bg-secondary/60'
                   )}
                 >
                   {isResolved && notification.resolvedAction === c.id ? (

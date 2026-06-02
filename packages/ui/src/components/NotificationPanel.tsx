@@ -47,11 +47,7 @@ function getNotificationIcon(type: string) {
 function UnreadDot() {
   return (
     <span className="relative flex size-2 shrink-0 mt-[3px]">
-      <motion.span
-        className="absolute inset-0 rounded-full bg-emerald-400"
-        animate={{ scale: [1, 1.8, 1], opacity: [0.7, 0, 0.7] }}
-        transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-      />
+      <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-70" />
       <span className="relative rounded-full h-full w-full bg-emerald-500" />
     </span>
   );
@@ -83,12 +79,12 @@ function ProjectBadge({ name }: { name: string }) {
 
 // ─── Choice Buttons ─────────────────────────────────────────────────────────
 
-function getChoiceVariant(index: number, total: number): 'primary' | 'secondary' | 'danger' {
-  if (index === 0) return 'primary';
-  if (index === total - 1 && total > 2) {
-    // Check if last option looks like a cancel/abort/deny action
-    return 'secondary';
-  }
+const DANGER_LABELS = /^(deny|cancel|no|reject|abort|stop|skip|ignore|decline|refuse|delete|remove|destroy|revoke|disallow|forbid|block)/i;
+const PRIMARY_LABELS = /^(approve|yes|allow|confirm|proceed|accept|ok|continue|grant|permit|enable)/i;
+
+function getChoiceVariant(label: string): 'primary' | 'secondary' | 'danger' {
+  if (DANGER_LABELS.test(label.trim())) return 'danger';
+  if (PRIMARY_LABELS.test(label.trim())) return 'primary';
   return 'secondary';
 }
 
@@ -115,12 +111,12 @@ function ChoiceButtons({
             resolved === c.id
               ? 'bg-foreground text-background border-foreground'
               : resolved
-              ? 'opacity-30 cursor-not-allowed border-border/40 text-muted-foreground'
+              ? 'opacity-30 cursor-not-allowed border-foreground/10 text-muted-foreground'
               : c.variant === 'primary'
               ? 'border-foreground text-foreground hover:bg-foreground hover:text-background'
               : c.variant === 'danger'
               ? 'border-red-500/40 text-red-500 hover:bg-red-500/10'
-              : 'border-border text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+              : 'border-foreground/20 text-muted-foreground hover:text-foreground hover:border-foreground/40 hover:bg-secondary/60'
           )}
         >
           {resolved === c.id ? (
@@ -143,18 +139,18 @@ function buildChoices(notification: NotificationRecord): { id: string; label: st
   const actions = notification.actions as NotificationAction[] | undefined;
 
   if (options && options.length > 0) {
-    return options.map((opt, i) => ({
+    return options.map((opt) => ({
       id: opt.value,
       label: opt.label,
-      variant: opt.isDefault ? 'primary' : getChoiceVariant(i, options.length),
+      variant: opt.isDefault ? 'primary' : getChoiceVariant(opt.label),
     }));
   }
 
   if (actions && actions.length > 0) {
-    return actions.map((act, i) => ({
+    return actions.map((act) => ({
       id: act.action,
       label: act.label,
-      variant: getChoiceVariant(i, actions.length),
+      variant: getChoiceVariant(act.label),
     }));
   }
 
@@ -177,8 +173,9 @@ function NotifRow({
   const isUnread = notification.status === 'pending' || notification.status === 'sent';
   const isResolved = notification.status === 'resolved';
   const projectName = notification.metadata?.projectName;
+  const terminalName = notification.metadata?.terminalName as string | undefined;
   const stopReason = notification.metadata?.stopReason;
-  const choices = buildChoices(notification);
+  const choices = buildChoices(notification)?.filter(c => c.variant !== 'secondary') ?? null;
   const hasChoices = choices && choices.length > 0;
 
   return (
@@ -223,6 +220,12 @@ function NotifRow({
           </p>
           <p className="text-[10px] text-muted-foreground/50 mt-0.5 font-mono">
             {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+            {terminalName && (
+              <>
+                <span className="mx-1.5 opacity-40">·</span>
+                {terminalName}
+              </>
+            )}
             {stopReason && stopReason !== 'end_turn' && (
               <>
                 <span className="mx-1.5 opacity-40">·</span>
@@ -236,7 +239,7 @@ function NotifRow({
       {(notification.body || hasChoices) && (
         <div className="ml-[22px] space-y-2">
           {notification.body && (
-            <p className="text-xs text-muted-foreground leading-relaxed border-l-2 border-border pl-3 line-clamp-3">
+            <p className="text-xs text-muted-foreground leading-relaxed border-l-2 border-foreground/20 pl-3">
               {notification.body}
             </p>
           )}
@@ -257,7 +260,7 @@ function NotifRow({
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'all', label: 'All', icon: Bell },
-  { id: 'review', label: 'Review needed', icon: MessageSquare },
+  { id: 'review', label: 'Review', icon: MessageSquare },
   { id: 'finished', label: 'Finished', icon: CheckCircle2 },
   { id: 'errors', label: 'Errors', icon: AlertCircle },
 ];
@@ -376,31 +379,34 @@ export function NotificationPanel() {
       <div className="h-px bg-border shrink-0" />
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 px-3 py-2 shrink-0">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={cn(
-              'relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors',
-              activeTab === tab.id
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
-            )}
-          >
-            {activeTab === tab.id && (
-              <motion.span
-                layoutId="notif-tab-pill"
-                className="absolute inset-0 rounded-md bg-secondary"
-                transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-              />
-            )}
-            <span className="relative z-10 flex items-center gap-1.5">
-              <tab.icon className="size-3" />
-              {tab.label}
-            </span>
-          </button>
-        ))}
+      <div className="flex items-center gap-0.5 px-2 py-1.5 shrink-0">
+        {TABS.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                'relative flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors duration-150 whitespace-nowrap',
+                isActive
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+              )}
+            >
+              {isActive && (
+                <motion.span
+                  layoutId="notif-tab-pill"
+                  className="absolute inset-0 rounded-md bg-secondary"
+                  transition={{ type: 'spring', stiffness: 400, damping: 35 }}
+                />
+              )}
+              <span className="relative z-10 flex items-center gap-1.5">
+                <tab.icon className="size-3 shrink-0" />
+                {tab.label}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="h-px bg-border shrink-0" />
