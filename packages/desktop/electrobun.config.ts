@@ -32,6 +32,7 @@ export default {
     mac: {
       bundleCEF: false,
       defaultRenderer: "native",
+      icons: "icon.iconset",
       // codesign: true, notarize: true,  // enable in Task 20
     },
     win: { bundleCEF: false, defaultRenderer: "native" },

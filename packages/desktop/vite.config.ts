@@ -47,5 +47,7 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, "dist"),
     emptyOutDir: true,
+    // WKWebView on macOS 14+ supports ES2022 (top-level await, etc.)
+    target: "safari17",
   },
 });
