@@ -7,7 +7,7 @@
     "dev": "ELECTROBUN_BUILD_ENV=dev concurrently -k \"bun run dev:ui\" \"electrobun dev\"",
     "dev:ui": "vite",
     "build:ui": "vite build",
-    "build:server": "bun run --cwd ../api ui-manifest && bun build ../api/src/index.ts --target=bun --outdir dist-server --external playwright --external playwright-core",
+    "build:server": "bun --cwd ../ui run build && bun run --cwd ../api ui-manifest && bun build ../api/src/index.ts --target=bun --outdir dist-server --external playwright --external playwright-core",
     "build": "bun run build:ui && bun run build:server && electrobun build",
     "build:stable": "bun run build:ui && bun run build:server && electrobun build --env=stable",
     "tsc": "tsc --noEmit",
