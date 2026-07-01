@@ -1,0 +1,25 @@
+[
+  {
+    "adapter": "Bun",
+    "label": "Run current file",
+    "request": "launch",
+    "program": "$ZED_FILE",
+  },
+  {
+    "adapter": "Bun",
+    "label": "API: dev (watch)",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/packages/api/src/index.ts",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "watchMode": true,
+    "env": { "ZED_BUN_DEBUG_LOG": "1" },
+  },
+  {
+    "adapter": "Bun",
+    "label": "API: dev (script)",
+    "request": "launch",
+    "runtimeArgs": ["run"],
+    "program": "dev",
+    "cwd": "$ZED_WORKTREE_ROOT/packages/api",
+  },
+]

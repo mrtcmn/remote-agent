@@ -1,6 +1,9 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { sessionPath } from '@/lib/session-route';
+import { useActiveMachine, getActiveMachineId } from '@/lib/active-machine';
+import type { AggregatedSidebar } from '@/lib/api';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft,
@@ -249,7 +252,7 @@ function TabItem({
         <span
           className="text-[11px] font-medium truncate flex-1 min-w-0 leading-none select-none"
           style={{
-            background: `linear-gradient(to right, color-mix(in srgb, ${accent} 60%, white), rgba(255,255,255,0.88))`,
+            background: `linear-gradient(to right, color-mix(in srgb, ${accent} 70%, hsl(var(--foreground))), hsl(var(--foreground)))`,
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
           }}
@@ -302,10 +305,26 @@ function loadColor(pct: number): string {
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 export function SessionPage() {
-  const { id, terminalId: terminalIdFromRoute } = useParams<{ id: string; terminalId?: string }>();
+  const { id, machineId, terminalId: terminalIdFromRoute } = useParams<{ id: string; machineId?: string; terminalId?: string }>();
+  const ownerMachine = machineId ?? 'self';
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  // The owning machine is part of this session's identity (it's in the URL).
+  // Project it into the global active-machine store BEFORE any child effect or
+  // query fires — useLayoutEffect runs ahead of passive effects and React Query
+  // fetches — so every per-session call (terminals, git, files, and the
+  // terminal/preview WebSockets, all of which read the active machine) routes to
+  // the machine that owns this session. This is what makes remote sessions open
+  // on click, reload, back, and deep links instead of 404ing against the local API.
+  useLayoutEffect(() => {
+    if (getActiveMachineId() === ownerMachine) return;
+    const aggregate = queryClient.getQueryData<AggregatedSidebar>(['sidebar-aggregate']);
+    const name = aggregate?.machines.find((m) => m.machineId === ownerMachine)?.machineName
+      ?? (ownerMachine === 'self' ? 'This machine' : 'Machine');
+    useActiveMachine.getState().setActive({ machineId: ownerMachine, name });
+  }, [ownerMachine, queryClient]);
 
   const terminalIdFromUrl = terminalIdFromRoute || searchParams.get('terminalId');
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(terminalIdFromUrl);
@@ -336,9 +355,9 @@ export function SessionPage() {
   const { activeTheme, activeFont, activeFontSize, setFontSize } = useTerminalTheme();
   const { cpu, memUsed, memTotal, diskPct } = useSystemMetrics();
 
-  const { data: session } = useQuery({
-    queryKey: ['session', id],
-    queryFn: () => api.getSession(id!),
+  const { data: session, isError: sessionFailed, error: sessionError } = useQuery({
+    queryKey: ['session', ownerMachine, id],
+    queryFn: () => api.getSession(id!, ownerMachine),
     enabled: !!id,
   });
 
@@ -404,7 +423,7 @@ export function SessionPage() {
       queryClient.invalidateQueries({ queryKey: ['terminals', id] });
       setActiveTerminalId(terminal.id);
       setViewMode('terminal');
-      navigate(`/sessions/${id}/${terminal.id}`, { replace: true });
+      navigate(sessionPath(ownerMachine, id!, terminal.id), { replace: true });
     },
   });
 
@@ -462,7 +481,7 @@ export function SessionPage() {
   const selectTerminal = (terminalId: string) => {
     setActiveTerminalId(terminalId);
     setViewMode('terminal');
-    navigate(`/sessions/${id}/${terminalId}`, { replace: true });
+    navigate(sessionPath(ownerMachine, id!, terminalId), { replace: true });
   };
 
   // Auto-select first terminal when none is active
@@ -476,9 +495,9 @@ export function SessionPage() {
   useEffect(() => {
     const tid = searchParams.get('terminalId');
     if (tid && terminals.length > 0 && !isLoading) {
-      navigate(`/sessions/${id}/${tid}`, { replace: true });
+      navigate(sessionPath(ownerMachine, id!, tid), { replace: true });
     }
-  }, [searchParams, terminals, isLoading, id, navigate]);
+  }, [searchParams, terminals, isLoading, id, ownerMachine, navigate]);
 
   const activeTerminal = terminals.find((t) => t.id === activeTerminalId);
 
@@ -542,6 +561,38 @@ export function SessionPage() {
     });
   };
   const handleTabPointerUp = () => { pointerDragRef.current = null; };
+
+  // Surface a failed session load instead of falling through to a blank shell.
+  // The common case is a remote session whose owning machine is unreachable, or
+  // a session that was terminated/removed.
+  if (sessionFailed) {
+    const status = (sessionError as { status?: number } | undefined)?.status;
+    const notFound = status === 404;
+    const aggregate = queryClient.getQueryData<AggregatedSidebar>(['sidebar-aggregate']);
+    const machineName = aggregate?.machines.find((m) => m.machineId === ownerMachine)?.machineName
+      ?? (ownerMachine === 'self' ? 'this machine' : ownerMachine);
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 px-6 text-center">
+        <AlertTriangle className="size-8 text-muted-foreground/50" />
+        <h2 className="text-sm font-medium">{notFound ? 'Session not found' : 'Couldn’t load session'}</h2>
+        <p className="max-w-sm text-xs text-muted-foreground">
+          {notFound
+            ? `This session isn’t on ${ownerMachine === 'self' ? 'this machine' : machineName} — it may have been removed, or it lives on a different machine.`
+            : `Couldn’t reach ${machineName}. ${(sessionError as Error | undefined)?.message ?? ''}`}
+        </p>
+        <div className="mt-1 flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => navigate('/')}>Back to dashboard</Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => queryClient.invalidateQueries({ queryKey: ['session', ownerMachine, id] })}
+          >
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">

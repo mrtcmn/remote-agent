@@ -4,6 +4,8 @@ import { eq } from 'drizzle-orm';
 import { db, fcmTokens, notificationPrefs } from '../db';
 import { requireAuth } from '../auth/middleware';
 import { notificationRepository } from '../services/notification';
+import { fanOutToMasters } from '../services/aggregation/fan-out';
+import { mergeNotifications } from '../services/aggregation/merge';
 
 export const notificationRoutes = new Elysia({ prefix: '/notifications' })
   .use(requireAuth)
@@ -26,6 +28,44 @@ export const notificationRoutes = new Elysia({ prefix: '/notifications' })
       sessionId: t.Optional(t.String()),
       limit: t.Optional(t.String()),
       offset: t.Optional(t.String()),
+    }),
+  })
+
+  // Aggregate notifications across self + all paired machines. Local-only: runs
+  // here and fans out, merging each machine's inbox into one chronological list,
+  // tagging every notification with its origin machine.
+  .get('/aggregate', async ({ user, query }) => {
+    const statusFilter = query.status?.split(',').filter(Boolean) as any[] | undefined;
+    const limit = query.limit ? parseInt(query.limit) : 50;
+
+    const selfNotifs = await notificationRepository.findByUser(user!.id, {
+      status: statusFilter,
+      limit,
+      offset: 0,
+    });
+    const self = { machineId: 'self', machineName: 'This machine', online: true, data: selfNotifs };
+
+    const qs = new URLSearchParams();
+    if (query.status) qs.set('status', query.status);
+    qs.set('limit', String(limit));
+    const remoteRaw = await fanOutToMasters<{ notifications: typeof selfNotifs }>(
+      user!.id,
+      `/notifications?${qs.toString()}`,
+    );
+    const remotes = remoteRaw.map((r) => ({
+      machineId: r.machineId,
+      machineName: r.machineName,
+      online: r.online,
+      error: r.error,
+      data: r.online && r.data ? r.data.notifications : null,
+    }));
+
+    const merged = mergeNotifications([self, ...remotes]);
+    return { ...merged, notifications: merged.notifications.slice(0, limit) };
+  }, {
+    query: t.Object({
+      status: t.Optional(t.String()),
+      limit: t.Optional(t.String()),
     }),
   })
 

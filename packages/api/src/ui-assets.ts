@@ -11,7 +11,7 @@
  */
 
 import { existsSync, readdirSync, statSync } from 'fs';
-import { join, relative, resolve } from 'path';
+import { isAbsolute, join, relative, resolve } from 'path';
 
 const DIST_DIR = resolve(import.meta.dir, '..', '..', 'ui', 'dist');
 const IS_DEV = existsSync(DIST_DIR);
@@ -48,7 +48,15 @@ export async function getUiAssets(): Promise<Record<string, string>> {
 
 export async function getAssetPath(urlPath: string): Promise<string | undefined> {
   const assets = await getUiAssets();
-  return assets[urlPath];
+  const path = assets[urlPath];
+  if (!path) return undefined;
+  // { type: 'file' } imports in bun build --outdir mode produce paths relative to the
+  // bundle output dir. Resolve them to absolute so Bun.file() works regardless of the
+  // process CWD (which may differ from the bundle dir when launched via the native app).
+  if (!isAbsolute(path)) {
+    return resolve(import.meta.dir, path);
+  }
+  return path;
 }
 
 export const uiServingMode = IS_DEV ? 'runtime' : 'embedded';

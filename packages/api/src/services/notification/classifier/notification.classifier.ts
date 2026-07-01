@@ -15,17 +15,9 @@ Your job is to analyze messages from Claude Code (an AI coding assistant) and:
 1. Classify the message type
 2. Extract the EXACT options/choices presented to the user
 
-Respond ONLY with valid JSON matching this schema:
-{
-  "classifications": string[],
-  "confidence": number,
-  "summary": string,
-  "requiresUserAction": boolean,
-  "options": [
-    { "label": string, "value": string, "isDefault": boolean }
-  ],
-  "freeformAllowed": boolean
-}
+Respond with ONE LINE of MINIFIED JSON — no newlines, no indentation, no spaces between tokens, no \`\`\` fences, nothing before or after. Exactly this shape:
+{"classifications":string[],"summary":string,"options":[{"label":string}],"freeformAllowed":boolean}
+Output ONLY those four keys. Do not add confidence, requiresUserAction, value, isDefault, or any other field — the server fills those in.
 
 ## Classifications (one or more)
 - "question": Claude is asking the user to make a choice or provide information
@@ -38,13 +30,13 @@ Respond ONLY with valid JSON matching this schema:
 ## Options extraction rules
 This is critical — extract the REAL options from the message, not generic yes/no.
 
-Examples:
+Use short labels (≤5 words). Examples:
 - Permission prompt "Allow claude to run 'npm test'?" with choices [Allow once, Allow for session, Deny]
-  → options: [{"label":"Allow once","value":"allow_once"},{"label":"Allow for session","value":"allow_session"},{"label":"Deny","value":"deny"}]
+  → options: [{"label":"Allow once"},{"label":"Allow for session"},{"label":"Deny"}]
 - "Which framework? React, Vue, or Svelte?"
-  → options: [{"label":"React","value":"react"},{"label":"Vue","value":"vue"},{"label":"Svelte","value":"svelte"}]
+  → options: [{"label":"React"},{"label":"Vue"},{"label":"Svelte"}]
 - "Should I proceed with the refactoring?"
-  → options: [{"label":"Yes, proceed","value":"yes"},{"label":"No, stop","value":"no"}], freeformAllowed: true
+  → options: [{"label":"Yes, proceed"},{"label":"No, stop"}], freeformAllowed: true
 - "What's the API endpoint URL?"
   → options: [], freeformAllowed: true (open-ended question, no fixed choices)
 - "Task completed successfully"
@@ -55,7 +47,23 @@ Set to true when the user can type a custom response (not just pick from options
 Questions like "what do you think?" or "any other changes?" allow freeform.
 Permission prompts with fixed choices do NOT allow freeform.
 
-Keep summary under 100 characters — it goes in a push notification.`;
+## Summary — THIS IS THE NOTIFICATION TEXT THE USER READS
+Write "summary" as a short recap of what Claude did, or what it's asking — like the brief recap Claude gives when it finishes a task. Lead with the outcome or the question.
+NON-NEGOTIABLE RULES:
+- 3 sentences MAXIMUM. Prefer 1-2. Stop the moment the point is made.
+- Under ~300 characters. If you go over, delete words until you're under.
+- No preamble ("Sure,", "Here's"), no headings, no bullet lists.
+- DO wrap commands, file paths, and identifiers in \`backticks\`, and use a SHORT \`\`\`bash fenced block\`\`\` when a command is the point — keep any block to 1-3 lines (the ~300 char limit still applies).
+- Describe the message — never paste it back verbatim.
+
+Remember: the RESPONSE is ONLY the one-line minified JSON object — don't wrap that whole object in fences or add commentary. (Backticks and fenced blocks may appear INSIDE the "summary" string.)`;
+
+// Loose output-token backstop. The real token reducer is disabling thinking in
+// the engine (that's what takes the classifier from ~660 to ~120 output tokens);
+// recap brevity itself is enforced by this system prompt + the 300-char clamp in
+// validate(). In --print mode this value is not a precise clamp, just a ceiling
+// safely above the ~120-token JSON so it never truncates a valid classification.
+const CLASSIFIER_MAX_OUTPUT_TOKENS = 512;
 
 export class NotificationClassifier {
   async classify(input: ClassificationInput): Promise<ClassificationResult> {
@@ -65,6 +73,7 @@ export class NotificationClassifier {
       const response = await llmEngine.completeJSON<ClassificationResult>({
         prompt,
         systemPrompt: SYSTEM_PROMPT,
+        maxTokens: CLASSIFIER_MAX_OUTPUT_TOKENS,
       });
 
       if (response.structured) {
@@ -111,7 +120,7 @@ export class NotificationClassifier {
     return {
       classifications: validClassifications.length > 0 ? validClassifications : ['idle'],
       confidence: Math.max(0, Math.min(1, result.confidence || 0.5)),
-      summary: (result.summary || 'Agent update').slice(0, 100),
+      summary: (result.summary || 'Agent update').slice(0, 300),
       requiresUserAction: result.requiresUserAction ?? validClassifications.some(
         c => c === 'question' || c === 'permission' || c === 'error'
       ),

@@ -2,6 +2,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SidebarSession } from '@/lib/api';
+import { sessionPath } from '@/lib/session-route';
+import { getActiveMachineId } from '@/lib/active-machine';
 
 interface SessionRowProps {
   session: SidebarSession;
@@ -24,7 +26,7 @@ export function SessionRow({ session }: SessionRowProps) {
 
   return (
     <button
-      onClick={() => navigate(`/sessions/${session.id}`)}
+      onClick={() => navigate(sessionPath(getActiveMachineId(), session.id))}
       className={cn(
         'w-full text-left px-3 py-2.5 md:py-1.5 rounded-sm transition-colors group',
         'hover:bg-sidebar-accent active:bg-sidebar-accent',

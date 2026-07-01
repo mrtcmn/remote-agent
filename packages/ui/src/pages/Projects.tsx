@@ -3,12 +3,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Plus, FolderGit2, GitBranch, RefreshCw, Loader2, Terminal, Key, Layers, Check, Trash2, Github, Search, Lock, HardDrive, AlertTriangle } from 'lucide-react';
 import { api, ApiError, type Project, type SSHKey, type CreateProjectInput } from '@/lib/api';
+import { sessionPath } from '@/lib/session-route';
+import { getActiveMachineId } from '@/lib/active-machine';
 import { getElectronAPI } from '@/lib/electron';
 import { useAuth } from '@/hooks/useAuth';
 import { useGitHubApps, useGitHubAppInstallations, useInstallationRepos } from '@/hooks/useGitHubApps';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
+import { MachineSwitcher } from '@/components/MachineSwitcher';
 import { toast } from '@/components/ui/Toaster';
 import { formatRelativeTime } from '@/lib/utils';
 
@@ -19,7 +22,7 @@ export function ProjectsPage() {
 
   const { data: projects, isLoading } = useQuery({
     queryKey: ['projects'],
-    queryFn: api.getProjects,
+    queryFn: () => api.getProjects(),
   });
 
   return (
@@ -29,7 +32,10 @@ export function ProjectsPage() {
           <h1 className="text-2xl font-bold">Projects</h1>
           <p className="text-muted-foreground">Manage your git repositories</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <div className="w-44 hidden sm:block">
+            <MachineSwitcher />
+          </div>
           <Button
             variant="outline"
             onClick={() => setShowMultiCreate(true)}
@@ -62,7 +68,7 @@ export function ProjectsPage() {
           onSuccess={() => {
             setShowMultiCreate(false);
             queryClient.invalidateQueries({ queryKey: ['projects'] });
-            queryClient.invalidateQueries({ queryKey: ['sidebar-data'] });
+            queryClient.invalidateQueries({ queryKey: ['sidebar-aggregate'] });
           }}
         />
       )}
@@ -753,7 +759,7 @@ function ProjectCard({ project }: { project: Project }) {
       setShowDeleteConfirm(false);
       setDeletePin('');
       queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: ['sidebar-data'] });
+      queryClient.invalidateQueries({ queryKey: ['sidebar-aggregate'] });
     },
     onError: (error) => {
       toast({ title: 'Error', description: (error as Error).message, variant: 'destructive' });
@@ -764,8 +770,8 @@ function ProjectCard({ project }: { project: Project }) {
     mutationFn: () => api.createSession(project.id),
     onSuccess: (session) => {
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
-      queryClient.invalidateQueries({ queryKey: ['sidebar-data'] });
-      navigate(`/sessions/${session.id}`);
+      queryClient.invalidateQueries({ queryKey: ['sidebar-aggregate'] });
+      navigate(sessionPath(getActiveMachineId(), session.id));
     },
     onError: (error) => {
       toast({ title: 'Error', description: (error as Error).message, variant: 'destructive' });

@@ -33,8 +33,8 @@ export function useSidebar() {
   }, []);
 
   const { data: sidebarData, isLoading } = useQuery({
-    queryKey: ['sidebar-data'],
-    queryFn: api.getSidebarData,
+    queryKey: ['sidebar-aggregate'],
+    queryFn: api.getAggregatedSidebar,
     refetchInterval: 30000,
   });
 

@@ -10,6 +10,8 @@
     "build:server": "bun --cwd ../ui run build && bun run --cwd ../api ui-manifest && bun build ../api/src/index.ts --target=bun --outdir dist-server --external playwright --external playwright-core",
     "build": "bun run build:ui && bun run build:server && electrobun build",
     "build:stable": "bun run build:ui && bun run build:server && electrobun build --env=stable",
+    "install:app": "rm -rf '/Applications/Remote Agent.app' && ditto 'build/stable-macos-arm64/Remote Agent.app' '/Applications/Remote Agent.app'",
+    "release": "osascript -e 'quit app \"Remote Agent\"' 2>/dev/null; sleep 1; pkill -f '/Applications/Remote Agent.app' 2>/dev/null; bun run build:stable && bun run install:app && open '/Applications/Remote Agent.app'",
     "tsc": "tsc --noEmit",
     "test": "bun test"
   },

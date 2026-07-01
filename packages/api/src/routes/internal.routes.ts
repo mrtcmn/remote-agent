@@ -267,8 +267,8 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
     const baseTitle = titleMap[notificationType] || 'Attention Required';
     const title = session.projectName ? `${session.projectName}: ${baseTitle}` : baseTitle;
 
-    // Use full transcript text as body; classifier summary is only for push title context
-    const notificationBody = transcriptInfo.fullText || messageText;
+    // Use the concise classifier recap (2-3 sentences) as the body, not the full transcript
+    const notificationBody = classification.summary || messageText;
     const terminalName = await getTerminalName(body.terminalId);
 
     // Create and send notification
@@ -357,8 +357,8 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       await notificationService.dismissBySession(body.sessionId);
     }
 
-    // Use full transcript text as body; prepend stop reason if non-standard
-    let notificationBody = transcriptInfo.fullText || body.last_assistant_message || messageText;
+    // Use the concise classifier recap (2-3 sentences) as the body, not the full transcript
+    let notificationBody = classification.summary || body.last_assistant_message || messageText;
     if (transcriptInfo.stopReason && transcriptInfo.stopReason !== 'end_turn') {
       notificationBody = `[${transcriptInfo.stopReason}] ${notificationBody}`;
     }
