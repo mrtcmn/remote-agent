@@ -51,7 +51,7 @@ export function KanbanBoard({ data, onTaskClick, onMoveTask, onQuickAdd }: Kanba
   }, [draggedTask, data.columns, onMoveTask]);
 
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4 h-full">
+    <div className="flex gap-4 overflow-x-auto overflow-y-hidden pb-4 h-full">
       {data.columns.map((column) => (
         <KanbanColumn
           key={column.id}

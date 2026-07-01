@@ -1,6 +1,6 @@
 import { defineConfig } from 'drizzle-kit';
 
-const isLocal = process.env.REMOTE_AGENT_MODE === 'local';
+const isLocal = (process.env.RA_MODE || process.env.REMOTE_AGENT_MODE) === 'local';
 
 export default defineConfig(isLocal ? {
   schema: './src/db/schema.sqlite.ts',

@@ -19,22 +19,26 @@ export class ApiError extends Error {
 
 async function request<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit & { machineId?: string } = {}
 ): Promise<T> {
+  const { machineId: machineIdOverride, ...init } = options;
   const url = `${getApiBaseUrl()}${endpoint}`;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...((options.headers as Record<string, string>) || {}),
+    ...((init.headers as Record<string, string>) || {}),
   };
 
-  const activeId = getActiveMachineId();
+  // An explicit machineId targets that machine for this single call (used by
+  // session-scoped actions and the New Session / Projects pickers); otherwise
+  // fall back to the globally-active machine.
+  const activeId = machineIdOverride ?? getActiveMachineId();
   if (activeId && activeId !== 'self' && shouldProxyEndpoint(endpoint)) {
     headers['X-Machine-Id'] = activeId;
   }
 
   const response = await fetch(url, {
-    ...options,
+    ...init,
     headers,
     credentials: 'include',
   });
@@ -57,9 +61,9 @@ export const api = {
 
   // Sessions (container for terminals)
   getSessions: () => request<Session[]>('/sessions'),
-  getSession: (id: string) => request<Session>(`/sessions/${id}`),
-  createSession: (projectId?: string, worktreeId?: string) =>
-    request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ projectId, worktreeId }) }),
+  getSession: (id: string, machineId?: string) => request<Session>(`/sessions/${id}`, { machineId }),
+  createSession: (projectId?: string, worktreeId?: string, machineId?: string) =>
+    request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ projectId, worktreeId }), machineId }),
   terminateSession: (id: string) => request(`/sessions/${id}`, { method: 'DELETE' }),
   getSessionGitStatus: (sessionId: string, projectId?: string) => {
     const params = new URLSearchParams();
@@ -168,7 +172,7 @@ export const api = {
     }),
 
   // Projects
-  getProjects: () => request<Project[]>('/projects'),
+  getProjects: (machineId?: string) => request<Project[]>('/projects', { machineId }),
   getProject: (id: string) => request<Project>(`/projects/${id}`),
   createProject: (data: CreateProjectInput) => request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
   deleteProject: (id: string, pin: string) =>
@@ -203,26 +207,39 @@ export const api = {
     const query = searchParams.toString();
     return request<{ notifications: NotificationRecord[] }>(`/notifications${query ? `?${query}` : ''}`);
   },
+  // Notifications merged across this machine + every paired machine.
+  getAggregatedNotifications: (params?: { status?: string; limit?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.set('status', params.status);
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    const query = searchParams.toString();
+    return request<AggregatedNotifications>(`/notifications/aggregate${query ? `?${query}` : ''}`);
+  },
   getUnreadCount: () => request<{ count: number }>('/notifications/unread-count'),
-  markNotificationRead: (id: string) =>
+  // machineId targets the machine that owns the notification (notifications live
+  // on the machine that created them); omit / 'self' for the local machine.
+  markNotificationRead: (id: string, machineId?: string) =>
     request(`/notifications/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ status: 'read' }),
+      machineId,
     }),
-  markNotificationsRead: (ids: string[]) =>
+  markNotificationsRead: (ids: string[], machineId?: string) =>
     request('/notifications/mark-read', {
       method: 'POST',
       body: JSON.stringify({ ids }),
+      machineId,
     }),
   dismissNotifications: (params: { sessionId?: string; terminalId?: string }) =>
     request('/notifications/dismiss', {
       method: 'POST',
       body: JSON.stringify(params),
     }),
-  respondToNotification: (id: string, action: string, text?: string) =>
+  respondToNotification: (id: string, action: string, text?: string, machineId?: string) =>
     request<{ success: boolean }>(`/notifications/${id}/respond`, {
       method: 'POST',
       body: JSON.stringify({ action, ...(text ? { text } : {}) }),
+      machineId,
     }),
 
   // Presence
@@ -436,6 +453,33 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ sessionId }) },
     ),
 
+  // ─── Run Flows ─────────────────────────────────────────────────────────────
+
+  listRunFlows: (projectId: string) =>
+    request<RunFlow[]>(`/run-flows/project/${projectId}`),
+  getRunFlow: (id: string) =>
+    request<RunFlowDetail>(`/run-flows/${id}`),
+  createRunFlow: (data: { projectId: string; name: string }) =>
+    request<RunFlow>('/run-flows', { method: 'POST', body: JSON.stringify(data) }),
+  updateRunFlow: (id: string, data: UpdateRunFlowInput) =>
+    request<RunFlowDetail>(`/run-flows/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteRunFlow: (id: string) =>
+    request<{ success: boolean }>(`/run-flows/${id}`, { method: 'DELETE' }),
+  runFlow: (id: string, sessionId: string) =>
+    request<{ success: boolean; started: Array<{ nodeId: string; terminalId: string }> }>(
+      `/run-flows/${id}/run`,
+      { method: 'POST', body: JSON.stringify({ sessionId }) },
+    ),
+  runFlowFromNode: (id: string, nodeId: string, sessionId: string) =>
+    request<{ success: boolean; started: Array<{ nodeId: string; terminalId: string }> }>(
+      `/run-flows/${id}/nodes/${nodeId}/run`,
+      { method: 'POST', body: JSON.stringify({ sessionId }) },
+    ),
+  stopFlow: (id: string) =>
+    request<{ success: boolean }>(`/run-flows/${id}/stop`, { method: 'POST' }),
+  getFlowStatus: (id: string) =>
+    request<RunFlowNodeStatus[]>(`/run-flows/${id}/status`),
+
   // ─── Browser Preview ────────────────────────────────────────────────────────
 
   startPreview: (url: string, sessionId: string, viewport?: ViewportPreset) =>
@@ -463,6 +507,8 @@ export const api = {
   // ─── Sidebar ──────────────────────────────────────────────────────────────
 
   getSidebarData: () => request<SidebarData>('/sessions/sidebar'),
+  // Sessions from THIS machine + every paired machine, grouped per machine.
+  getAggregatedSidebar: () => request<AggregatedSidebar>('/sessions/sidebar/aggregate'),
   reorderProjects: (projectIds: string[]) =>
     request<{ success: boolean }>('/projects/reorder', { method: 'PUT', body: JSON.stringify({ projectIds }) }),
 
@@ -470,8 +516,8 @@ export const api = {
 
   getWorktrees: (projectId: string) =>
     request<Worktree[]>(`/worktrees/project/${projectId}`),
-  createWorktree: (data: { projectId: string; branch: string; name: string; createBranch?: boolean }) =>
-    request<{ worktree: Worktree; session: Session }>('/worktrees', { method: 'POST', body: JSON.stringify(data) }),
+  createWorktree: (data: { projectId: string; branch: string; name: string; createBranch?: boolean }, machineId?: string) =>
+    request<{ worktree: Worktree; session: Session }>('/worktrees', { method: 'POST', body: JSON.stringify(data), machineId }),
   deleteWorktree: (id: string) =>
     request<{ success: boolean }>(`/worktrees/${id}`, { method: 'DELETE' }),
 
@@ -833,7 +879,7 @@ export interface PairWorkspaceInput {
   claudeSettings?: Record<string, unknown>;
 }
 
-export type TerminalType = 'shell' | 'claude' | 'process';
+export type TerminalType = 'shell' | 'claude' | 'opencode' | 'process';
 
 export interface TerminalInfo {
   id: string;
@@ -1158,6 +1204,70 @@ export interface UpdateRunConfigInput {
   position?: number;
 }
 
+// ─── Run Flow Types ───────────────────────────────────────────────────────────
+
+export interface RunFlowViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export interface RunFlow {
+  id: string;
+  projectId: string;
+  userId: string;
+  name: string;
+  viewport: RunFlowViewport | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RunFlowNodeData {
+  id: string;
+  flowId: string;
+  runConfigId: string;
+  x: number;
+  y: number;
+  runConfig?: RunConfig;
+}
+
+export interface RunFlowEdgeData {
+  id: string;
+  flowId: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  readyDelayMs: number;
+}
+
+export interface RunFlowDetail extends RunFlow {
+  nodes: RunFlowNodeData[];
+  edges: RunFlowEdgeData[];
+}
+
+export interface RunFlowNodeStatus {
+  nodeId: string;
+  runConfigId: string;
+  isRunning: boolean;
+  activeTerminalId: string | null;
+}
+
+export interface UpdateRunFlowInput {
+  name?: string;
+  viewport?: RunFlowViewport | null;
+  nodes?: Array<{
+    id?: string;
+    runConfigId: string;
+    x: number;
+    y: number;
+  }>;
+  edges?: Array<{
+    id?: string;
+    sourceNodeId: string;
+    targetNodeId: string;
+    readyDelayMs?: number;
+  }>;
+}
+
 // ─── Browser Preview Types ────────────────────────────────────────────────────
 
 export type ViewportPreset = 'mobile' | 'tablet' | 'desktop' | 'desktop_hd';
@@ -1216,6 +1326,7 @@ export interface SidebarSession {
   worktreeName: string | null;
   sessionType: 'git' | 'worktree';
   services: SessionService[];
+  lastActiveAt: string;
 }
 
 export interface SidebarProject {
@@ -1229,6 +1340,33 @@ export interface SidebarProject {
 export interface SidebarData {
   projects: SidebarProject[];
   unassignedSessions: SidebarSession[];
+}
+
+// ─── Cross-machine aggregation ───────────────────────────────────────────────
+
+export interface AggregateMachine {
+  machineId: string;   // 'self' or a paired master id
+  machineName: string;
+  online: boolean;
+  error?: string;
+}
+
+export interface MachineSidebar extends AggregateMachine {
+  data: SidebarData;
+}
+
+export interface AggregatedSidebar {
+  machines: MachineSidebar[];
+}
+
+export type AggregatedNotification = NotificationRecord & {
+  machineId: string;
+  machineName: string;
+};
+
+export interface AggregatedNotifications {
+  notifications: AggregatedNotification[];
+  machines: AggregateMachine[];
 }
 
 // ─── Docker Types ────────────────────────────────────────────────────────────

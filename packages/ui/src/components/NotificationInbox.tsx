@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Bell, ExternalLink, CheckCircle2 } from 'lucide-react';
 import { api, NotificationRecord, type NotificationOption, type NotificationAction } from '@/lib/api';
+import { sessionPath } from '@/lib/session-route';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { FormattedText } from './FormattedText';
 
 export function NotificationInbox() {
   const [isOpen, setIsOpen] = useState(false);
@@ -138,10 +140,8 @@ function NotificationItem({
     if (isUnread) {
       markReadMutation.mutate();
     }
-    const path = notification.terminalId
-      ? `/sessions/${notification.sessionId}/${notification.terminalId}`
-      : `/sessions/${notification.sessionId}`;
-    window.location.href = path;
+    // Local-only inbox: these notifications belong to this machine.
+    window.location.href = sessionPath('self', notification.sessionId, notification.terminalId ?? undefined);
     onClose();
   };
 
@@ -168,7 +168,11 @@ function NotificationItem({
               <span className="h-2 w-2 rounded-full bg-blue-500 flex-shrink-0" />
             )}
           </div>
-          <p className="text-sm text-muted-foreground line-clamp-2">{notification.body}</p>
+          <FormattedText
+            text={notification.body}
+            compact
+            className="text-sm text-muted-foreground line-clamp-2"
+          />
           {choices && choices.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mt-2">
               {choices.map((c, i) => (
@@ -184,10 +188,10 @@ function NotificationItem({
                     isResolved && notification.resolvedAction === c.id
                       ? 'bg-foreground text-background border-foreground'
                       : isResolved
-                      ? 'opacity-30 cursor-not-allowed border-border/40 text-muted-foreground'
+                      ? 'opacity-30 cursor-not-allowed border-foreground/10 text-muted-foreground'
                       : i === 0
                       ? 'bg-foreground text-background border-foreground hover:opacity-90'
-                      : 'border-border text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+                      : 'border-foreground/20 text-muted-foreground hover:text-foreground hover:border-foreground/40 hover:bg-secondary/60'
                   )}
                 >
                   {isResolved && notification.resolvedAction === c.id ? (

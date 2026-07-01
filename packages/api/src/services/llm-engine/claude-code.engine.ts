@@ -7,6 +7,17 @@ export class ClaudeCodeEngine implements LLMEngine {
     return process.env.CLAUDE_BIN_PATH || 'claude';
   }
 
+  /**
+   * Model used for notification classification/summarization. Defaults to
+   * Haiku — it's the fastest model and the task (classify + 100-char summary)
+   * is light, so latency matters far more than reasoning depth. Pass an alias
+   * ("haiku"/"sonnet"/"opus") or a full model id; the alias resolves to the
+   * latest model in that family. Override with CLASSIFIER_MODEL if needed.
+   */
+  private getModel(): string {
+    return process.env.CLASSIFIER_MODEL || 'haiku';
+  }
+
   async isAvailable(): Promise<boolean> {
     try {
       const proc = Bun.spawn([this.getClaudePath(), '--version'], { stdout: 'pipe', stderr: 'pipe' });
@@ -28,7 +39,7 @@ export class ClaudeCodeEngine implements LLMEngine {
   }
 
   private async run(request: LLMRequest): Promise<string> {
-    const args = [this.getClaudePath(), '--print', '--output-format', 'json'];
+    const args = [this.getClaudePath(), '--print', '--output-format', 'json', '--model', this.getModel()];
 
     if (request.systemPrompt) {
       args.push('--system-prompt', request.systemPrompt);
@@ -37,6 +48,8 @@ export class ClaudeCodeEngine implements LLMEngine {
     console.log('[LLMEngine] Spawning claude with args:', args.join(' '));
     console.log('[LLMEngine] Prompt length:', request.prompt.length, 'chars');
     console.log('[LLMEngine] System prompt length:', request.systemPrompt?.length ?? 0, 'chars');
+    // Presence of this line in logs = the thinking-disabled engine build is live.
+    console.log(`[LLMEngine] thinking=OFF maxOutputTokens=${request.maxTokens ?? 'default'}`);
 
     const proc = Bun.spawn(args, {
       stdout: 'pipe',
@@ -45,6 +58,16 @@ export class ClaudeCodeEngine implements LLMEngine {
       env: {
         ...(process.env as Record<string, string>),
         REMOTE_AGENT_CLASSIFIER: '1',
+        // Disable extended thinking for these mechanical haiku calls. Thinking is
+        // what blows the classifier up to ~660 output tokens (the JSON itself is
+        // only ~120); turning it off is the real token/cost/latency win. It also
+        // lets CLAUDE_CODE_MAX_OUTPUT_TOKENS go low without tripping the API rule
+        // that max_tokens must be ≥ the thinking budget (1024).
+        MAX_THINKING_TOKENS: '0',
+        // Optional output ceiling. NOTE: in --print mode this is a loose backstop,
+        // not a precise clamp — actual brevity comes from the system prompt + the
+        // char slice in the classifier. Only set when a caller passes maxTokens.
+        ...(request.maxTokens ? { CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(request.maxTokens) } : {}),
       },
     });
 
@@ -105,15 +128,20 @@ export class ClaudeCodeEngine implements LLMEngine {
       const parsed = JSON.parse(output);
       const content = parsed.result || output;
 
+      // The model may wrap the JSON in ``` fences (with or without a language
+      // tag) or add stray prose. Try a direct parse first, then fall back to
+      // extracting the outermost {...} object from the text.
       let structured: T | undefined;
       try {
-        const jsonStr = content.replace(/^```json?\n?/m, '').replace(/\n?```$/m, '').trim();
-        structured = JSON.parse(jsonStr);
+        structured = JSON.parse(content);
       } catch {
-        try {
-          structured = JSON.parse(content);
-        } catch {
-          // not parseable as JSON
+        const match = typeof content === 'string' ? content.match(/\{[\s\S]*\}/) : null;
+        if (match) {
+          try {
+            structured = JSON.parse(match[0]);
+          } catch {
+            // not parseable as JSON
+          }
         }
       }
 

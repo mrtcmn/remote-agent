@@ -14,6 +14,7 @@ import { getProjectCredentials } from '../services/git';
 import { requireAuth } from '../auth/middleware';
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN_PATH || 'claude';
+const OPENCODE_BIN = process.env.OPENCODE_BIN_PATH || 'opencode';
 
 function isValidShellPath(shell: string | null | undefined): shell is string {
   // Reject empty, non-absolute paths, and sentinel values like "unknown"
@@ -153,6 +154,10 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
       // Set session and terminal IDs for hook callbacks
       env.REMOTE_AGENT_SESSION_ID = body.sessionId;
       env.REMOTE_AGENT_TERMINAL_ID = terminalId;
+    } else if (type === 'opencode') {
+      command = [OPENCODE_BIN];
+      name = body.name || 'Opencode';
+      await workspaceService.createUserWorkspace(user!.id);
     } else {
       command = body.command || [getDefaultShell(), '-l'];
       name = body.name || 'Terminal';
@@ -192,7 +197,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     body: t.Object({
       sessionId: t.String(),
       name: t.Optional(t.String()),
-      type: t.Optional(t.Union([t.Literal('shell'), t.Literal('claude'), t.Literal('process')])),
+      type: t.Optional(t.Union([t.Literal('shell'), t.Literal('claude'), t.Literal('opencode'), t.Literal('process')])),
       command: t.Optional(t.Array(t.String())),
       cols: t.Optional(t.Number()),
       rows: t.Optional(t.Number()),

@@ -16,9 +16,9 @@
     "db:generate": "bun run --cwd packages/api db:generate",
     "db:migrate": "bun run --cwd packages/api db:migrate",
     "db:studio": "bun run --cwd packages/api db:studio",
-    "electron:dev": "bun run build:ui && cd packages/electron && npm run dev",
-    "electron:dev:remote": "cd packages/electron && npm run dev:remote",
-    "electron:build": "cd packages/electron && npm run dist"
+    "desktop:dev": "bun run --cwd packages/desktop dev",
+    "desktop:build": "bun run --cwd packages/desktop build",
+    "desktop:release": "bun run --cwd packages/desktop release"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",

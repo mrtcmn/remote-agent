@@ -41,8 +41,8 @@ export function SetupScreen() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 app-drag">
-      <div className="frosted-card w-full max-w-md p-8 rounded-2xl space-y-6 app-no-drag">
+    <div className="min-h-screen flex items-center justify-center p-4 electrobun-webkit-app-region-drag">
+      <div className="frosted-card w-full max-w-md p-8 rounded-2xl space-y-6 electrobun-webkit-app-region-no-drag">
         {/* Logo / Title */}
         <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-2">

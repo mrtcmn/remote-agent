@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Terminal, Play, Square, Clock, Loader2 } from 'lucide-react';
 import { api, type Session } from '@/lib/api';
+import { sessionPath } from '@/lib/session-route';
+import { getActiveMachineId } from '@/lib/active-machine';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { NewSessionModal } from '@/components/NewSessionModal';
@@ -71,7 +73,7 @@ export function DashboardPage() {
                   <SessionCard
                     key={session.id}
                     session={session}
-                    onOpen={() => navigate(`/sessions/${session.id}`)}
+                    onOpen={() => navigate(sessionPath(getActiveMachineId(), session.id))}
                     onTerminate={() => terminateMutation.mutate(session.id)}
                   />
                 ))}
@@ -118,7 +120,7 @@ export function DashboardPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => navigate(`/sessions/${session.id}`)}
+                      onClick={() => navigate(sessionPath(getActiveMachineId(), session.id))}
                     >
                       View
                     </Button>

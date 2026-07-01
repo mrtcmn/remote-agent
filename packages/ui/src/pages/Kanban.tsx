@@ -26,7 +26,7 @@ export function KanbanPage() {
   // Data
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: api.getProjects,
+    queryFn: () => api.getProjects(),
   });
 
   const { data: boardData, isLoading } = useKanbanBoard(selectedProjectId);

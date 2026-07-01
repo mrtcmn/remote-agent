@@ -126,7 +126,6 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         setCookieHeaders.push(value);
       }
     });
-    console.log('[Auth Routes] Set-Cookie headers:', setCookieHeaders);
 
     // Set status code
     set.status = response.status;

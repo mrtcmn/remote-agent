@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Layers,
@@ -13,26 +13,22 @@ import {
   FolderGit2,
   Loader2,
   X,
-  GripVertical,
   GitBranch,
   Bot,
   TerminalSquare,
   Container,
   Code,
   Play,
+  Laptop,
+  Server,
 } from 'lucide-react';
 import { NewSessionModal } from '@/components/NewSessionModal';
-import { MachineSwitcher } from '@/components/MachineSwitcher';
+import { AIModelIcon, detectAIModel } from '@/components/AIModelIcon';
 import { cn } from '@/lib/utils';
-import { api } from '@/lib/api';
-import type { SidebarData, SidebarProject, SidebarSession, SessionService } from '@/lib/api';
-
-const ACTIVE_STATUSES = new Set(['active', 'waiting_input', 'paused']);
-
-function isActiveSession(session: SidebarSession): boolean {
-  const effectiveStatus = session.liveStatus || session.status;
-  return ACTIVE_STATUSES.has(effectiveStatus);
-}
+import type { SidebarSession, SessionService, AggregatedSidebar, MachineSidebar } from '@/lib/api';
+import { flattenSidebarSessions, type FlatSession } from '@/lib/sidebar-sessions';
+import { sessionPath, sessionIdFromPath } from '@/lib/session-route';
+import { useActiveMachine } from '@/lib/active-machine';
 
 const PALETTE = ['#3b82f6', '#f59e0b', '#10b981', '#a78bfa', '#f472b6', '#fb923c', '#34d399'];
 function projectColor(id: string): string {
@@ -66,8 +62,8 @@ function DiffStat({ additions, deletions }: { additions: number; deletions: numb
   if (additions === 0 && deletions === 0) return null;
   return (
     <span className="flex flex-col items-end gap-px font-mono text-[9px] leading-none shrink-0 tabular-nums">
-      {additions > 0 && <span className="text-emerald-400">+{additions}</span>}
-      {deletions > 0 && <span className="text-red-400">-{deletions}</span>}
+      {additions > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{additions}</span>}
+      {deletions > 0 && <span className="text-red-600 dark:text-red-400">-{deletions}</span>}
     </span>
   );
 }
@@ -76,23 +72,29 @@ function DiffStat({ additions, deletions }: { additions: number; deletions: numb
 
 function ServiceRow({
   sessionId,
+  machineId,
   service,
   onNavigate,
 }: {
   sessionId: string;
+  machineId: string;
   service: SessionService;
   onNavigate: (path: string) => void;
 }) {
   const config = serviceConfig[service.type] || serviceConfig.shell;
   const Icon = config.icon;
+  // Claude terminals use the brand AI icon resolved from the terminal title —
+  // same `detectAIModel(name)` mechanism the top tab bar uses, so a Codex /
+  // Gemini / OpenAI session shows the right brand instead of a generic bot.
+  const isAi = service.type === 'claude';
 
   const handleClick = () => {
     if (service.type === 'codeServer' && service.url) {
       window.open(service.url, '_blank');
     } else if (service.type === 'docker') {
-      onNavigate(`/sessions/${sessionId}`);
+      onNavigate(sessionPath(machineId, sessionId));
     } else {
-      onNavigate(`/sessions/${sessionId}/${service.id}`);
+      onNavigate(sessionPath(machineId, sessionId, service.id));
     }
   };
 
@@ -100,10 +102,15 @@ function ServiceRow({
     <button
       onClick={handleClick}
       className="w-full flex items-center gap-1.5 pl-7 pr-2 py-0.5 rounded text-left text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/50 transition-colors"
+      title={service.label}
     >
       <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', config.dot)} />
-      <Icon className="size-2.5 shrink-0" />
-      <span className="text-[10px] truncate">{service.label}</span>
+      {isAi ? (
+        <AIModelIcon model={detectAIModel(service.label)} size={10} className="shrink-0" />
+      ) : (
+        <Icon className="size-2.5 shrink-0" />
+      )}
+      <span className="text-[12px] font-semibold truncate">{service.label}</span>
     </button>
   );
 }
@@ -114,10 +121,14 @@ function SessionRow({
   session,
   isSelected,
   onSelect,
+  projectName,
+  projectColor,
 }: {
   session: SidebarSession;
   isSelected: boolean;
   onSelect: () => void;
+  projectName?: string | null;
+  projectColor?: string | null;
 }) {
   const effectiveStatus = session.liveStatus || session.status;
   const dotClass = statusDotClass[effectiveStatus] || 'bg-gray-500';
@@ -162,8 +173,23 @@ function SessionRow({
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-1.5">
-          <span className="text-xs font-medium truncate leading-snug">
-            {session.worktreeName || session.branchName || session.id.slice(0, 8)}
+          <span className="flex items-center gap-1 min-w-0 text-xs font-medium leading-snug">
+            {projectName && projectColor && (
+              <>
+                <span
+                  className="size-3.5 rounded inline-flex items-center justify-center text-[8px] font-bold leading-none shrink-0"
+                  style={{ backgroundColor: projectColor + '33', border: `1px solid ${projectColor}44`, color: projectColor }}
+                  title={projectName}
+                >
+                  {projectName.charAt(0).toUpperCase()}
+                </span>
+                <span className="shrink-0 max-w-[64px] truncate text-muted-foreground/70">{projectName}</span>
+                <span className="text-muted-foreground/30 shrink-0">·</span>
+              </>
+            )}
+            <span className="truncate">
+              {session.worktreeName || session.branchName || session.id.slice(0, 8)}
+            </span>
           </span>
           {session.diffStats && (
             <DiffStat additions={session.diffStats.additions} deletions={session.diffStats.deletions} />
@@ -174,76 +200,100 @@ function SessionRow({
   );
 }
 
-// ─── ProjectGroup ────────────────────────────────────────────────────────────
+// ─── SessionEntry (row + its service sub-rows) ────────────────────────────────
 
-function ProjectGroup({
-  project,
+function SessionEntry({
+  session,
+  machineId,
+  projectName,
+  projectColor,
+  isSelected,
+  onSelect,
+  onNavigate,
+}: {
+  session: SidebarSession;
+  machineId: string;
+  projectName?: string | null;
+  projectColor?: string | null;
+  isSelected: boolean;
+  onSelect: () => void;
+  onNavigate: (path: string) => void;
+}) {
+  return (
+    <div>
+      <SessionRow
+        session={session}
+        projectName={projectName}
+        projectColor={projectColor}
+        isSelected={isSelected}
+        onSelect={onSelect}
+      />
+      {session.services?.length > 0 && (
+        <div className="space-y-px">
+          {session.services.map((service) => (
+            <ServiceRow key={service.id} sessionId={session.id} machineId={machineId} service={service} onNavigate={onNavigate} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── MachineSection (one machine's sessions, collapsible) ─────────────────────
+
+function MachineSection({
+  machine,
   activeSessionId,
   onSelectSession,
-  onAdd,
   onNavigate,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  isDragOver,
 }: {
-  project: SidebarProject;
+  machine: MachineSidebar;
   activeSessionId: string | null;
-  onSelectSession: (id: string) => void;
-  onAdd: () => void;
+  onSelectSession: (sessionId: string, machine: MachineSidebar) => void;
   onNavigate: (path: string) => void;
-  onDragStart: (e: React.DragEvent) => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDrop: (e: React.DragEvent) => void;
-  isDragOver: boolean;
 }) {
-  const [expanded, setExpanded] = useState(true);
-  const color = projectColor(project.id);
-  const initial = project.name.charAt(0).toUpperCase();
+  const isSelf = machine.machineId === 'self';
+  const [expanded, setExpanded] = useState(machine.online);
+  const [showInactive, setShowInactive] = useState(false);
+  const { active, inactive } = useMemo(() => flattenSidebarSessions(machine.data), [machine.data]);
+
+  const renderEntry = (session: FlatSession) => (
+    <SessionEntry
+      key={session.id}
+      session={session}
+      machineId={machine.machineId}
+      projectName={session.projectName}
+      projectColor={session.projectId ? projectColor(session.projectId) : null}
+      isSelected={session.id === activeSessionId}
+      onSelect={() => onSelectSession(session.id, machine)}
+      onNavigate={onNavigate}
+    />
+  );
 
   return (
-    <div
-      className={cn('space-y-0.5 rounded-md transition-colors', isDragOver && 'bg-secondary/60')}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-    >
+    <div className="px-1">
       <div
         role="button"
         onClick={() => setExpanded((v) => !v)}
-        className="group/ws flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-secondary cursor-pointer select-none"
+        className="group/ms flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-secondary cursor-pointer select-none"
       >
-        <span
-          draggable
-          onDragStart={onDragStart}
-          onClick={(e) => e.stopPropagation()}
-          className="flex items-center shrink-0 cursor-grab active:cursor-grabbing opacity-0 group-hover/ws:opacity-100 transition-opacity"
-        >
-          <GripVertical className="size-3 text-muted-foreground/40" />
-        </span>
-        <span
-          className="size-4 rounded flex items-center justify-center text-[9px] font-bold leading-none shrink-0"
-          style={{ backgroundColor: color + '33', border: `1px solid ${color}44`, color }}
-        >
-          {initial}
-        </span>
-        <span className="flex-1 text-xs font-medium text-muted-foreground group-hover/ws:text-foreground truncate transition-colors">
-          {project.name}
-        </span>
-        {project.isMultiProject && (
-          <Layers className="size-2.5 text-muted-foreground/40 shrink-0" />
+        {isSelf ? (
+          <Laptop className="size-3.5 text-muted-foreground shrink-0" />
+        ) : (
+          <Server className="size-3.5 text-muted-foreground shrink-0" />
         )}
-        <span className="text-[10px] text-muted-foreground/40 font-mono shrink-0">
-          ({project.sessions.length})
+        <span className="flex-1 text-xs font-medium text-muted-foreground group-hover/ms:text-foreground truncate transition-colors">
+          {machine.machineName}
         </span>
-        <button
-          className="opacity-0 group-hover/ws:opacity-100 transition-opacity p-0.5 rounded hover:bg-border text-muted-foreground/50 hover:text-foreground"
-          onClick={(e) => {
-            e.stopPropagation();
-            onAdd();
-          }}
-        >
-          <Plus className="size-2.5" />
-        </button>
+        <span
+          className={cn('w-1.5 h-1.5 rounded-full shrink-0', machine.online ? 'bg-emerald-500' : 'bg-muted-foreground/40')}
+          title={machine.online ? 'online' : machine.error || 'offline'}
+        />
+        {machine.online && (
+          <span className="text-[12px] font-semibold text-muted-foreground/40 font-mono shrink-0">
+            ({active.length})
+          </span>
+        )}
         <motion.span
           animate={{ rotate: expanded ? 0 : -90 }}
           transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
@@ -262,46 +312,35 @@ function ProjectGroup({
             transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
             style={{ overflow: 'hidden' }}
           >
-            <motion.div
-              className="space-y-0.5"
-              initial="hidden"
-              animate="visible"
-              variants={{
-                hidden: {},
-                visible: {
-                  transition: { staggerChildren: 0.03, delayChildren: 0.04 },
-                },
-              }}
-            >
-              {project.sessions.map((session) => (
-                <motion.div
-                  key={session.id}
-                  variants={{
-                    hidden: { opacity: 0, y: -3 },
-                    visible: { opacity: 1, y: 0 },
-                  }}
-                  transition={{ duration: 0.15, ease: 'easeOut' }}
-                >
-                  <SessionRow
-                    session={session}
-                    isSelected={session.id === activeSessionId}
-                    onSelect={() => onSelectSession(session.id)}
-                  />
-                  {session.services?.length > 0 && (
-                    <div className="space-y-px">
-                      {session.services.map((service) => (
-                        <ServiceRow
-                          key={service.id}
-                          sessionId={session.id}
-                          service={service}
-                          onNavigate={onNavigate}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </motion.div>
-              ))}
-            </motion.div>
+            {!machine.online ? (
+              <p className="px-3 py-2 text-[11px] text-muted-foreground/50">
+                {machine.error ? `Unreachable — ${machine.error}` : 'Unreachable'}
+              </p>
+            ) : active.length === 0 && inactive.length === 0 ? (
+              <p className="px-3 py-2 text-[11px] text-muted-foreground/40">No sessions</p>
+            ) : (
+              <div className="space-y-0.5 pb-1">
+                {active.map(renderEntry)}
+                {inactive.length > 0 && (
+                  <>
+                    <button
+                      onClick={() => setShowInactive((v) => !v)}
+                      className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors"
+                    >
+                      <motion.span
+                        animate={{ rotate: showInactive ? 0 : -90 }}
+                        transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+                        className="flex items-center shrink-0"
+                      >
+                        <ChevronDown className="size-3" />
+                      </motion.span>
+                      {showInactive ? 'Hide' : 'Show'} {inactive.length} inactive
+                    </button>
+                    {showInactive && inactive.map(renderEntry)}
+                  </>
+                )}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -312,7 +351,7 @@ function ProjectGroup({
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 interface AppSidebarProps {
-  data: SidebarData | undefined;
+  data: AggregatedSidebar | undefined;
   isLoading: boolean;
   onClose?: () => void;
 }
@@ -320,109 +359,35 @@ interface AppSidebarProps {
 export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const params = useParams();
+  const setActiveMachine = useActiveMachine((s) => s.setActive);
   const [newSessionModalOpen, setNewSessionModalOpen] = useState(false);
-  const [newSessionProjectId, setNewSessionProjectId] = useState<string | null>(null);
-  const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
-  const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null);
-  const [localProjectOrder, setLocalProjectOrder] = useState<string[] | null>(null);
 
-  const activeSessionId = params.id || null;
+  // The sidebar renders outside the session route, so the route params aren't
+  // available here — derive the active session id from the pathname instead.
+  const activeSessionId = sessionIdFromPath(location.pathname);
   const activeTab = location.pathname === '/kanban' ? 'tasks' : 'workspaces';
-
-  const { activeProjects, activeUnassigned } = useMemo(() => {
-    if (!data) return { activeProjects: [], activeUnassigned: [] };
-
-    const filteredProjects = data.projects
-      .map((project) => ({
-        ...project,
-        sessions: project.sessions.filter(isActiveSession),
-      }))
-      .filter((project) => project.sessions.length > 0);
-
-    // Apply local drag order if set
-    const ordered = localProjectOrder
-      ? [...filteredProjects].sort((a, b) => {
-          const ai = localProjectOrder.indexOf(a.id);
-          const bi = localProjectOrder.indexOf(b.id);
-          return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
-        })
-      : filteredProjects;
-
-    const filteredUnassigned = data.unassignedSessions.filter(isActiveSession);
-
-    return {
-      activeProjects: ordered,
-      activeUnassigned: filteredUnassigned,
-    };
-  }, [data, localProjectOrder]);
 
   const handleNavigate = useCallback((path: string) => {
     navigate(path);
     onClose?.();
   }, [navigate, onClose]);
 
-  const handleProjectAdd = (projectId: string) => {
-    setNewSessionProjectId(projectId);
-    setNewSessionModalOpen(true);
-  };
-
-  const handleSelectSession = (sessionId: string) => {
-    navigate(`/sessions/${sessionId}`);
+  // Opening a session targets its machine so every per-session action (terminals,
+  // git, files) proxies to the right machine via the existing X-Machine-Id path.
+  const handleSelectSession = useCallback((sessionId: string, machine: MachineSidebar) => {
+    setActiveMachine({ machineId: machine.machineId, name: machine.machineName });
+    navigate(sessionPath(machine.machineId, sessionId));
     onClose?.();
-  };
+  }, [navigate, onClose, setActiveMachine]);
 
-  const handleProjectDragStart = useCallback((e: React.DragEvent, projectId: string) => {
-    setDraggedProjectId(projectId);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', projectId);
-    if (e.currentTarget instanceof HTMLElement) {
-      e.currentTarget.style.opacity = '0.5';
-    }
-  }, []);
-
-  const handleProjectDragOver = useCallback((e: React.DragEvent, projectId: string) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (draggedProjectId && draggedProjectId !== projectId) {
-      setDragOverProjectId(projectId);
-    }
-  }, [draggedProjectId]);
-
-  const handleProjectDrop = useCallback((e: React.DragEvent, targetProjectId: string) => {
-    e.preventDefault();
-    setDragOverProjectId(null);
-
-    if (!draggedProjectId || draggedProjectId === targetProjectId) return;
-
-    // Compute new order
-    const currentOrder = activeProjects.map((p) => p.id);
-    const fromIndex = currentOrder.indexOf(draggedProjectId);
-    const toIndex = currentOrder.indexOf(targetProjectId);
-    if (fromIndex === -1 || toIndex === -1) return;
-
-    const newOrder = [...currentOrder];
-    newOrder.splice(fromIndex, 1);
-    newOrder.splice(toIndex, 0, draggedProjectId);
-
-    setLocalProjectOrder(newOrder);
-    setDraggedProjectId(null);
-
-    // Include all project IDs (not just active ones) preserving relative order for non-visible ones
-    const allProjectIds = data?.projects.map((p) => p.id) || [];
-    const fullOrder = [...newOrder];
-    for (const id of allProjectIds) {
-      if (!fullOrder.includes(id)) fullOrder.push(id);
-    }
-    api.reorderProjects(fullOrder).catch(() => setLocalProjectOrder(null));
-  }, [draggedProjectId, activeProjects, data]);
+  const machines = data?.machines ?? [];
 
   return (
     <div className="flex flex-col h-full bg-card text-foreground">
       {/* Electron: traffic light spacer + drag region */}
-      <div className="hidden electron-titlebar h-[38px] shrink-0 app-drag" />
-      {/* Top nav tabs with sliding pill */}
-      <div className="flex items-center gap-0.5 px-2 pt-3 pb-2 shrink-0">
+      <div className="hidden electron-titlebar h-[44px] shrink-0 electrobun-webkit-app-region-drag" />
+      {/* Top nav tabs with sliding pill — right side is a drag handle */}
+      <div className="flex items-center gap-0.5 px-2 pt-3 pb-2 shrink-0 electrobun-webkit-app-region-drag">
         {(['workspaces', 'tasks'] as const).map((tab) => (
           <button
             key={tab}
@@ -435,7 +400,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
               onClose?.();
             }}
             className={cn(
-              'relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium capitalize transition-colors duration-150',
+              'relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium capitalize transition-colors duration-150 electrobun-webkit-app-region-no-drag',
               activeTab === tab
                 ? 'text-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
@@ -458,16 +423,11 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
         {onClose && (
           <button
             onClick={onClose}
-            className="ml-auto md:hidden p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary"
+            className="ml-auto md:hidden p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary electrobun-webkit-app-region-no-drag"
           >
             <X className="size-4" />
           </button>
         )}
-      </div>
-
-      {/* Machine switcher */}
-      <div className="px-2 pb-2 shrink-0">
-        <MachineSwitcher />
       </div>
 
       {/* New Session button */}
@@ -487,72 +447,38 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
 
       <div className="h-px bg-border mb-2 shrink-0" />
 
-      {/* Project list */}
-      <div className="flex-1 overflow-y-auto min-h-0">
+      {/* Sessions header */}
+      <div className="flex items-center px-3 pb-1 shrink-0">
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground/40 font-semibold">
+          Sessions
+        </span>
+      </div>
+
+      {/* Machine-grouped session list */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 flex flex-col">
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           </div>
-        ) : activeProjects.length === 0 && activeUnassigned.length === 0 ? (
+        ) : machines.length === 0 ? (
           <div className="px-3 py-8 text-center">
-            <p className="text-xs text-muted-foreground">No active sessions</p>
+            <p className="text-xs text-muted-foreground">No sessions</p>
           </div>
         ) : (
-          <div className="py-1">
-            {activeProjects.map((project, i) => (
-              <div key={project.id}>
-                {i > 0 && <div className="h-px bg-border my-1" />}
-                <div className="px-1">
-                  <ProjectGroup
-                    project={project}
-                    activeSessionId={activeSessionId}
-                    onSelectSession={handleSelectSession}
-                    onAdd={() => handleProjectAdd(project.id)}
-                    onNavigate={handleNavigate}
-                    onDragStart={(e) => handleProjectDragStart(e, project.id)}
-                    onDragOver={(e) => handleProjectDragOver(e, project.id)}
-                    onDrop={(e) => handleProjectDrop(e, project.id)}
-                    isDragOver={dragOverProjectId === project.id}
-                  />
-                </div>
-              </div>
+          <div className="py-1 space-y-1">
+            {machines.map((machine) => (
+              <MachineSection
+                key={machine.machineId}
+                machine={machine}
+                activeSessionId={activeSessionId}
+                onSelectSession={handleSelectSession}
+                onNavigate={handleNavigate}
+              />
             ))}
-
-            {activeUnassigned.length > 0 && (
-              <>
-                {activeProjects.length > 0 && <div className="h-px bg-border my-1" />}
-                <div className="px-1">
-                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground/40 font-medium">
-                    Unassigned
-                  </div>
-                  <div className="space-y-0.5">
-                    {activeUnassigned.map((session) => (
-                      <div key={session.id}>
-                        <SessionRow
-                          session={session}
-                          isSelected={session.id === activeSessionId}
-                          onSelect={() => handleSelectSession(session.id)}
-                        />
-                        {session.services?.length > 0 && (
-                          <div className="space-y-px">
-                            {session.services.map((service) => (
-                              <ServiceRow
-                                key={service.id}
-                                sessionId={session.id}
-                                service={service}
-                                onNavigate={handleNavigate}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
           </div>
         )}
+        {/* Empty space below sessions is a window drag handle */}
+        <div className="flex-1 min-h-[48px] electrobun-webkit-app-region-drag" />
       </div>
 
       {/* Bottom nav */}
@@ -582,11 +508,8 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
 
       <NewSessionModal
         open={newSessionModalOpen}
-        onClose={() => {
-          setNewSessionModalOpen(false);
-          setNewSessionProjectId(null);
-        }}
-        preselectedProjectId={newSessionProjectId}
+        onClose={() => setNewSessionModalOpen(false)}
+        preselectedProjectId={null}
       />
     </div>
   );

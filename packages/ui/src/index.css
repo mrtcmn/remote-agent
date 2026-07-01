@@ -219,78 +219,25 @@
   }
 }
 
-/* Electron: frosted glass card */
+/* Electron: solid card (no backdrop-filter — opaque window mode) */
 .frosted-card {
-  background: hsl(var(--card) / 0.9);
-  backdrop-filter: blur(40px) saturate(1.8);
-  -webkit-backdrop-filter: blur(40px) saturate(1.8);
-  border: 1px solid hsl(var(--border) / 0.3);
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
   box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 hsla(0, 0%, 100%, 0.05);
 }
 
-/* Electron: window drag regions */
-.app-drag {
-  -webkit-app-region: drag;
+/* Desktop shell: window drag regions.
+   Electrobun (WKWebView) detects .electrobun-webkit-app-region-drag via its
+   preload JS — CSS -webkit-app-region is Chromium-only and ignored here. */
+.electrobun-webkit-app-region-drag {
+  -webkit-app-region: drag; /* kept for Electron/Chromium fallback */
 }
-.app-no-drag {
+.electrobun-webkit-app-region-no-drag {
   -webkit-app-region: no-drag;
 }
 
-/* Electron: transparent backgrounds for acrylic/vibrancy */
-.electron-app,
-.electron-app body,
-.electron-app body.bg-background,
-.electron-app #root,
-.electron-app #root > * {
-  background: transparent !important;
-  background-color: transparent !important;
-}
-
-/* Electron: base translucent fill for content areas without explicit bg */
-.electron-app main,
-.electron-app aside {
-  background-color: hsl(var(--background) / 0.85) !important;
-  backdrop-filter: blur(20px) saturate(1.5);
-  -webkit-backdrop-filter: blur(20px) saturate(1.5);
-}
-
-/* Electron: translucent surfaces with backdrop blur */
-.electron-app .bg-background:not(body):not(#root > *) {
-  background-color: hsl(var(--background) / 0.85) !important;
-  backdrop-filter: blur(20px) saturate(1.5);
-  -webkit-backdrop-filter: blur(20px) saturate(1.5);
-}
-.electron-app .bg-card {
-  background-color: hsl(var(--card) / 0.9) !important;
-  backdrop-filter: blur(24px) saturate(1.6);
-  -webkit-backdrop-filter: blur(24px) saturate(1.6);
-}
-.electron-app .bg-background\/95 {
-  background-color: hsl(var(--background) / 0.9) !important;
-  backdrop-filter: blur(20px) saturate(1.5);
-  -webkit-backdrop-filter: blur(20px) saturate(1.5);
-}
-
-/* Electron: modal/dialog backdrop blur */
-.electron-app [role="dialog"],
-.electron-app [data-radix-popper-content-wrapper] {
-  backdrop-filter: blur(32px) saturate(1.8);
-  -webkit-backdrop-filter: blur(32px) saturate(1.8);
-}
-.electron-app [role="dialog"] > * {
-  background-color: hsl(var(--card) / 0.85) !important;
-}
-.electron-app [data-radix-popper-content-wrapper] > * {
-  background-color: hsl(var(--popover) / 0.85) !important;
-}
-
-/* Electron: terminal translucent background */
-.electron-app .xterm .xterm-viewport,
-.electron-app .xterm .xterm-screen {
-  background-color: transparent !important;
-}
 
 /* Electron: show traffic light spacer */
 .electron-app .electron-titlebar {

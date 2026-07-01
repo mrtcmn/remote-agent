@@ -6,6 +6,23 @@ import type { PairedMaster } from '../db/schema';
 const HEADER_NAME = 'x-machine-id';
 const QUERY_NAME = 'machineId';
 
+interface WsBridge {
+  upstream: WebSocket;
+  buffered: (string | ArrayBuffer)[];
+  closed: boolean;
+}
+
+// Keyed by the raw Bun ServerWebSocket, which is stable across Elysia's
+// per-event wrapper instances. Using a Map (not WeakMap) is fine — we clear
+// on close().
+const wsBridges = new Map<object, WsBridge>();
+
+function wsKey(ws: { raw?: object }): object {
+  // Fall back to the wrapper itself if `raw` isn't exposed (shouldn't happen
+  // on Bun adapter, but guards against future Elysia changes).
+  return (ws.raw as object) ?? (ws as object);
+}
+
 const HOP_BY_HOP = new Set([
   'connection',
   'keep-alive',
@@ -32,12 +49,19 @@ function buildForwardHeaders(source: Headers, machineToken: string): Headers {
   source.forEach((value, key) => {
     const lower = key.toLowerCase();
     if (HOP_BY_HOP.has(lower)) return;
-    if (lower === 'authorization') return; // replaced below
-    if (lower === 'cookie') return;        // master uses its own session cookies
-    if (lower === HEADER_NAME) return;     // consumed by this plugin
+    if (lower === 'authorization') return;     // replaced below
+    if (lower === 'cookie') return;            // master uses its own session cookies
+    if (lower === HEADER_NAME) return;         // consumed by this plugin
+    if (lower === 'accept-encoding') return;   // forced to identity below
     out.set(key, value);
   });
   out.set('authorization', `Bearer ${machineToken}`);
+  // Force upstream to respond uncompressed. If we forwarded the browser's
+  // accept-encoding (gzip/br), Bun's fetch would auto-decompress on this side,
+  // but the content-encoding header could still leak back to the browser
+  // (or, with an LB/CF in front, get re-compressed with a mismatched length),
+  // causing ERR_CONTENT_DECODING_FAILED.
+  out.set('accept-encoding', 'identity');
   return out;
 }
 
@@ -85,9 +109,16 @@ export const machineProxyPlugin = new Elysia({ name: 'machine-proxy' })
       });
 
       // Strip hop-by-hop headers on the way back too.
+      // Also drop content-encoding: Bun's fetch auto-decompresses the body,
+      // so forwarding the original encoding header would make the browser
+      // try to decode plain bytes (ERR_CONTENT_DECODING_FAILED). content-length
+      // is already in HOP_BY_HOP, which is correct since it no longer matches.
       const respHeaders = new Headers();
       upstream.headers.forEach((value, key) => {
-        if (!HOP_BY_HOP.has(key.toLowerCase())) respHeaders.set(key, value);
+        const lower = key.toLowerCase();
+        if (HOP_BY_HOP.has(lower)) return;
+        if (lower === 'content-encoding') return;
+        respHeaders.set(key, value);
       });
 
       return new Response(upstream.body, {
@@ -108,6 +139,11 @@ export const machineProxyPlugin = new Elysia({ name: 'machine-proxy' })
   // Client opens:  ws://local/ws/proxy/:machineId?path=/ws/terminal/abc
   // Plugin opens:  ws(s)://master/ws/terminal/abc
   // Messages are bridged both ways; closing either side closes the other.
+  //
+  // NOTE: Elysia wraps the raw Bun WebSocket in a *new* ElysiaWS instance on
+  // every event callback, so properties set on `ws` in `open` are not visible
+  // in `message` / `close`. Keep per-connection state in a Map keyed by
+  // `ws.raw` (the underlying Bun ServerWebSocket, which IS stable).
   .ws('/ws/proxy/:machineId', {
     query: t.Object({
       path: t.String({ minLength: 1 }),
@@ -144,11 +180,8 @@ export const machineProxyPlugin = new Elysia({ name: 'machine-proxy' })
 
       const upstreamUrl = toWsUrl(master, path);
       const upstream = new WebSocket(upstreamUrl);
-      const state = { closed: false, buffered: [] as (string | ArrayBuffer)[] };
-
-      // Stash upstream on the ws instance so message/close handlers can find it.
-      (ws as unknown as { _upstream: WebSocket; _state: typeof state })._upstream = upstream;
-      (ws as unknown as { _upstream: WebSocket; _state: typeof state })._state = state;
+      const state: WsBridge = { upstream, buffered: [], closed: false };
+      wsBridges.set(wsKey(ws), state);
 
       upstream.addEventListener('open', () => {
         for (const buf of state.buffered) upstream.send(buf);
@@ -168,20 +201,28 @@ export const machineProxyPlugin = new Elysia({ name: 'machine-proxy' })
       });
     },
     message(ws, message) {
-      const upstream = (ws as unknown as { _upstream?: WebSocket })._upstream;
-      const state = (ws as unknown as { _state?: { buffered: (string | ArrayBuffer)[] } })._state;
-      if (!upstream) return;
-      const payload = typeof message === 'string' ? message : JSON.stringify(message);
-      if (upstream.readyState === WebSocket.OPEN) {
-        upstream.send(payload);
-      } else if (state && upstream.readyState === WebSocket.CONNECTING) {
+      const state = wsBridges.get(wsKey(ws));
+      if (!state) return;
+      // Elysia auto-parses JSON-looking strings into objects before this
+      // callback. Re-serialize objects; pass strings/ArrayBuffers through.
+      let payload: string | ArrayBuffer;
+      if (typeof message === 'string' || message instanceof ArrayBuffer) {
+        payload = message;
+      } else {
+        payload = JSON.stringify(message);
+      }
+      if (state.upstream.readyState === WebSocket.OPEN) {
+        state.upstream.send(payload);
+      } else if (state.upstream.readyState === WebSocket.CONNECTING) {
         state.buffered.push(payload);
       }
     },
     close(ws) {
-      const upstream = (ws as unknown as { _upstream?: WebSocket })._upstream;
-      if (upstream && upstream.readyState < WebSocket.CLOSING) {
-        try { upstream.close(); } catch { /* already closed */ }
+      const key = wsKey(ws);
+      const state = wsBridges.get(key);
+      wsBridges.delete(key);
+      if (state && state.upstream.readyState < WebSocket.CLOSING) {
+        try { state.upstream.close(); } catch { /* already closed */ }
       }
     },
   });

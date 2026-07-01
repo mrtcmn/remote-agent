@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { eq } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
-import { db, claudeSessions, projects } from '../db';
+import { db, claudeSessions, projects, terminals } from '../db';
 import { notificationService } from '../services/notification';
 import type { NotificationType, NotificationAction } from '../services/notification/types';
 import { notificationClassifier } from '../services/notification/classifier';
@@ -28,6 +28,24 @@ async function getSessionWithProject(sessionId: string) {
   return { ...session, projectName };
 }
 
+async function getTerminalName(terminalId: string | undefined): Promise<string | null> {
+  if (!terminalId) return null;
+  try {
+    const terminal = await db.query.terminals.findFirst({
+      where: eq(terminals.id, terminalId),
+      columns: { name: true, command: true },
+    });
+    if (!terminal) return null;
+    if (terminal.name && terminal.name !== 'Terminal') return terminal.name;
+    // Fall back to the shell binary name from the command array
+    const cmd = JSON.parse(terminal.command) as string[];
+    const bin = cmd[0]?.split('/').pop();
+    return bin || terminal.name;
+  } catch {
+    return null;
+  }
+}
+
 interface AskUserQuestion {
   question: string;
   header?: string;
@@ -37,7 +55,8 @@ interface AskUserQuestion {
 
 interface TranscriptInfo {
   stopReason?: string;
-  summary?: string;
+  summary?: string;   // Short (≤200 chars) for use as LLM classifier input
+  fullText?: string;  // Full text for notification body stored in DB
   // Extracted from AskUserQuestion tool calls
   askQuestion?: AskUserQuestion;
 }
@@ -56,6 +75,7 @@ async function getTranscriptSummary(transcriptPath: string): Promise<TranscriptI
 
     let stopReason: string | undefined;
     let summary: string | undefined;
+    let fullText: string | undefined;
     let askQuestion: AskUserQuestion | undefined;
 
     for (const entry of [...entries].reverse()) {
@@ -75,8 +95,9 @@ async function getTranscriptSummary(transcriptPath: string): Promise<TranscriptI
 
           // Extract last text summary from assistant
           if (!summary && block.type === 'text' && block.text) {
-            summary = block.text.slice(0, 200);
-            if (block.text.length > 200) summary += '...';
+            const text = block.text;
+            summary = text.length > 200 ? text.slice(0, 200) + '...' : text;
+            fullText = text; // full text for notification body
           }
         }
       }
@@ -84,7 +105,7 @@ async function getTranscriptSummary(transcriptPath: string): Promise<TranscriptI
       if (stopReason && summary && askQuestion) break;
     }
 
-    return { stopReason, summary, askQuestion };
+    return { stopReason, summary, fullText, askQuestion };
   } catch (error) {
     console.error('Failed to parse transcript:', error);
     return {};
@@ -246,7 +267,9 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
     const baseTitle = titleMap[notificationType] || 'Attention Required';
     const title = session.projectName ? `${session.projectName}: ${baseTitle}` : baseTitle;
 
+    // Use the concise classifier recap (2-3 sentences) as the body, not the full transcript
     const notificationBody = classification.summary || messageText;
+    const terminalName = await getTerminalName(body.terminalId);
 
     // Create and send notification
     const result = await notificationService.createAndSend({
@@ -260,6 +283,7 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       priority: 'high',
       metadata: {
         ...(session.projectName ? { projectName: session.projectName } : {}),
+        ...(terminalName ? { terminalName } : {}),
         classifications: classification.classifications,
         options: classification.options,
         freeformAllowed: classification.freeformAllowed,
@@ -333,8 +357,8 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       await notificationService.dismissBySession(body.sessionId);
     }
 
-    // Build notification body — prefer classifier summary
-    let notificationBody = classification.summary || messageText;
+    // Use the concise classifier recap (2-3 sentences) as the body, not the full transcript
+    let notificationBody = classification.summary || body.last_assistant_message || messageText;
     if (transcriptInfo.stopReason && transcriptInfo.stopReason !== 'end_turn') {
       notificationBody = `[${transcriptInfo.stopReason}] ${notificationBody}`;
     }
@@ -348,6 +372,7 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
     };
     const baseTitle = titleMap[notificationType] || 'Update';
     const title = session.projectName ? `${session.projectName}: ${baseTitle}` : baseTitle;
+    const terminalName = await getTerminalName(body.terminalId);
 
     // Create and send notification
     const result = await notificationService.createAndSend({
@@ -361,6 +386,7 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       priority,
       metadata: {
         ...(session.projectName ? { projectName: session.projectName } : {}),
+        ...(terminalName ? { terminalName } : {}),
         ...(transcriptInfo.stopReason ? { stopReason: transcriptInfo.stopReason } : {}),
         classifications: classification.classifications,
         classificationConfidence: classification.confidence,

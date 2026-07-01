@@ -369,6 +369,34 @@ export const runConfigInstances = sqliteTable('run_config_instances', {
   stoppedAt: integer('stopped_at', { mode: 'timestamp' }),
 });
 
+// ─── Run Flows (xyflow orchestration) ───────────────────────────────────────
+
+export const runFlows = sqliteTable('run_flows', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(),
+  viewport: text('viewport'), // JSON
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+export const runFlowNodes = sqliteTable('run_flow_nodes', {
+  id: text('id').primaryKey(),
+  flowId: text('flow_id').references(() => runFlows.id, { onDelete: 'cascade' }).notNull(),
+  runConfigId: text('run_config_id').references(() => runConfigs.id, { onDelete: 'cascade' }).notNull(),
+  x: integer('x').notNull().default(0),
+  y: integer('y').notNull().default(0),
+});
+
+export const runFlowEdges = sqliteTable('run_flow_edges', {
+  id: text('id').primaryKey(),
+  flowId: text('flow_id').references(() => runFlows.id, { onDelete: 'cascade' }).notNull(),
+  sourceNodeId: text('source_node_id').references(() => runFlowNodes.id, { onDelete: 'cascade' }).notNull(),
+  targetNodeId: text('target_node_id').references(() => runFlowNodes.id, { onDelete: 'cascade' }).notNull(),
+  readyDelayMs: integer('ready_delay_ms').notNull().default(1000),
+});
+
 // Artifacts — type: screenshot | file | log
 export const artifacts = sqliteTable('artifacts', {
   id: text('id').primaryKey(),
@@ -738,6 +766,47 @@ export const runConfigInstancesRelations = relations(runConfigInstances, ({ one 
   }),
 }));
 
+export const runFlowsRelations = relations(runFlows, ({ one, many }) => ({
+  project: one(projects, {
+    fields: [runFlows.projectId],
+    references: [projects.id],
+  }),
+  user: one(user, {
+    fields: [runFlows.userId],
+    references: [user.id],
+  }),
+  nodes: many(runFlowNodes),
+  edges: many(runFlowEdges),
+}));
+
+export const runFlowNodesRelations = relations(runFlowNodes, ({ one }) => ({
+  flow: one(runFlows, {
+    fields: [runFlowNodes.flowId],
+    references: [runFlows.id],
+  }),
+  runConfig: one(runConfigs, {
+    fields: [runFlowNodes.runConfigId],
+    references: [runConfigs.id],
+  }),
+}));
+
+export const runFlowEdgesRelations = relations(runFlowEdges, ({ one }) => ({
+  flow: one(runFlows, {
+    fields: [runFlowEdges.flowId],
+    references: [runFlows.id],
+  }),
+  sourceNode: one(runFlowNodes, {
+    fields: [runFlowEdges.sourceNodeId],
+    references: [runFlowNodes.id],
+    relationName: 'flowEdgeSource',
+  }),
+  targetNode: one(runFlowNodes, {
+    fields: [runFlowEdges.targetNodeId],
+    references: [runFlowNodes.id],
+    relationName: 'flowEdgeTarget',
+  }),
+}));
+
 export const artifactsRelations = relations(artifacts, ({ one }) => ({
   session: one(claudeSessions, {
     fields: [artifacts.sessionId],
@@ -777,6 +846,12 @@ export type AppSetting = typeof appSettings.$inferSelect;
 export type RunConfig = typeof runConfigs.$inferSelect;
 export type NewRunConfig = typeof runConfigs.$inferInsert;
 export type RunConfigInstance = typeof runConfigInstances.$inferSelect;
+export type RunFlow = typeof runFlows.$inferSelect;
+export type NewRunFlow = typeof runFlows.$inferInsert;
+export type RunFlowNode = typeof runFlowNodes.$inferSelect;
+export type NewRunFlowNode = typeof runFlowNodes.$inferInsert;
+export type RunFlowEdge = typeof runFlowEdges.$inferSelect;
+export type NewRunFlowEdge = typeof runFlowEdges.$inferInsert;
 export type CodeEditor = typeof codeEditors.$inferSelect;
 export type NewCodeEditor = typeof codeEditors.$inferInsert;
 export type ProjectLink = typeof projectLinks.$inferSelect;

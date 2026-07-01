@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { sessionPath } from './lib/session-route';
 import { useAuth } from './hooks/useAuth';
 import { Layout } from './components/Layout';
 import { NotificationListener } from './components/NotificationListener';
@@ -15,6 +16,15 @@ import { useAppTheme } from './hooks/useAppTheme';
 import { isElectron } from './lib/electron';
 import { useApiConfig } from './lib/api-config';
 import { SetupScreen } from './components/SetupScreen';
+
+/**
+ * Redirect legacy bare session URLs (/sessions/:id) to the machine-scoped form,
+ * defaulting to the local machine. Keeps old bookmarks working.
+ */
+function LegacySessionRedirect() {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={sessionPath('self', id!)} replace />;
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -64,8 +74,10 @@ export default function App() {
               <Layout>
                 <Routes>
                   <Route path="/" element={<DashboardPage />} />
-                  <Route path="/sessions/:id" element={<SessionPage />} />
-                  <Route path="/sessions/:id/:terminalId" element={<SessionPage />} />
+                  <Route path="/sessions/:machineId/:id" element={<SessionPage />} />
+                  <Route path="/sessions/:machineId/:id/:terminalId" element={<SessionPage />} />
+                  {/* Legacy bare session URLs → default to the local machine */}
+                  <Route path="/sessions/:id" element={<LegacySessionRedirect />} />
                   <Route path="/projects" element={<ProjectsPage />} />
                   <Route path="/kanban" element={<KanbanPage />} />
                   <Route path="/skills" element={<SkillsPage />} />

@@ -1,0 +1,2 @@
+/* Pull in the UI's global stylesheet (Tailwind v3 directives + CSS vars). */
+@import "@remote-agent/ui/src/index.css";

@@ -33,9 +33,9 @@ export function useSidebar() {
   }, []);
 
   const { data: sidebarData, isLoading } = useQuery({
-    queryKey: ['sidebar-data'],
-    queryFn: api.getSidebarData,
-    refetchInterval: 5000,
+    queryKey: ['sidebar-aggregate'],
+    queryFn: api.getAggregatedSidebar,
+    refetchInterval: 30000,
   });
 
   return {

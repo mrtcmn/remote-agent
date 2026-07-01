@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getWsBase } from '../lib/api-config';
+import { resolveWsPath } from '../lib/active-machine';
 
 interface WebSocketMessage {
   type: string;
@@ -41,12 +42,13 @@ export function useWebSocket(sessionId: string | null, options: UseWebSocketOpti
     }
 
     const wsBase = getWsBase();
+    const path = resolveWsPath(`/ws/session/${sessionId}`);
     let wsUrl: string;
     if (wsBase) {
-      wsUrl = `${wsBase}/ws/session/${sessionId}`;
+      wsUrl = `${wsBase}${path}`;
     } else {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      wsUrl = `${protocol}//${window.location.host}/ws/session/${sessionId}`;
+      wsUrl = `${protocol}//${window.location.host}${path}`;
     }
 
     console.log('[WebSocket] Connecting to:', wsUrl);

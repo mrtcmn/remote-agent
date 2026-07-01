@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { FolderGit2, GitBranch, Layers, Loader2, X } from 'lucide-react';
+import { FolderGit2, GitBranch, Layers, Loader2, X, Laptop, Server } from 'lucide-react';
 import { api, type Project } from '@/lib/api';
+import { sessionPath } from '@/lib/session-route';
+import { useActiveMachine } from '@/lib/active-machine';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
 
@@ -18,41 +20,54 @@ interface NewSessionModalProps {
 export function NewSessionModal({ open, onClose, preselectedProjectId }: NewSessionModalProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const setActiveMachine = useActiveMachine((s) => s.setActive);
 
+  const [selectedMachineId, setSelectedMachineId] = useState<string>('self');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [mode, setMode] = useState<SessionMode>('local');
   const [branch, setBranch] = useState('');
   const [worktreeName, setWorktreeName] = useState('');
   const [createBranch, setCreateBranch] = useState(false);
 
+  const { data: mastersData } = useQuery({
+    queryKey: ['paired-masters'],
+    queryFn: api.listPairedMasters,
+    enabled: open,
+  });
+  const machines = [
+    { machineId: 'self', name: 'This machine' },
+    ...(mastersData?.masters ?? []).map((m) => ({ machineId: m.id, name: m.name })),
+  ];
+  const selectedMachineName = machines.find((m) => m.machineId === selectedMachineId)?.name ?? 'This machine';
+
+  // Projects are per-machine — scope the list to the chosen machine.
   const { data: allProjects, isLoading: projectsLoading } = useQuery({
-    queryKey: ['projects'],
-    queryFn: api.getProjects,
+    queryKey: ['projects', selectedMachineId],
+    queryFn: () => api.getProjects(selectedMachineId),
     enabled: open,
   });
 
   // If we have a preselected project, skip project selection
   const hasPreselectedProject = !!preselectedProjectId;
 
+  const onCreated = (sessionId: string) => {
+    // The session lives on the chosen machine — target it so it loads correctly.
+    setActiveMachine({ machineId: selectedMachineId, name: selectedMachineName });
+    queryClient.invalidateQueries({ queryKey: ['sidebar-aggregate'] });
+    queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    onClose();
+    navigate(sessionPath(selectedMachineId, sessionId));
+  };
+
   const createSessionMutation = useMutation({
-    mutationFn: (projectId?: string) => api.createSession(projectId),
-    onSuccess: (session) => {
-      queryClient.invalidateQueries({ queryKey: ['sidebar-data'] });
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
-      onClose();
-      navigate(`/sessions/${session.id}`);
-    },
+    mutationFn: (projectId?: string) => api.createSession(projectId, undefined, selectedMachineId),
+    onSuccess: (session) => onCreated(session.id),
   });
 
   const createWorktreeMutation = useMutation({
     mutationFn: (data: { projectId: string; branch: string; name: string; createBranch?: boolean }) =>
-      api.createWorktree(data),
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ['sidebar-data'] });
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
-      onClose();
-      navigate(`/sessions/${result.session.id}`);
-    },
+      api.createWorktree(data, selectedMachineId),
+    onSuccess: (result) => onCreated(result.session.id),
   });
 
   const isPending = createSessionMutation.isPending || createWorktreeMutation.isPending;
@@ -60,6 +75,7 @@ export function NewSessionModal({ open, onClose, preselectedProjectId }: NewSess
   // Reset state when modal opens
   useEffect(() => {
     if (open) {
+      setSelectedMachineId('self');
       setSelectedProjectId(preselectedProjectId || null);
       setMode('local');
       setBranch('');
@@ -135,6 +151,38 @@ export function NewSessionModal({ open, onClose, preselectedProjectId }: NewSess
 
         {/* Body */}
         <div className="px-6 py-4 space-y-4">
+          {/* Machine selection (only when there are paired machines) */}
+          {machines.length > 1 && (
+            <div>
+              <label className="text-sm font-medium text-muted-foreground mb-2 block">Machine</label>
+              <div className="flex flex-wrap gap-1.5">
+                {machines.map((m) => {
+                  const isSelf = m.machineId === 'self';
+                  const selected = m.machineId === selectedMachineId;
+                  return (
+                    <button
+                      key={m.machineId}
+                      onClick={() => {
+                        setSelectedMachineId(m.machineId);
+                        setSelectedProjectId(null);
+                        setMode('local');
+                      }}
+                      className={cn(
+                        'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm border transition-colors',
+                        selected
+                          ? 'bg-primary/10 border-primary/30 text-foreground'
+                          : 'border-transparent hover:bg-accent text-muted-foreground'
+                      )}
+                    >
+                      {isSelf ? <Laptop className="size-3.5" /> : <Server className="size-3.5" />}
+                      {m.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Project selection (only if no preselected project) */}
           {!hasPreselectedProject && (
             <div>

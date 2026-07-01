@@ -6,6 +6,9 @@ node_modules/
 dist/
 build/
 
+# Auto-generated
+packages/api/src/embedded-ui.ts
+
 # Environment
 .env
 .env.local

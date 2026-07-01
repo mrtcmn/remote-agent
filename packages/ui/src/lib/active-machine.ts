@@ -59,7 +59,14 @@ export function getActiveMachineId(): string {
  * Endpoints that always target the local machine even when a remote is selected.
  * These manage session cookies, local-only state, or the pairing relationship itself.
  */
-const LOCAL_ONLY_PREFIXES = ['/auth', '/paired-masters'];
+const LOCAL_ONLY_PREFIXES = [
+  '/auth',
+  '/paired-masters',
+  // Aggregate endpoints run on THIS machine and fan out to the others, so they
+  // must never themselves be proxied to a single machine.
+  '/sessions/sidebar/aggregate',
+  '/notifications/aggregate',
+];
 
 export function shouldProxyEndpoint(endpoint: string): boolean {
   const path = endpoint.split('?')[0];

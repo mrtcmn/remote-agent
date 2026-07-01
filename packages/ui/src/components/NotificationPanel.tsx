@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -9,10 +9,20 @@ import {
   CheckCircle2,
   Zap,
   Clock,
+  Server,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { api, type NotificationRecord, type NotificationOption, type NotificationAction } from '@/lib/api';
+import {
+  api,
+  type NotificationRecord,
+  type AggregatedNotification,
+  type NotificationOption,
+  type NotificationAction,
+} from '@/lib/api';
+import { useActiveMachine } from '@/lib/active-machine';
+import { sessionPath } from '@/lib/session-route';
 import { cn } from '@/lib/utils';
+import { FormattedText } from './FormattedText';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -47,11 +57,7 @@ function getNotificationIcon(type: string) {
 function UnreadDot() {
   return (
     <span className="relative flex size-2 shrink-0 mt-[3px]">
-      <motion.span
-        className="absolute inset-0 rounded-full bg-emerald-400"
-        animate={{ scale: [1, 1.8, 1], opacity: [0.7, 0, 0.7] }}
-        transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-      />
+      <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-70" />
       <span className="relative rounded-full h-full w-full bg-emerald-500" />
     </span>
   );
@@ -83,12 +89,12 @@ function ProjectBadge({ name }: { name: string }) {
 
 // ─── Choice Buttons ─────────────────────────────────────────────────────────
 
-function getChoiceVariant(index: number, total: number): 'primary' | 'secondary' | 'danger' {
-  if (index === 0) return 'primary';
-  if (index === total - 1 && total > 2) {
-    // Check if last option looks like a cancel/abort/deny action
-    return 'secondary';
-  }
+const DANGER_LABELS = /^(deny|cancel|no|reject|abort|stop|skip|ignore|decline|refuse|delete|remove|destroy|revoke|disallow|forbid|block)/i;
+const PRIMARY_LABELS = /^(approve|yes|allow|confirm|proceed|accept|ok|continue|grant|permit|enable)/i;
+
+function getChoiceVariant(label: string): 'primary' | 'secondary' | 'danger' {
+  if (DANGER_LABELS.test(label.trim())) return 'danger';
+  if (PRIMARY_LABELS.test(label.trim())) return 'primary';
   return 'secondary';
 }
 
@@ -115,12 +121,12 @@ function ChoiceButtons({
             resolved === c.id
               ? 'bg-foreground text-background border-foreground'
               : resolved
-              ? 'opacity-30 cursor-not-allowed border-border/40 text-muted-foreground'
+              ? 'opacity-30 cursor-not-allowed border-foreground/10 text-muted-foreground'
               : c.variant === 'primary'
               ? 'border-foreground text-foreground hover:bg-foreground hover:text-background'
               : c.variant === 'danger'
               ? 'border-red-500/40 text-red-500 hover:bg-red-500/10'
-              : 'border-border text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+              : 'border-foreground/20 text-muted-foreground hover:text-foreground hover:border-foreground/40 hover:bg-secondary/60'
           )}
         >
           {resolved === c.id ? (
@@ -143,18 +149,18 @@ function buildChoices(notification: NotificationRecord): { id: string; label: st
   const actions = notification.actions as NotificationAction[] | undefined;
 
   if (options && options.length > 0) {
-    return options.map((opt, i) => ({
+    return options.map((opt) => ({
       id: opt.value,
       label: opt.label,
-      variant: opt.isDefault ? 'primary' : getChoiceVariant(i, options.length),
+      variant: opt.isDefault ? 'primary' : getChoiceVariant(opt.label),
     }));
   }
 
   if (actions && actions.length > 0) {
-    return actions.map((act, i) => ({
+    return actions.map((act) => ({
       id: act.action,
       label: act.label,
-      variant: getChoiceVariant(i, actions.length),
+      variant: getChoiceVariant(act.label),
     }));
   }
 
@@ -169,16 +175,18 @@ function NotifRow({
   onNavigate,
   onResolve,
 }: {
-  notification: NotificationRecord;
-  onMarkRead: (id: string) => void;
-  onNavigate: (notification: NotificationRecord) => void;
-  onResolve: (notificationId: string, action: string, label: string) => void;
+  notification: AggregatedNotification;
+  onMarkRead: (id: string, machineId: string) => void;
+  onNavigate: (notification: AggregatedNotification) => void;
+  onResolve: (notificationId: string, action: string, label: string, machineId: string) => void;
 }) {
   const isUnread = notification.status === 'pending' || notification.status === 'sent';
   const isResolved = notification.status === 'resolved';
   const projectName = notification.metadata?.projectName;
+  const isRemote = notification.machineId !== 'self';
+  const terminalName = notification.metadata?.terminalName as string | undefined;
   const stopReason = notification.metadata?.stopReason;
-  const choices = buildChoices(notification);
+  const choices = buildChoices(notification)?.filter(c => c.variant !== 'secondary') ?? null;
   const hasChoices = choices && choices.length > 0;
 
   return (
@@ -189,7 +197,7 @@ function NotifRow({
       exit={{ opacity: 0, y: -6, transition: { duration: 0.15, ease: 'easeIn' } }}
       whileTap={isUnread ? { scale: 0.995 } : undefined}
       onClick={() => {
-        if (isUnread) onMarkRead(notification.id);
+        if (isUnread) onMarkRead(notification.id, notification.machineId);
         onNavigate(notification);
       }}
       className={cn(
@@ -220,9 +228,21 @@ function NotifRow({
           <p className="text-xs leading-snug flex flex-wrap items-center gap-x-1 gap-y-0.5">
             <span className="font-semibold text-foreground">{notification.title}</span>
             {projectName && <ProjectBadge name={projectName} />}
+            {isRemote && (
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium leading-none bg-secondary text-muted-foreground">
+                <Server className="size-2.5" />
+                {notification.machineName}
+              </span>
+            )}
           </p>
           <p className="text-[10px] text-muted-foreground/50 mt-0.5 font-mono">
             {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+            {terminalName && (
+              <>
+                <span className="mx-1.5 opacity-40">·</span>
+                {terminalName}
+              </>
+            )}
             {stopReason && stopReason !== 'end_turn' && (
               <>
                 <span className="mx-1.5 opacity-40">·</span>
@@ -236,15 +256,16 @@ function NotifRow({
       {(notification.body || hasChoices) && (
         <div className="ml-[22px] space-y-2">
           {notification.body && (
-            <p className="text-xs text-muted-foreground leading-relaxed border-l-2 border-border pl-3 line-clamp-3">
-              {notification.body}
-            </p>
+            <FormattedText
+              text={notification.body}
+              className="text-xs text-muted-foreground leading-relaxed border-l-2 border-foreground/20 pl-3"
+            />
           )}
           {hasChoices && (
             <ChoiceButtons
               choices={choices}
               resolved={isResolved ? notification.resolvedAction : null}
-              onResolve={(action, label) => onResolve(notification.id, action, label)}
+              onResolve={(action, label) => onResolve(notification.id, action, label, notification.machineId)}
             />
           )}
         </div>
@@ -257,7 +278,7 @@ function NotifRow({
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'all', label: 'All', icon: Bell },
-  { id: 'review', label: 'Review needed', icon: MessageSquare },
+  { id: 'review', label: 'Review', icon: MessageSquare },
   { id: 'finished', label: 'Finished', icon: CheckCircle2 },
   { id: 'errors', label: 'Errors', icon: AlertCircle },
 ];
@@ -284,76 +305,72 @@ export function NotificationPanel() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<Tab>('all');
 
-  const { data: unreadData } = useQuery({
-    queryKey: ['notifications', 'unread-count'],
-    queryFn: api.getUnreadCount,
+  const setActiveMachine = useActiveMachine((s) => s.setActive);
+
+  const { data: notificationsData, isLoading } = useQuery({
+    queryKey: ['notifications', 'list'],
+    queryFn: () => api.getAggregatedNotifications({ status: 'pending,sent,read', limit: 30 }),
     refetchInterval: 30000,
   });
 
-  const { data: notificationsData, isLoading, refetch: refetchList } = useQuery({
-    queryKey: ['notifications', 'list'],
-    queryFn: () => api.getNotifications({ status: 'pending,sent,read', limit: 30 }),
-  });
-
-  // When unread count changes, debounce-refetch the list after 3s
-  const prevCountRef = useRef(unreadData?.count);
-  useEffect(() => {
-    const current = unreadData?.count;
-    if (current !== undefined && prevCountRef.current !== undefined && current !== prevCountRef.current) {
-      const timer = setTimeout(() => refetchList(), 3000);
-      prevCountRef.current = current;
-      return () => clearTimeout(timer);
-    }
-    prevCountRef.current = current;
-  }, [unreadData?.count, refetchList]);
-
   const markReadMutation = useMutation({
-    mutationFn: (ids: string[]) => api.markNotificationsRead(ids),
+    mutationFn: (items: { id: string; machineId: string }[]) => {
+      // Notifications live on their own machine — group by machine and mark per machine.
+      const byMachine = new Map<string, string[]>();
+      for (const { id, machineId } of items) {
+        const list = byMachine.get(machineId) ?? [];
+        list.push(id);
+        byMachine.set(machineId, list);
+      }
+      return Promise.all(
+        [...byMachine.entries()].map(([machineId, ids]) => api.markNotificationsRead(ids, machineId)),
+      );
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
   });
 
   const markSingleReadMutation = useMutation({
-    mutationFn: (id: string) => api.markNotificationRead(id),
+    mutationFn: ({ id, machineId }: { id: string; machineId: string }) =>
+      api.markNotificationRead(id, machineId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
   });
 
   const respondMutation = useMutation({
-    mutationFn: ({ id, action, label }: { id: string; action: string; label: string }) =>
-      api.respondToNotification(id, action, label),
+    mutationFn: ({ id, action, label, machineId }: { id: string; action: string; label: string; machineId: string }) =>
+      api.respondToNotification(id, action, label, machineId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
   });
 
-  const unreadCount = unreadData?.count ?? 0;
   const allNotifications = notificationsData?.notifications ?? [];
-  const notifications = filterNotifications(allNotifications, activeTab);
+  const unreadCount = allNotifications.filter((n) => n.status === 'pending' || n.status === 'sent').length;
+  const notifications = filterNotifications(allNotifications, activeTab) as AggregatedNotification[];
 
   const handleMarkAllRead = () => {
-    const unreadIds = allNotifications
+    const unread = allNotifications
       .filter((n) => n.status === 'pending' || n.status === 'sent')
-      .map((n) => n.id);
-    if (unreadIds.length > 0) {
-      markReadMutation.mutate(unreadIds);
+      .map((n) => ({ id: n.id, machineId: n.machineId }));
+    if (unread.length > 0) {
+      markReadMutation.mutate(unread);
     }
   };
 
-  const handleNavigate = (notification: NotificationRecord) => {
-    const path = notification.terminalId
-      ? `/sessions/${notification.sessionId}/${notification.terminalId}`
-      : `/sessions/${notification.sessionId}`;
-    navigate(path);
+  const handleNavigate = (notification: AggregatedNotification) => {
+    // Target the notification's machine so its session loads from the right place.
+    setActiveMachine({ machineId: notification.machineId, name: notification.machineName });
+    navigate(sessionPath(notification.machineId, notification.sessionId, notification.terminalId ?? undefined));
   };
 
   return (
     <div className="flex flex-col h-full bg-card">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 h-9 shrink-0">
-        <div className="flex items-center gap-2">
+      {/* Header — doubles as window drag handle on the desktop shell */}
+      <div className="flex items-center justify-between px-4 h-9 shrink-0 electrobun-webkit-app-region-drag">
+        <div className="flex items-center gap-2 pointer-events-none">
           <Bell className="size-3.5 text-muted-foreground/60" />
           <span className="text-sm font-semibold text-foreground tracking-tight">Notifications</span>
         </div>
@@ -365,7 +382,7 @@ export function NotificationPanel() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.5, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-              className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-orange-500 text-white text-[9px] font-bold px-1 tabular-nums"
+              className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-orange-500 text-white text-[9px] font-bold px-1 tabular-nums pointer-events-none"
             >
               {unreadCount}
             </motion.span>
@@ -376,31 +393,34 @@ export function NotificationPanel() {
       <div className="h-px bg-border shrink-0" />
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 px-3 py-2 shrink-0">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={cn(
-              'relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors',
-              activeTab === tab.id
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
-            )}
-          >
-            {activeTab === tab.id && (
-              <motion.span
-                layoutId="notif-tab-pill"
-                className="absolute inset-0 rounded-md bg-secondary"
-                transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-              />
-            )}
-            <span className="relative z-10 flex items-center gap-1.5">
-              <tab.icon className="size-3" />
-              {tab.label}
-            </span>
-          </button>
-        ))}
+      <div className="flex items-center gap-0.5 px-2 py-1.5 shrink-0">
+        {TABS.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                'relative flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors duration-150 whitespace-nowrap',
+                isActive
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+              )}
+            >
+              {isActive && (
+                <motion.span
+                  layoutId="notif-tab-pill"
+                  className="absolute inset-0 rounded-md bg-secondary"
+                  transition={{ type: 'spring', stiffness: 400, damping: 35 }}
+                />
+              )}
+              <span className="relative z-10 flex items-center gap-1.5">
+                <tab.icon className="size-3 shrink-0" />
+                {tab.label}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="h-px bg-border shrink-0" />
@@ -424,9 +444,9 @@ export function NotificationPanel() {
                 {i > 0 && <div className="h-px bg-border/50" />}
                 <NotifRow
                   notification={notification}
-                  onMarkRead={(id) => markSingleReadMutation.mutate(id)}
+                  onMarkRead={(id, machineId) => markSingleReadMutation.mutate({ id, machineId })}
                   onNavigate={handleNavigate}
-                  onResolve={(id, action, label) => respondMutation.mutate({ id, action, label })}
+                  onResolve={(id, action, label, machineId) => respondMutation.mutate({ id, action, label, machineId })}
                 />
               </div>
             ))}
