@@ -11,11 +11,13 @@ interface FileExplorerProps {
   sessionId: string;
   project?: Project;
   selectedProjectId?: string | null;
+  // Path to open + reveal (e.g. from the recent-changes strip via ?file=).
+  openFile?: string;
   className?: string;
 }
 
-export function FileExplorer({ sessionId, project, selectedProjectId: externalSelectedProjectId, className }: FileExplorerProps) {
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+export function FileExplorer({ sessionId, project, selectedProjectId: externalSelectedProjectId, openFile, className }: FileExplorerProps) {
+  const [selectedFile, setSelectedFile] = useState<string | null>(openFile ?? null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(externalSelectedProjectId ?? null);
 
   // Sync with external selection (from toolbar project selector)
@@ -25,6 +27,12 @@ export function FileExplorer({ sessionId, project, selectedProjectId: externalSe
       setSelectedFile(null);
     }
   }, [externalSelectedProjectId]);
+
+  // Open/reveal the requested file when the prop changes (e.g. clicking another chip).
+  // Declared after the project-sync effect so it wins on mount (that one nulls the file).
+  useEffect(() => {
+    if (openFile) setSelectedFile(openFile);
+  }, [openFile]);
 
   // Load child links when multi-project
   const { data: links } = useQuery({
@@ -61,6 +69,7 @@ export function FileExplorer({ sessionId, project, selectedProjectId: externalSe
             selectedFile={selectedFile}
             onFileSelect={setSelectedFile}
             basePath={basePath}
+            revealPath={openFile}
           />
         </div>
 

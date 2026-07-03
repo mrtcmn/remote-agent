@@ -6,7 +6,7 @@ export const sessionStatusEnum = pgEnum('session_status', ['active', 'waiting_in
 export const platformEnum = pgEnum('platform', ['web', 'android', 'ios']);
 export const messageRoleEnum = pgEnum('message_role', ['user', 'assistant', 'system']);
 export const terminalStatusEnum = pgEnum('terminal_status', ['running', 'exited']);
-export const terminalTypeEnum = pgEnum('terminal_type', ['shell', 'claude', 'process']);
+export const terminalTypeEnum = pgEnum('terminal_type', ['shell', 'claude', 'process', 'ssh']);
 export const reviewCommentStatusEnum = pgEnum('review_comment_status', ['pending', 'running', 'resolved']);
 export const lineSideEnum = pgEnum('line_side', ['additions', 'deletions']);
 export const codeEditorStatusEnum = pgEnum('code_editor_status', ['starting', 'running', 'stopped']);
@@ -165,6 +165,7 @@ export const claudeSessions = pgTable('claude_sessions', {
   projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
   worktreeId: text('worktree_id').references(() => worktrees.id, { onDelete: 'set null' }),
   claudeSessionId: text('claude_session_id'), // For --resume
+  sshHostId: text('ssh_host_id'), // set when this is an SSH session
   status: sessionStatusEnum('status').notNull().default('active'),
   lastMessage: text('last_message'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -248,6 +249,52 @@ export const terminals = pgTable('terminals', {
   status: terminalStatusEnum('status').notNull().default('running'),
   exitCode: text('exit_code'),
   scrollback: text('scrollback'), // Only populated if persist=true
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+// ─── SSH session manager ──────────────────────────────────────────────────
+export const sshCredentials = pgTable('ssh_credentials', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(),
+  type: text('type').notNull(), // password | key
+  encPassword: text('enc_password'),
+  encPrivateKey: text('enc_private_key'),
+  encPassphrase: text('enc_passphrase'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const sshGroups = pgTable('ssh_groups', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(),
+  parentId: text('parent_id'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const sshHosts = pgTable('ssh_hosts', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  label: text('label').notNull(),
+  host: text('host').notNull(),
+  port: integer('port').notNull().default(22),
+  username: text('username').notNull(),
+  authType: text('auth_type').notNull(), // password | key | agent
+  credentialId: text('credential_id').references(() => sshCredentials.id, { onDelete: 'set null' }),
+  groupId: text('group_id').references(() => sshGroups.id, { onDelete: 'set null' }),
+  tags: text('tags'),
+  knownHostFp: text('known_host_fp'),
+  color: text('color'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const sshLogEvents = pgTable('ssh_log_events', {
+  id: text('id').primaryKey(),
+  hostId: text('host_id').references(() => sshHosts.id, { onDelete: 'cascade' }).notNull(),
+  sessionId: text('session_id'),
+  type: text('type').notNull(), // connect | disconnect | auth_fail | retry | error
+  message: text('message'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 

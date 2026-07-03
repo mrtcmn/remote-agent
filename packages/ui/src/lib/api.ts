@@ -65,9 +65,10 @@ export const api = {
   createSession: (projectId?: string, worktreeId?: string, machineId?: string) =>
     request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ projectId, worktreeId }), machineId }),
   terminateSession: (id: string) => request(`/sessions/${id}`, { method: 'DELETE' }),
-  getSessionGitStatus: (sessionId: string, projectId?: string) => {
+  getSessionGitStatus: (sessionId: string, projectId?: string, recent?: boolean) => {
     const params = new URLSearchParams();
     if (projectId) params.set('projectId', projectId);
+    if (recent) params.set('recent', '1');
     const query = params.toString();
     return request<GitStatus>(`/sessions/${sessionId}/git/status${query ? `?${query}` : ''}`);
   },
@@ -735,6 +736,12 @@ export interface Project {
   childLinks?: ProjectLink[];
 }
 
+export interface RecentChange {
+  path: string;
+  status: 'staged' | 'modified' | 'untracked';
+  mtimeMs: number;
+}
+
 export interface GitStatus {
   branch: string;
   ahead: number;
@@ -742,6 +749,7 @@ export interface GitStatus {
   staged: string[];
   modified: string[];
   untracked: string[];
+  recent?: RecentChange[];
 }
 
 export interface GitLogEntry {

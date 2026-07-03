@@ -188,7 +188,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     }
 
     try {
-      const status = await gitService.status(targetPath);
+      const status = await gitService.status(targetPath, { recent: query.recent === '1' });
       return status;
     } catch (error) {
       set.status = 500;
@@ -200,6 +200,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     }),
     query: t.Object({
       projectId: t.Optional(t.String()),
+      recent: t.Optional(t.String()),
     }),
   })
 

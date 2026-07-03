@@ -35,6 +35,7 @@ import { Terminal } from '@/components/Terminal';
 import { AIModelIcon, detectAIModel } from '@/components/AIModelIcon';
 import { GitPanel } from '@/components/git';
 import { FileExplorer } from '@/components/FileExplorer';
+import { RecentChangesBar } from '@/components/RecentChangesBar';
 import { RunConfigPanel } from '@/components/RunConfigPanel';
 import { RunFlowView } from '@/components/run-flow/RunFlowView';
 import { BrowserPreview } from '@/components/BrowserPreview';
@@ -307,7 +308,7 @@ function loadColor(pct: number): string {
 export function SessionPage() {
   const { id, machineId, terminalId: terminalIdFromRoute } = useParams<{ id: string; machineId?: string; terminalId?: string }>();
   const ownerMachine = machineId ?? 'self';
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -915,13 +916,25 @@ export function SessionPage() {
       <div className="flex-1 min-h-0">
         {viewMode === 'terminal' ? (
           activeTerminal ? (
-            <Terminal
-              key={activeTerminal.id}
-              terminalId={activeTerminal.id}
-              className="h-full"
-              onExit={() => { queryClient.invalidateQueries({ queryKey: ['terminals', id] }); }}
-              onTitleChanged={() => { queryClient.invalidateQueries({ queryKey: ['terminals', id] }); }}
-            />
+            <div className="flex flex-col h-full min-h-0">
+              <div className="flex-1 min-h-0">
+                <Terminal
+                  key={activeTerminal.id}
+                  terminalId={activeTerminal.id}
+                  className="h-full"
+                  onExit={() => { queryClient.invalidateQueries({ queryKey: ['terminals', id] }); }}
+                  onTitleChanged={() => { queryClient.invalidateQueries({ queryKey: ['terminals', id] }); }}
+                />
+              </div>
+              <RecentChangesBar
+                sessionId={id!}
+                projectId={gitProjectId}
+                onOpenFile={(path) => {
+                  setSearchParams((prev) => { prev.set('file', path); return prev; }, { replace: true });
+                  setViewMode('files');
+                }}
+              />
+            </div>
           ) : (
             <EmptyState isLoading={isLoading} onCreateClaude={() => createMutation.mutate({ type: 'claude' })} />
           )
@@ -984,7 +997,7 @@ export function SessionPage() {
             className="h-full"
           />
         ) : (
-          <FileExplorer sessionId={id!} project={session?.project} selectedProjectId={selectedProjectId} className="h-full" />
+          <FileExplorer sessionId={id!} project={session?.project} selectedProjectId={selectedProjectId} openFile={searchParams.get('file') ?? undefined} className="h-full" />
         )}
       </div>
 

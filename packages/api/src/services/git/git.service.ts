@@ -41,6 +41,12 @@ export interface PROptions {
   draft?: boolean;
 }
 
+export interface RecentChange {
+  path: string;
+  status: 'staged' | 'modified' | 'untracked';
+  mtimeMs: number;
+}
+
 export interface GitStatus {
   branch: string;
   ahead: number;
@@ -48,6 +54,9 @@ export interface GitStatus {
   staged: string[];
   modified: string[];
   untracked: string[];
+  // Present only when status() is called with { recent: true } — changed files
+  // sorted newest-first by file mtime. Opt-in so idle sessions skip the fs.stat cost.
+  recent?: RecentChange[];
 }
 
 export class GitService {
@@ -364,7 +373,7 @@ export class GitService {
     return hash.stdout.toString().trim();
   }
 
-  async status(projectPath: string): Promise<GitStatus> {
+  async status(projectPath: string, opts: { recent?: boolean } = {}): Promise<GitStatus> {
     const branchResult = await $`git branch --show-current`.cwd(projectPath).quiet();
     const branch = branchResult.stdout.toString().trim();
 
@@ -409,7 +418,31 @@ export class GitService {
       }
     }
 
-    return { branch, ahead, behind, staged, modified, untracked };
+    if (!opts.recent) {
+      return { branch, ahead, behind, staged, modified, untracked };
+    }
+
+    // Opt-in: stat each changed file for its mtime, sort newest-first.
+    // staged wins over modified/untracked if a path appears in more than one list.
+    const byPath = new Map<string, RecentChange['status']>();
+    for (const p of untracked) byPath.set(p, 'untracked');
+    for (const p of modified) byPath.set(p, 'modified');
+    for (const p of staged) byPath.set(p, 'staged');
+
+    const recent = (await Promise.all(
+      [...byPath].map(async ([path, status]) => {
+        try {
+          const s = await stat(resolve(projectPath, path));
+          return { path, status, mtimeMs: s.mtimeMs };
+        } catch {
+          return null; // deleted/unreadable — drop it
+        }
+      })
+    ))
+      .filter((r): r is RecentChange => r !== null)
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+    return { branch, ahead, behind, staged, modified, untracked, recent };
   }
 
   async log(projectPath: string, limit = 50): Promise<Array<{

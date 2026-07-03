@@ -14,6 +14,8 @@ interface FileTreeProps {
   selectedFile: string | null;
   onFileSelect: (path: string) => void;
   basePath?: string;
+  // When set, directories on the path to this file start expanded (cascading lazy loads).
+  revealPath?: string;
 }
 
 interface ContextActionState {
@@ -22,7 +24,7 @@ interface ContextActionState {
   entryType: 'file' | 'directory';
 }
 
-export function FileTree({ sessionId, selectedFile, onFileSelect, basePath = '.' }: FileTreeProps) {
+export function FileTree({ sessionId, selectedFile, onFileSelect, basePath = '.', revealPath }: FileTreeProps) {
   const [contextAction, setContextAction] = useState<ContextActionState | null>(null);
   const queryClient = useQueryClient();
 
@@ -111,6 +113,7 @@ export function FileTree({ sessionId, selectedFile, onFileSelect, basePath = '.'
         selectedFile={selectedFile}
         onFileSelect={onFileSelect}
         onContextAction={handleContextAction}
+        revealPath={revealPath}
         defaultExpanded
       />
 

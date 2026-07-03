@@ -137,6 +137,7 @@ export const claudeSessions = sqliteTable('claude_sessions', {
   projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
   worktreeId: text('worktree_id').references(() => worktrees.id, { onDelete: 'set null' }),
   claudeSessionId: text('claude_session_id'),
+  sshHostId: text('ssh_host_id'), // set when this is an SSH session
   status: text('status').notNull().default('active'), // active | waiting_input | paused | terminated
   lastMessage: text('last_message'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
@@ -212,7 +213,7 @@ export const terminals = sqliteTable('terminals', {
   id: text('id').primaryKey(),
   sessionId: text('session_id').references(() => claudeSessions.id, { onDelete: 'cascade' }).notNull(),
   name: text('name').notNull().default('Terminal'),
-  type: text('type').notNull().default('shell'), // shell | claude | process
+  type: text('type').notNull().default('shell'), // shell | claude | process | ssh
   command: text('command').notNull(), // JSON array
   cols: text('cols').notNull().default('80'),
   rows: text('rows').notNull().default('24'),
@@ -220,6 +221,53 @@ export const terminals = sqliteTable('terminals', {
   status: text('status').notNull().default('running'), // running | exited
   exitCode: text('exit_code'),
   scrollback: text('scrollback'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+// ─── SSH session manager ──────────────────────────────────────────────────
+// Reusable credential vault. Secret material (enc*) is AES-256-GCM at rest.
+export const sshCredentials = sqliteTable('ssh_credentials', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(),
+  type: text('type').notNull(), // password | key
+  encPassword: text('enc_password'), // base64 GCM blob
+  encPrivateKey: text('enc_private_key'),
+  encPassphrase: text('enc_passphrase'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+export const sshGroups = sqliteTable('ssh_groups', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(),
+  parentId: text('parent_id'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+export const sshHosts = sqliteTable('ssh_hosts', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  label: text('label').notNull(),
+  host: text('host').notNull(),
+  port: integer('port').notNull().default(22),
+  username: text('username').notNull(),
+  authType: text('auth_type').notNull(), // password | key | agent
+  credentialId: text('credential_id').references(() => sshCredentials.id, { onDelete: 'set null' }),
+  groupId: text('group_id').references(() => sshGroups.id, { onDelete: 'set null' }),
+  tags: text('tags'), // JSON array
+  knownHostFp: text('known_host_fp'), // TOFU fingerprint
+  color: text('color'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+export const sshLogEvents = sqliteTable('ssh_log_events', {
+  id: text('id').primaryKey(),
+  hostId: text('host_id').references(() => sshHosts.id, { onDelete: 'cascade' }).notNull(),
+  sessionId: text('session_id'),
+  type: text('type').notNull(), // connect | disconnect | auth_fail | retry | error
+  message: text('message'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
