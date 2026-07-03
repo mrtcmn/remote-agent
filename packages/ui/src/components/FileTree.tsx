@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, ChevronDown, Folder, FileText, Loader2 } from 'lucide-react';
 import { api, type FileEntry } from '@/lib/api';
@@ -260,6 +260,10 @@ interface TreeFileProps {
 }
 
 function TreeFile({ entry, depth, isSelected, onSelect, onContextAction }: TreeFileProps) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (isSelected) ref.current?.scrollIntoView({ block: 'nearest' });
+  }, [isSelected]);
   return (
     <FileContextMenu
       entryType="file"
@@ -267,6 +271,7 @@ function TreeFile({ entry, depth, isSelected, onSelect, onContextAction }: TreeF
       onAction={(action) => onContextAction(action, entry.path, 'file')}
     >
       <button
+        ref={ref}
         onClick={() => onSelect(entry.path)}
         className={cn(
           'flex items-center gap-1 w-full px-2 py-1 text-left transition-colors',

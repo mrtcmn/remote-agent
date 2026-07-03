@@ -25,6 +25,7 @@ import { worktreeRoutes } from './worktrees.routes';
 import { githubAppRoutes } from './github-app.routes';
 import { machineRoutes } from './machines.routes';
 import { pairedMastersRoutes } from './paired-masters.routes';
+import { sshRoutes } from './ssh.routes';
 
 export const api = new Elysia({ prefix: '/api' })
   .use(authRoutes)
@@ -51,6 +52,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(githubAppRoutes)
   .use(machineRoutes)
   .use(pairedMastersRoutes)
+  .use(sshRoutes)
   .use(versionRoutes);
 
 export { internalRoutes };

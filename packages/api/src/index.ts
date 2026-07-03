@@ -3,9 +3,11 @@ import { cors } from '@elysiajs/cors';
 import { getAssetPath, uiServingMode } from './ui-assets';
 import { api, internalRoutes } from './routes';
 import { terminalWebsocketRoutes } from './routes/terminal-websocket';
+import { sshWebsocketRoutes } from './routes/ssh-websocket';
 import { previewWebsocketRoutes } from './routes/preview-websocket';
 import { notificationService } from './services/notification';
 import { terminalService } from './services/terminal';
+import { sshService } from './services/ssh/ssh.service';
 import { browserPreviewService } from './services/browser-preview';
 import { codeServerManager } from './services/code-server/code-server.service';
 import { originsService } from './services/origins';
@@ -50,6 +52,7 @@ async function loadIndexHtml(): Promise<string | null> {
 await originsService.initialize();
 await notificationService.initialize();
 await terminalService.initialize();
+await sshService.initialize();
 await masterSyncService.initialize();
 
 // Seed test user
@@ -79,6 +82,7 @@ const app = new Elysia()
 
   // Terminal WebSocket routes
   .use(terminalWebsocketRoutes)
+  .use(sshWebsocketRoutes)
 
   // Browser preview WebSocket routes
   .use(previewWebsocketRoutes)
