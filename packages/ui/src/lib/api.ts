@@ -696,7 +696,45 @@ export const api = {
     request<{ ok: true }>(`/paired-masters/${id}`, { method: 'DELETE' }),
   getPairedMasterPeers: (id: string) =>
     request<{ peers: MachineSummary[] }>(`/paired-masters/${id}/peers`),
+
+  // ── SSH session manager ────────────────────────────────────────────────
+  getSshHosts: () => request<SshHost[]>('/ssh/hosts'),
+  createSshHost: (data: SshHostInput) => request<SshHost>('/ssh/hosts', { method: 'POST', body: JSON.stringify(data) }),
+  updateSshHost: (id: string, data: Partial<SshHostInput>) => request<SshHost>(`/ssh/hosts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteSshHost: (id: string) => request<{ ok: true }>(`/ssh/hosts/${id}`, { method: 'DELETE' }),
+  getSshHostLogs: (id: string) => request<SshLogEvent[]>(`/ssh/hosts/${id}/logs`),
+  resetSshHostTrust: (id: string) => request<{ ok: true }>(`/ssh/hosts/${id}/trust-reset`, { method: 'POST' }),
+  connectSshHost: (id: string, size?: { cols: number; rows: number }) =>
+    request<{ sessionId: string; terminalId: string }>(`/ssh/hosts/${id}/connect`, { method: 'POST', body: JSON.stringify(size ?? {}) }),
+  stopSshSession: (sessionId: string) => request<{ ok: true }>(`/ssh/sessions/${sessionId}/stop`, { method: 'POST' }),
+  getSshGroups: () => request<SshGroup[]>('/ssh/groups'),
+  createSshGroup: (data: { name: string; parentId?: string; sortOrder?: number }) => request<SshGroup>('/ssh/groups', { method: 'POST', body: JSON.stringify(data) }),
+  deleteSshGroup: (id: string) => request<{ ok: true }>(`/ssh/groups/${id}`, { method: 'DELETE' }),
+  getSshCredentials: () => request<SshCredential[]>('/ssh/credentials'),
+  createSshCredential: (data: SshCredentialInput) => request<SshCredential>('/ssh/credentials', { method: 'POST', body: JSON.stringify(data) }),
+  deleteSshCredential: (id: string) => request<{ ok: true }>(`/ssh/credentials/${id}`, { method: 'DELETE' }),
 };
+
+// ── SSH types ──────────────────────────────────────────────────────────────
+export interface SshHost {
+  id: string; label: string; host: string; port: number; username: string;
+  authType: 'password' | 'key' | 'agent';
+  credentialId: string | null; groupId: string | null; tags: string | null;
+  knownHostFp: string | null; color: string | null; createdAt: string;
+}
+export interface SshHostInput {
+  label: string; host: string; port?: number; username: string;
+  authType: 'password' | 'key' | 'agent';
+  credentialId?: string | null; groupId?: string | null; tags?: string[]; color?: string;
+}
+export interface SshGroup { id: string; name: string; parentId: string | null; sortOrder: number; }
+export interface SshCredential { id: string; name: string; type: 'password' | 'key'; createdAt: string; }
+export interface SshCredentialInput { name: string; type: 'password' | 'key'; password?: string; privateKey?: string; passphrase?: string; }
+export interface SshLogEvent {
+  id: string; hostId: string; sessionId: string | null;
+  type: 'connect' | 'disconnect' | 'auth_fail' | 'retry' | 'error';
+  message: string | null; createdAt: string;
+}
 
 // Types
 export interface User {

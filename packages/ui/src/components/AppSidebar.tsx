@@ -488,6 +488,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
           { to: '/projects', icon: FolderGit2, label: 'Projects' },
           { to: '/skills', icon: Sparkles, label: 'Skills' },
           { to: '/mcp-servers', icon: Plug, label: 'MCP Servers' },
+          { to: '/ssh', icon: Server, label: 'SSH' },
           { to: '/settings', icon: Settings, label: 'Settings' },
         ].map((item) => (
           <Link key={item.to} to={item.to} onClick={onClose}>
