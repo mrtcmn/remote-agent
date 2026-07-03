@@ -10,6 +10,10 @@ import {
 import { createTray } from "./tray";
 import { startLocalApi, stopLocalApi } from "./local-api";
 
+// Dev: `desktop:dev` sets this. The webview loads Vite (13591), which proxies
+// /api + /ws to the `bun run dev` API on 13590 — so we skip the embedded server.
+const DEV = process.argv.includes("--dev") || process.env.ELECTROBUN_BUILD_ENV === "dev";
+
 const store = createStore(Utils.paths.userData);
 const rpc = createRpc(store);
 let win: ReturnType<typeof createWindow> | null = null;
@@ -64,7 +68,11 @@ ApplicationMenu.setApplicationMenu([
 // Boot: start local API if in local mode, then create tray + window.
 // (Electrobun runs top-level code at boot — there is no app.whenReady.)
 (async () => {
-  if (store.get("mode") === "local") {
+  if (DEV) {
+    // Use the running `bun run dev` API via the Vite proxy. Setting apiUrl to the
+    // webview origin makes the UI issue same-origin (relative) requests → proxy → 13590.
+    store.set("apiUrl", "http://localhost:13591");
+  } else if (store.get("mode") === "local") {
     try {
       const apiUrl = await startLocalApi();
       store.set("apiUrl", apiUrl);
