@@ -114,7 +114,6 @@ function ToolBtn({
   external,
   accentColor,
   iconColor,
-  activeGlow,
   onClick,
   disabled,
   className,
