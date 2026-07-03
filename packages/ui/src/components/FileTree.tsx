@@ -167,11 +167,13 @@ interface TreeDirectoryProps {
   selectedFile: string | null;
   onFileSelect: (path: string) => void;
   onContextAction: (type: ContextAction, path: string, entryType: 'file' | 'directory') => void;
+  revealPath?: string;
   defaultExpanded?: boolean;
 }
 
-function TreeDirectory({ sessionId, path, depth, selectedFile, onFileSelect, onContextAction, defaultExpanded = false }: TreeDirectoryProps) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+function TreeDirectory({ sessionId, path, depth, selectedFile, onFileSelect, onContextAction, revealPath, defaultExpanded = false }: TreeDirectoryProps) {
+  const shouldReveal = !!revealPath && revealPath.startsWith(path + '/');
+  const [expanded, setExpanded] = useState(defaultExpanded || shouldReveal);
 
   const { data, isLoading } = useQuery({
     queryKey: ['session-files', sessionId, path],
@@ -230,6 +232,7 @@ function TreeDirectory({ sessionId, path, depth, selectedFile, onFileSelect, onC
                 selectedFile={selectedFile}
                 onFileSelect={onFileSelect}
                 onContextAction={onContextAction}
+                revealPath={revealPath}
               />
             ) : (
               <TreeFile
