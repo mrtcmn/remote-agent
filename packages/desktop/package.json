@@ -1,13 +1,14 @@
 {
   "name": "@remote-agent/desktop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "ELECTROBUN_BUILD_ENV=dev concurrently -k \"bun run dev:ui\" \"electrobun dev\"",
+    "dev": "ELECTROBUN_BUILD_ENV=dev concurrently -k \"bun run dev:api\" \"bun run dev:ui\" \"electrobun dev\"",
+    "dev:api": "RA_MODE=local RA_PORT=13590 bun run --cwd ../api dev",
     "dev:ui": "vite",
     "build:ui": "vite build",
-    "build:server": "bun --cwd ../ui run build && bun run --cwd ../api ui-manifest && bun build ../api/src/index.ts --target=bun --outdir dist-server --external playwright --external playwright-core",
+    "build:server": "bun run --cwd ../ui build && bun run --cwd ../api ui-manifest && rm -rf dist-server && bun build ../api/src/index.ts --target=bun --outdir dist-server --external playwright --external playwright-core",
     "build": "bun run build:ui && bun run build:server && electrobun build",
     "build:stable": "bun run build:ui && bun run build:server && electrobun build --env=stable",
     "install:app": "rm -rf '/Applications/Remote Agent.app' && ditto 'build/stable-macos-arm64/Remote Agent.app' '/Applications/Remote Agent.app'",

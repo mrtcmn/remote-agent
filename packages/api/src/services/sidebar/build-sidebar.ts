@@ -30,6 +30,10 @@ export async function buildSidebarData(userId: string) {
     }),
   ]);
 
+  // SSH sessions live in the SSH section of the sidebar, not here. They own no
+  // local PTYs, so the stale check below would wrongly terminate live ones.
+  const workSessions = allSessions.filter(s => !s.sshHostId);
+
   // Load child links for multi-projects
   const multiProjectIds = userProjects.filter(p => p.isMultiProject).map(p => p.id);
   const allLinks = multiProjectIds.length > 0
@@ -40,7 +44,7 @@ export async function buildSidebarData(userId: string) {
 
   // Count review comments per session
   const commentCounts: Record<string, number> = {};
-  const sessionIds = allSessions.map(s => s.id);
+  const sessionIds = workSessions.map(s => s.id);
   if (sessionIds.length > 0) {
     const counts = await db
       .select({
@@ -72,7 +76,7 @@ export async function buildSidebarData(userId: string) {
 
   // Build session data with live status and git stats
   const sessionDataMap = new Map<string, any>();
-  for (const session of allSessions) {
+  for (const session of workSessions) {
     const terminals = terminalService.getSessionTerminals(session.id);
     const hasActiveTerminals = terminals.some(t => t.status === 'running');
     let liveStatus = hasActiveTerminals ? 'active' : session.status;
@@ -183,7 +187,7 @@ export async function buildSidebarData(userId: string) {
   const projectSessionsMap = new Map<string, any[]>();
   const unassignedSessions: any[] = [];
 
-  for (const session of allSessions) {
+  for (const session of workSessions) {
     const data = sessionDataMap.get(session.id);
     if (session.projectId) {
       const list = projectSessionsMap.get(session.projectId) || [];

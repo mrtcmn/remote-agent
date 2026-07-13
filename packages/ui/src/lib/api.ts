@@ -707,6 +707,8 @@ export const api = {
   connectSshHost: (id: string, size?: { cols: number; rows: number }) =>
     request<{ sessionId: string; terminalId: string }>(`/ssh/hosts/${id}/connect`, { method: 'POST', body: JSON.stringify(size ?? {}) }),
   stopSshSession: (sessionId: string) => request<{ ok: true }>(`/ssh/sessions/${sessionId}/stop`, { method: 'POST' }),
+  getSshSessions: () => request<SshActiveSession[]>('/ssh/sessions'),
+  getSshSession: (sessionId: string) => request<SshSessionDetail>(`/ssh/sessions/${sessionId}`),
   getSshGroups: () => request<SshGroup[]>('/ssh/groups'),
   createSshGroup: (data: { name: string; parentId?: string; sortOrder?: number }) => request<SshGroup>('/ssh/groups', { method: 'POST', body: JSON.stringify(data) }),
   deleteSshGroup: (id: string) => request<{ ok: true }>(`/ssh/groups/${id}`, { method: 'DELETE' }),
@@ -730,6 +732,8 @@ export interface SshHostInput {
 export interface SshGroup { id: string; name: string; parentId: string | null; sortOrder: number; }
 export interface SshCredential { id: string; name: string; type: 'password' | 'key'; createdAt: string; }
 export interface SshCredentialInput { name: string; type: 'password' | 'key'; password?: string; privateKey?: string; passphrase?: string; }
+export interface SshActiveSession { sessionId: string; hostId: string; status: 'connecting' | 'running' | 'exited'; }
+export interface SshSessionDetail extends SshActiveSession { host: SshHost; }
 export interface SshLogEvent {
   id: string; hostId: string; sessionId: string | null;
   type: 'connect' | 'disconnect' | 'auth_fail' | 'retry' | 'error';

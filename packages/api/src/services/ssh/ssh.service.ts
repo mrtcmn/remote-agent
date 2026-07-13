@@ -234,6 +234,13 @@ export class SshService extends EventEmitter {
     return this.instances.get(sessionId);
   }
 
+  /** Live SSH sessions for a user — lets the UI reattach instead of redialing. */
+  listActive(userId: string): Array<{ sessionId: string; hostId: string; status: SshStatus }> {
+    return [...this.instances.values()]
+      .filter((i) => i.userId === userId)
+      .map((i) => ({ sessionId: i.sessionId, hostId: i.hostId, status: i.status }));
+  }
+
   getRawScrollback(sessionId: string): Uint8Array | null {
     const instance = this.instances.get(sessionId);
     if (!instance?.rawScrollback.length) return null;

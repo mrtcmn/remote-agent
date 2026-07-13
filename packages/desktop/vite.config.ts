@@ -23,13 +23,14 @@ export default defineConfig({
     port: 13591,
     proxy: {
       "/api": {
-        target: "http://localhost:13590",
+        // 127.0.0.1 (not localhost): node can resolve localhost to ::1 and miss Bun's IPv4 bind.
+        target: "http://127.0.0.1:13590",
         changeOrigin: false,
         cookieDomainRewrite: "localhost",
         secure: false,
       },
       "/ws": {
-        target: "ws://localhost:13590",
+        target: "ws://127.0.0.1:13590",
         ws: true,
       },
     },

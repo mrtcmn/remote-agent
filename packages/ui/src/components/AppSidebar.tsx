@@ -23,6 +23,7 @@ import {
   Server,
 } from 'lucide-react';
 import { NewSessionModal } from '@/components/NewSessionModal';
+import { SshHostsSection } from '@/components/ssh/SshHostsSection';
 import { AIModelIcon, detectAIModel } from '@/components/AIModelIcon';
 import { cn } from '@/lib/utils';
 import type { SidebarSession, SessionService, AggregatedSidebar, MachineSidebar } from '@/lib/api';
@@ -477,6 +478,9 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
             ))}
           </div>
         )}
+
+        <div className="h-px bg-border my-2 shrink-0" />
+        <SshHostsSection onNavigate={handleNavigate} />
         {/* Empty space below sessions is a window drag handle */}
         <div className="flex-1 min-h-[48px] electrobun-webkit-app-region-drag" />
       </div>
@@ -488,7 +492,6 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
           { to: '/projects', icon: FolderGit2, label: 'Projects' },
           { to: '/skills', icon: Sparkles, label: 'Skills' },
           { to: '/mcp-servers', icon: Plug, label: 'MCP Servers' },
-          { to: '/ssh', icon: Server, label: 'SSH' },
           { to: '/settings', icon: Settings, label: 'Settings' },
         ].map((item) => (
           <Link key={item.to} to={item.to} onClick={onClose}>

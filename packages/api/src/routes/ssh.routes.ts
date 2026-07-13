@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia';
 import { eq, and } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { requireAuth } from '../auth/middleware';
-import { db, sshHosts, sshGroups, sshCredentials } from '../db';
+import { db, sshHosts, sshGroups, sshCredentials, claudeSessions } from '../db';
 import { sshService } from '../services/ssh/ssh.service';
 import { encrypt } from '../services/crypto/secret-box';
 
@@ -92,6 +92,17 @@ export const sshRoutes = new Elysia({ prefix: '/ssh' })
   .post('/sessions/:sessionId/stop', async ({ params }) => {
     await sshService.close(params.sessionId);
     return { ok: true };
+  })
+  .get('/sessions', ({ user }) => sshService.listActive(user!.id))
+  .get('/sessions/:sessionId', async ({ user, params, set }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(eq(claudeSessions.id, params.sessionId), eq(claudeSessions.userId, user!.id)),
+    });
+    if (!session?.sshHostId) { set.status = 404; return { error: 'Not found' }; }
+    const host = await db.query.sshHosts.findFirst({ where: eq(sshHosts.id, session.sshHostId) });
+    if (!host) { set.status = 404; return { error: 'Host not found' }; }
+    const live = sshService.getInstance(params.sessionId);
+    return { sessionId: session.id, hostId: host.id, status: live?.status ?? 'exited', host };
   })
 
   // ─── Groups ──────────────────────────────────────────────────────────────

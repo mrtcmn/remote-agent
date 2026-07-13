@@ -11,7 +11,7 @@ import { SettingsPage } from './pages/Settings';
 import { KanbanPage } from './pages/Kanban';
 import { SkillsPage } from './pages/Skills';
 import { McpServersPage } from './pages/McpServers';
-import { SshPage } from './pages/Ssh';
+import { SshSessionPage } from './pages/Ssh';
 import { Toaster } from './components/ui/Toaster';
 import { useAppTheme } from './hooks/useAppTheme';
 import { isElectron } from './lib/electron';
@@ -83,7 +83,7 @@ export default function App() {
                   <Route path="/kanban" element={<KanbanPage />} />
                   <Route path="/skills" element={<SkillsPage />} />
                   <Route path="/mcp-servers" element={<McpServersPage />} />
-                  <Route path="/ssh" element={<SshPage />} />
+                  <Route path="/ssh/:sessionId" element={<SshSessionPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                 </Routes>
               </Layout>
