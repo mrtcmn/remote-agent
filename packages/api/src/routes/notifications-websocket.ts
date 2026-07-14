@@ -49,8 +49,8 @@ notificationEvents.on('status', (event: NotificationStatusEvent) => {
   }
 });
 
-async function resolveUserId(request: Request, queryToken?: string): Promise<string | null> {
-  const header = request.headers.get('authorization');
+async function resolveUserId(request: Request | undefined, queryToken?: string): Promise<string | null> {
+  const header = request?.headers.get('authorization');
   const bearer = header?.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
   const token = bearer || queryToken;
 
@@ -59,6 +59,7 @@ async function resolveUserId(request: Request, queryToken?: string): Promise<str
     if (machine) return machine.ownerUserId;
   }
 
+  if (!request) return null;
   const session = await auth.api.getSession({ headers: request.headers });
   return session?.user.id ?? null;
 }
