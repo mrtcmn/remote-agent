@@ -1,7 +1,8 @@
-import { eq, and, inArray, desc } from 'drizzle-orm';
+import { eq, ne, and, inArray, desc } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db, notifications } from '../../db';
 import type { CreateNotificationInput, NotificationRecord, NotificationAction } from './types';
+import { emitStatus } from './events';
 
 export class NotificationRepository {
   async create(input: CreateNotificationInput): Promise<NotificationRecord> {
@@ -92,17 +93,27 @@ export class NotificationRepository {
       updates.resolvedAt = new Date();
     }
 
-    await db.update(notifications)
+    const rows = await db.update(notifications)
       .set(updates)
-      .where(eq(notifications.id, id));
+      .where(eq(notifications.id, id))
+      .returning({ userId: notifications.userId });
+
+    if (rows[0]) {
+      emitStatus({ id, userId: rows[0].userId, status, resolvedAction });
+    }
   }
 
   async markManyAsRead(ids: string[]): Promise<void> {
     if (ids.length === 0) return;
 
-    await db.update(notifications)
+    const rows = await db.update(notifications)
       .set({ status: 'read', updatedAt: new Date() })
-      .where(inArray(notifications.id, ids));
+      .where(inArray(notifications.id, ids))
+      .returning({ id: notifications.id, userId: notifications.userId });
+
+    for (const row of rows) {
+      emitStatus({ id: row.id, userId: row.userId, status: 'read' });
+    }
   }
 
   async dismissBySession(sessionId: string): Promise<number> {
@@ -112,8 +123,11 @@ export class NotificationRepository {
         eq(notifications.sessionId, sessionId),
         inArray(notifications.status, ['pending', 'sent'])
       ))
-      .returning({ id: notifications.id });
+      .returning({ id: notifications.id, userId: notifications.userId });
 
+    for (const row of result) {
+      emitStatus({ id: row.id, userId: row.userId, status: 'dismissed' });
+    }
     return result.length;
   }
 
@@ -124,8 +138,11 @@ export class NotificationRepository {
         eq(notifications.terminalId, terminalId),
         inArray(notifications.status, ['pending', 'sent'])
       ))
-      .returning({ id: notifications.id });
+      .returning({ id: notifications.id, userId: notifications.userId });
 
+    for (const row of result) {
+      emitStatus({ id: row.id, userId: row.userId, status: 'dismissed' });
+    }
     return result.length;
   }
 
@@ -140,12 +157,14 @@ export class NotificationRepository {
         eq(notifications.terminalId, terminalId),
         eq(notifications.type, type as any),
         inArray(notifications.status, ['pending', 'sent']),
-        // Exclude the new notification
+        ne(notifications.id, excludeId)
       ))
-      .returning({ id: notifications.id });
+      .returning({ id: notifications.id, userId: notifications.userId });
 
-    // Filter out the excluded ID manually since Drizzle doesn't have neq easily
-    return result.filter(r => r.id !== excludeId).length;
+    for (const row of result) {
+      emitStatus({ id: row.id, userId: row.userId, status: 'dismissed' });
+    }
+    return result.length;
   }
 
   private mapToRecord(row: typeof notifications.$inferSelect): NotificationRecord {

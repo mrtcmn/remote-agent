@@ -3,6 +3,7 @@ import { db, notificationPrefs } from '../../db';
 import type { NotificationAdapter, NotificationPayload, CreateNotificationInput, NotificationRecord } from './types';
 import { FirebaseAdapter, WebhookAdapter } from './adapters';
 import { notificationRepository } from './notification.repository';
+import { emitCreated } from './events';
 import { presenceManager } from '../presence';
 import { isRemoteMode } from '../../config/mode';
 
@@ -141,6 +142,7 @@ export class NotificationService {
     if (presenceManager.isUserActive(input.userId)) {
       console.log(`Skipping push notification for active user ${input.userId}`);
       await notificationRepository.updateStatus(notification.id, 'sent');
+      emitCreated({ ...notification, status: 'sent' });
       return { notification, sendResult: { success: true, results: { skipped_active_user: true } } };
     }
 
@@ -164,7 +166,58 @@ export class NotificationService {
       await notificationRepository.updateStatus(notification.id, 'sent');
     }
 
+    emitCreated({ ...notification, status: sendResult.success ? 'sent' : notification.status });
+
     return { notification, sendResult };
+  }
+
+  /**
+   * Resolve a notification on behalf of a user and, for input/permission
+   * prompts, type the response into the owning terminal. Shared by the REST
+   * respond route and the notifications websocket.
+   */
+  async respond(
+    userId: string,
+    id: string,
+    input: { action: string; text?: string }
+  ): Promise<{ ok: true; terminalWritten: boolean } | { ok: false; error: 'not_found' | 'forbidden' }> {
+    const notification = await notificationRepository.findById(id);
+    if (!notification) return { ok: false, error: 'not_found' };
+    if (notification.userId !== userId) return { ok: false, error: 'forbidden' };
+
+    await notificationRepository.updateStatus(id, 'resolved', input.action);
+
+    let terminalWritten = false;
+    if (
+      notification.terminalId &&
+      (notification.type === 'permission_request' || notification.type === 'user_input_required')
+    ) {
+      const { terminalService } = await import('../terminal');
+
+      // Use the label text (what Claude actually expects the user to type);
+      // fall back to the action slug only if nothing else matches.
+      let response: string;
+      if (input.text) {
+        response = input.text;
+      } else if (input.action === 'approve') {
+        response = 'yes';
+      } else if (input.action === 'deny') {
+        response = 'no';
+      } else {
+        const options = notification.metadata?.options as { label: string; value: string }[] | undefined;
+        response = options?.find(o => o.value === input.action)?.label ?? input.action;
+      }
+
+      try {
+        await terminalService.write(notification.terminalId, response + '\n');
+        terminalWritten = true;
+      } catch (error) {
+        console.error('Failed to write to terminal:', error);
+        // Don't fail the response — the notification is already resolved
+      }
+    }
+
+    return { ok: true, terminalWritten };
   }
 
   async dismissBySession(sessionId: string): Promise<number> {

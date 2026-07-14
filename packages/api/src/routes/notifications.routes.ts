@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid';
 import { eq } from 'drizzle-orm';
 import { db, fcmTokens, notificationPrefs } from '../db';
 import { requireAuth } from '../auth/middleware';
-import { notificationRepository } from '../services/notification';
+import { notificationRepository, notificationService } from '../services/notification';
 import { fanOutToMasters } from '../services/aggregation/fan-out';
 import { mergeNotifications } from '../services/aggregation/merge';
 
@@ -227,54 +227,14 @@ export const notificationRoutes = new Elysia({ prefix: '/notifications' })
 
   // Respond to notification (for mobile inline replies)
   .post('/:id/respond', async ({ user, params, body, set }) => {
-    const notification = await notificationRepository.findById(params.id);
+    const result = await notificationService.respond(user!.id, params.id, body);
 
-    if (!notification) {
-      set.status = 404;
-      return { error: 'Notification not found' };
+    if (!result.ok) {
+      set.status = result.error === 'not_found' ? 404 : 403;
+      return { error: result.error === 'not_found' ? 'Notification not found' : 'Forbidden' };
     }
 
-    if (notification.userId !== user!.id) {
-      set.status = 403;
-      return { error: 'Forbidden' };
-    }
-
-    // Mark as resolved
-    await notificationRepository.updateStatus(params.id, 'resolved', body.action);
-
-    // If this is a permission_request or user_input_required, write to terminal
-    if (
-      notification.terminalId &&
-      (notification.type === 'permission_request' || notification.type === 'user_input_required')
-    ) {
-      // Import terminal service to write response
-      const { terminalService } = await import('../services/terminal');
-
-      // Use the label text (what Claude actually expects the user to type)
-      // Fall back to action slug only if no text provided
-      let response: string;
-      if (body.text) {
-        response = body.text;
-      } else if (body.action === 'approve') {
-        response = 'yes';
-      } else if (body.action === 'deny') {
-        response = 'no';
-      } else {
-        // Look up the label from the notification's stored options
-        const options = notification.metadata?.options as { label: string; value: string }[] | undefined;
-        const matchedOption = options?.find(o => o.value === body.action);
-        response = matchedOption?.label ?? body.action;
-      }
-
-      try {
-        await terminalService.write(notification.terminalId, response + '\n');
-      } catch (error) {
-        console.error('Failed to write to terminal:', error);
-        // Don't fail the response - notification is already resolved
-      }
-    }
-
-    return { success: true };
+    return { success: true, terminalWritten: result.terminalWritten };
   }, {
     params: t.Object({
       id: t.String(),
