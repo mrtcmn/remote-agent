@@ -20,6 +20,12 @@ swift run                 # dev
 ./scripts/make-app.sh     # bundles build/Remote Agent Notch.app
 ```
 
+Running `bun run dev` in `packages/desktop` auto-launches the notch app too
+(dev-only, `src/bun/notch.ts`): it uses a prebuilt `.build/*/RemoteAgentNotch`
+binary if present, otherwise `swift run` (first launch compiles), and points it
+at the dev API via `RA_SERVER_URL=http://localhost:13590`. The env var only
+sets the *default* — a URL saved in the settings window wins.
+
 ## Pair
 
 1. Start the API (`bun run dev` in `packages/api`) and open the web UI.

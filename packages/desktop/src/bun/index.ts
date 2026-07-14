@@ -9,6 +9,7 @@ import {
 } from "./window";
 import { createTray } from "./tray";
 import { startLocalApi, stopLocalApi } from "./local-api";
+import { startNotch, stopNotch } from "./notch";
 
 // Dev: `desktop:dev` sets this. The webview loads Vite (13591), which proxies
 // /api + /ws to the `bun run dev` API on 13590 — so we skip the embedded server.
@@ -72,6 +73,8 @@ ApplicationMenu.setApplicationMenu([
     // Use the running `bun run dev` API via the Vite proxy. Setting apiUrl to the
     // webview origin makes the UI issue same-origin (relative) requests → proxy → 13590.
     store.set("apiUrl", "http://localhost:13591");
+    // Notch talks to the API directly (websockets don't need the Vite proxy).
+    startNotch("http://localhost:13590");
   } else if (store.get("mode") === "local") {
     try {
       const apiUrl = await startLocalApi();
@@ -91,6 +94,12 @@ ApplicationMenu.setApplicationMenu([
 // macOS dock-click / reopen (no app.on('activate') equivalent).
 Electrobun.events.on("reopen", () => openWindow());
 
-// Kill the API child on quit (Electrobun does not track grandchildren).
-Electrobun.events.on("before-quit", () => stopLocalApi());
-process.on("exit", () => stopLocalApi());
+// Kill the API/notch children on quit (Electrobun does not track grandchildren).
+Electrobun.events.on("before-quit", () => {
+  stopLocalApi();
+  stopNotch();
+});
+process.on("exit", () => {
+  stopLocalApi();
+  stopNotch();
+});

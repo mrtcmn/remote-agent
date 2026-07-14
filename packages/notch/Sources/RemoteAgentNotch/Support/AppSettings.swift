@@ -8,9 +8,14 @@ import Foundation
 enum AppSettings {
     private static let defaults = UserDefaults.standard
 
-    /// Base URL of the remote-agent API (http/https).
+    /// Base URL of the remote-agent API (http/https). Until the user saves one,
+    /// RA_SERVER_URL wins — the desktop dev shell sets it when auto-launching us.
     static var serverURL: String {
-        get { defaults.string(forKey: "serverURL") ?? "http://localhost:5100" }
+        get {
+            defaults.string(forKey: "serverURL")
+                ?? ProcessInfo.processInfo.environment["RA_SERVER_URL"]
+                ?? "http://localhost:5100"
+        }
         set { defaults.set(newValue, forKey: "serverURL") }
     }
 
