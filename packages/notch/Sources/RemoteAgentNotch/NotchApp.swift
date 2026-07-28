@@ -21,7 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = NotificationStore()
     private var windowManager: WindowManager?
     private var screenObserver: ScreenObserver?
-    private var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -33,38 +32,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.windowManager?.setupNotchWindow()
         }
 
-        setupStatusItem()
         store.start()
 
-        // First run: nothing configured yet — open the settings window
-        if AppSettings.machineToken == nil {
+        // First run on a standalone install: needs pairing, so open settings.
+        // Embedded (desktop) mode connects tokenless — never auto-open there.
+        if AppSettings.machineToken == nil && !AppSettings.isEmbedded {
             SettingsWindowController.shared.show(store: store)
         }
-    }
-
-    private func setupStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(
-            systemSymbolName: "bell.badge",
-            accessibilityDescription: "Remote Agent Notch"
-        )
-
-        let menu = NSMenu()
-        menu.addItem(withTitle: "Open Notifications", action: #selector(openNotch), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        item.menu = menu
-
-        statusItem = item
-    }
-
-    @objc private func openNotch() {
-        windowManager?.controller?.viewModel.notchOpen(reason: .click)
-    }
-
-    @objc private func openSettings() {
-        SettingsWindowController.shared.show(store: store)
     }
 }
 

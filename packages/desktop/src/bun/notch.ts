@@ -1,26 +1,31 @@
 import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, chmodSync } from "node:fs";
+import { PATHS } from "electrobun/bun";
 import type { Subprocess } from "bun";
 
 let notchProcess: Subprocess | null = null;
 
-// Dev-only companion: auto-launch the notch app (packages/notch) alongside the
-// desktop shell. Packaged builds don't ship it — it's a standalone app.
-export function startNotch(apiUrl: string): void {
+// Launch the macOS notch companion so the desktop ships as one app. In a packaged
+// build it's the release binary bundled at Resources/app/notch; in dev it falls back
+// to the SwiftPM build under packages/notch. The notch sets its own .accessory
+// activation policy in code, so the bare binary runs with no dock icon.
+export function startNotch(apiUrl: string, deepLinkScheme?: string): void {
   if (process.platform !== "darwin" || notchProcess) return;
 
-  const notchDir = join(import.meta.dir, "..", "..", "..", "notch");
-  if (!existsSync(join(notchDir, "Package.swift"))) return;
+  const cmd = resolveNotch();
+  if (!cmd) {
+    console.warn("[notch] no binary found (bundled or dev build) — skipping");
+    return;
+  }
 
-  const releaseBin = join(notchDir, ".build", "release", "RemoteAgentNotch");
-  const debugBin = join(notchDir, ".build", "debug", "RemoteAgentNotch");
-  const bin = existsSync(releaseBin) ? releaseBin : existsSync(debugBin) ? debugBin : null;
-
-  // ponytail: no prebuilt binary → `swift run` (first run compiles, ~1 min)
-  const cmd = bin ? [bin] : ["swift", "run"];
   notchProcess = Bun.spawn(cmd, {
-    cwd: notchDir,
-    env: { ...process.env, RA_SERVER_URL: apiUrl },
+    // RA_DEEPLINK_SCHEME (packaged only) makes the notch's "Open" deep-link into
+    // this app instead of the browser.
+    env: {
+      ...process.env,
+      RA_SERVER_URL: apiUrl,
+      ...(deepLinkScheme ? { RA_DEEPLINK_SCHEME: deepLinkScheme } : {}),
+    },
     stdout: "inherit",
     stderr: "inherit",
     onExit(_p, code) {
@@ -28,7 +33,25 @@ export function startNotch(apiUrl: string): void {
       notchProcess = null;
     },
   });
-  console.log(`[notch] launched (${bin ? "prebuilt" : "swift run"}) → ${apiUrl}`);
+  console.log(`[notch] launched → ${apiUrl}`);
+}
+
+function resolveNotch(): string[] | null {
+  // Packaged (and dev, when copied into the bundle): the bundled release binary.
+  const bundled = join(PATHS.RESOURCES_FOLDER, "app", "notch", "RemoteAgentNotch");
+  if (existsSync(bundled)) {
+    try { chmodSync(bundled, 0o755); } catch {} // the copy step can drop the +x bit
+    return [bundled];
+  }
+
+  // Dev: the SwiftPM build in packages/notch (RA_NOTCH_DIR set by `desktop:dev`).
+  const dir = process.env.RA_NOTCH_DIR || join(import.meta.dir, "..", "..", "..", "notch");
+  if (!existsSync(join(dir, "Package.swift"))) return null;
+  const release = join(dir, ".build", "release", "RemoteAgentNotch");
+  const debug = join(dir, ".build", "debug", "RemoteAgentNotch");
+  if (existsSync(release)) return [release];
+  if (existsSync(debug)) return [debug];
+  return ["swift", "run", "--package-path", dir]; // first-run dev: compile (~1 min)
 }
 
 export function stopNotch(): void {

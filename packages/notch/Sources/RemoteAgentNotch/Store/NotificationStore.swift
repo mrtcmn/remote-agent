@@ -19,6 +19,16 @@ final class NotificationStore: ObservableObject {
     /// Last pushed notification — drives popup/sound/bounce in NotchView.
     @Published private(set) var lastIncoming: Incoming?
 
+    /// The most urgent live status, for the collapsed pill's dot.
+    /// review > error > running > done; nil when idle.
+    var worstStatus: StatusKind? {
+        if notifications.isEmpty { return nil }
+        if notifications.contains(where: { $0.statusKind == .review }) { return .review }
+        if notifications.contains(where: { $0.statusKind == .error }) { return .error }
+        if notifications.contains(where: { $0.statusKind == .running }) { return .running }
+        return .done
+    }
+
     private let socket = NotchSocket()
     private var started = false
 
@@ -34,7 +44,15 @@ final class NotificationStore: ObservableObject {
         }
         socket.onNotification = { [weak self] record, userActive in
             guard let self else { return }
-            self.notifications.removeAll { $0.id == record.id }
+            // One live notification per terminal, scoped to its machine (terminals
+            // from different machines mustn't collide). The server already supersedes
+            // the previous one; this drops it locally too in case the incoming frame
+            // beats the server's 'dismissed'.
+            self.notifications.removeAll {
+                $0.id == record.id
+                    || ($0.terminalId != nil && $0.terminalId == record.terminalId
+                        && ($0.machineId ?? "self") == (record.machineId ?? "self"))
+            }
             self.notifications.insert(record, at: 0)
             self.lastIncoming = Incoming(record: record, userActive: userActive, at: Date())
         }
@@ -51,13 +69,13 @@ final class NotificationStore: ObservableObject {
     }
 
     func respond(_ record: NotificationRecord, action: String, text: String? = nil) {
-        socket.respond(id: record.id, action: action, text: text)
+        socket.respond(id: record.id, action: action, text: text, machineId: record.machineId)
         // Optimistic removal; the server's 'resolved' echo is idempotent.
         remove(record.id)
     }
 
     func dismiss(_ record: NotificationRecord) {
-        socket.dismiss(id: record.id)
+        socket.dismiss(id: record.id, machineId: record.machineId)
         remove(record.id)
     }
 

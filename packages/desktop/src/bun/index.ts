@@ -79,6 +79,9 @@ ApplicationMenu.setApplicationMenu([
     try {
       const apiUrl = await startLocalApi();
       store.set("apiUrl", apiUrl);
+      // Packaged build: tell the notch to deep-link into this app (dev can't
+      // register the scheme, so its notch keeps opening the browser).
+      startNotch(apiUrl, "remoteagent");
     } catch (err: any) {
       console.error("Failed to start local API:", err?.message);
     }
@@ -93,6 +96,39 @@ ApplicationMenu.setApplicationMenu([
 
 // macOS dock-click / reopen (no app.on('activate') equivalent).
 Electrobun.events.on("reopen", () => openWindow());
+
+// Deep linking — remoteagent://open/sessions/<id> focuses the app and routes to it.
+function deepLinkToPath(raw: string): string | null {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "remoteagent:") return null;
+    const path = u.pathname || "/";
+    // Only known SPA routes — never navigate to an arbitrary/absolute target.
+    if (!/^\/(sessions|projects|tasks|kanban|skills|settings)(\/|$)/.test(path)) return null;
+    return path;
+  } catch {
+    return null;
+  }
+}
+
+function navigateWebview(path: string) {
+  // Wait in-page for the router to mount (__ra_ready), then client-route via
+  // popstate — no reload, works whether the SPA is served from localhost or views://.
+  const p = JSON.stringify(path);
+  win?.webview?.executeJavascript(
+    `(function go(){if(location.pathname===${p})return;` +
+      `if(window.__ra_ready){history.pushState(null,'',${p});window.dispatchEvent(new PopStateEvent('popstate'));}` +
+      `else{setTimeout(go,100);}})();`
+  );
+}
+
+Electrobun.events.on("open-url", (e: any) => {
+  const path = deepLinkToPath(e?.data?.url ?? "");
+  if (!path) return;
+  openWindow();               // create if needed, else show + activate + focus
+  navigateWebview(path);      // in-page script self-retries until the SPA is ready
+  setTimeout(() => navigateWebview(path), 800); // cold-start safety net (idempotent)
+});
 
 // Kill the API/notch children on quit (Electrobun does not track grandchildren).
 Electrobun.events.on("before-quit", () => {

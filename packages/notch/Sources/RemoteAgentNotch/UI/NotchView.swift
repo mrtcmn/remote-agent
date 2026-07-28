@@ -20,6 +20,40 @@ enum Palette {
     static let amber = Color(red: 0.85, green: 0.47, blue: 0.34)
     static let green = Color(red: 0.36, green: 0.78, blue: 0.46)
     static let red = Color(red: 0.88, green: 0.38, blue: 0.36)
+    static let blue = Color(red: 0.35, green: 0.63, blue: 0.95)
+}
+
+extension StatusKind {
+    var color: Color {
+        switch self {
+        case .running: return Palette.blue
+        case .review:  return Palette.amber
+        case .done:    return Palette.green
+        case .error:   return Palette.red
+        }
+    }
+}
+
+/// Filled dot for the collapsed pill; softly pulses while a prompt needs review.
+struct StatusDot: View {
+    let color: Color
+    var pulse: Bool = false
+    var size: CGFloat = 8
+    @State private var animate = false
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .opacity(pulse && animate ? 0.35 : 1)
+            .scaleEffect(pulse && animate ? 0.8 : 1)
+            .animation(
+                pulse ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true) : .default,
+                value: animate
+            )
+            .onAppear { animate = pulse }
+            .onChange(of: pulse) { _, p in animate = p }
+    }
 }
 
 struct NotchView: View {
@@ -38,6 +72,22 @@ struct NotchView: View {
     private var pendingCount: Int { store.notifications.count }
     private var hasActivity: Bool { pendingCount > 0 }
     private var needsReview: Bool { store.notifications.contains { $0.needsReview } }
+
+    /// One dot per session for the collapsed pill, most-urgent first and capped so
+    /// the cluster fits beside the camera. The right-side count carries the rest.
+    private var dotRecords: [NotificationRecord] {
+        func rank(_ k: StatusKind) -> Int {
+            switch k {
+            case .review: return 0
+            case .error:  return 1
+            case .running: return 2
+            case .done:   return 3
+            }
+        }
+        return Array(store.notifications
+            .sorted { rank($0.statusKind) < rank($1.statusKind) }
+            .prefix(3))
+    }
 
     // MARK: - Sizing
 
@@ -166,12 +216,18 @@ struct NotchView: View {
     @ViewBuilder
     private var headerRow: some View {
         HStack(spacing: 0) {
-            // Left side — status icon while collapsed-with-activity or opened
+            // Left side — one dot per session while collapsed (opened: single worst dot)
             if hasActivity || viewModel.status == .opened {
-                HStack(spacing: 4) {
-                    Image(systemName: needsReview ? "exclamationmark.bubble.fill" : "bell.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(needsReview ? Palette.amber : .white.opacity(0.85))
+                HStack(spacing: 3) {
+                    if viewModel.status == .opened {
+                        StatusDot(color: (store.worstStatus ?? .running).color, pulse: needsReview)
+                    } else {
+                        ForEach(dotRecords) { record in
+                            StatusDot(color: record.statusKind.color,
+                                      pulse: record.statusKind == .review,
+                                      size: 6)
+                        }
+                    }
                 }
                 .frame(width: viewModel.status == .opened ? nil : sideWidth + (needsReview ? 18 : 0))
                 .padding(.leading, viewModel.status == .opened ? 8 : 0)
@@ -190,11 +246,11 @@ struct NotchView: View {
                     .frame(width: closedNotchSize.width - cornerRadiusInsets.closed.top + (isBouncing ? 16 : 0))
             }
 
-            // Right side — pending count while collapsed
+            // Right side — active-session count while collapsed
             if hasActivity && viewModel.status != .opened {
                 Text("\(pendingCount)")
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundColor(needsReview ? Palette.amber : .white.opacity(0.85))
+                    .foregroundColor((store.worstStatus ?? .running).color)
                     .frame(width: sideWidth)
                     .padding(.trailing, 4)
             }
@@ -248,15 +304,24 @@ struct NotchView: View {
 
         isVisible = true
 
+        // "Working" pings fire on every tool call — they update the session card
+        // silently (no bounce/sound/pop). Only states worth a glance announce
+        // themselves: needs-you, a finish, or an error.
+        let kind = incoming.record.statusKind
+        let announce = incoming.record.needsReview || kind == .done || kind == .error
+        guard announce else { return }
+
         // Bounce to catch the eye even when suppressed
         isBouncing = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             isBouncing = false
         }
 
-        // Suppress popup + sound while the user is already looking at
-        // remote-agent (desktop app frontmost, or active in the web UI).
-        let suppressed = FrontmostDetector.isRemoteAgentActive() || incoming.userActive
+        // Suppress popup + sound while the user is already looking at remote-agent
+        // (desktop app frontmost, or active in the web UI) — but a prompt that needs
+        // an answer must surface anyway; only completions/updates stay quiet.
+        let active = FrontmostDetector.isRemoteAgentActive() || incoming.userActive
+        let suppressed = active && !incoming.record.needsReview
         guard !suppressed else { return }
 
         if AppSettings.notificationSound != "None" {

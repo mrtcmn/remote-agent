@@ -9,7 +9,7 @@ import ServiceManagement
 import SwiftUI
 
 @MainActor
-final class SettingsWindowController: NSWindowController {
+final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static let shared = SettingsWindowController()
 
     private init() {
@@ -22,6 +22,7 @@ final class SettingsWindowController: NSWindowController {
         window.title = "Remote Agent Notch"
         window.isReleasedWhenClosed = false
         super.init(window: window)
+        window.delegate = self
     }
 
     required init?(coder: NSCoder) {
@@ -31,8 +32,16 @@ final class SettingsWindowController: NSWindowController {
     func show(store: NotificationStore) {
         window?.contentViewController = NSHostingController(rootView: SettingsView(store: store))
         window?.center()
+        // The app runs as .accessory (menu-bar only), which can't front a window
+        // or take keyboard focus. Become a regular app while Settings is open so
+        // it actually appears and its text fields accept input.
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory) // back to menu-bar only
     }
 }
 
@@ -41,7 +50,7 @@ struct SettingsView: View {
 
     @State private var serverURL = AppSettings.serverURL
     @State private var pairingToken = ""
-    @State private var isPaired = AppSettings.machineToken != nil
+    @State private var isPaired = AppSettings.machineToken != nil || AppSettings.isEmbedded
     @State private var isPairing = false
     @State private var pairingError: String?
     @State private var suppressWhenActive = AppSettings.suppressWhenDesktopActive
@@ -71,13 +80,17 @@ struct SettingsView: View {
             Section("Pairing") {
                 if isPaired {
                     LabeledContent("Machine") {
-                        Label("Paired", systemImage: "checkmark.seal.fill")
+                        Label(AppSettings.isEmbedded ? "Local (no pairing needed)" : "Paired",
+                              systemImage: "checkmark.seal.fill")
                             .foregroundStyle(.green)
                     }
-                    Button("Unpair", role: .destructive) {
-                        AppSettings.machineToken = nil
-                        isPaired = false
-                        store.reconnect()
+                    // No token to revoke when embedded — pairing only applies to remote servers.
+                    if AppSettings.machineToken != nil {
+                        Button("Unpair", role: .destructive) {
+                            AppSettings.machineToken = nil
+                            isPaired = false
+                            store.reconnect()
+                        }
                     }
                 } else {
                     TextField("Pairing token", text: $pairingToken, prompt: Text("rapt_…"))

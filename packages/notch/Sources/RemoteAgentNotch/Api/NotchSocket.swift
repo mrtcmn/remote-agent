@@ -24,6 +24,7 @@ final class NotchSocket {
     private var pingTimer: Timer?
     private var reconnectWork: DispatchWorkItem?
     private var attempts = 0
+    private var tick = 0
     private var stopped = true
     /// Bumped on every (re)connect/disconnect so stale receive loops die.
     private var generation = 0
@@ -32,8 +33,10 @@ final class NotchSocket {
         stopped = false
         reconnectWork?.cancel()
 
+        let token = AppSettings.machineToken
+        // Embedded (local app) connects tokenless; otherwise a machine token is required.
         guard let url = Self.websocketURL(from: AppSettings.serverURL),
-              let token = AppSettings.machineToken else {
+              token != nil || AppSettings.isEmbedded else {
             onState?(.disconnected)
             return
         }
@@ -43,7 +46,7 @@ final class NotchSocket {
         onState?(.connecting)
 
         var request = URLRequest(url: url)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let task = URLSession.shared.webSocketTask(with: request)
         self.task = task
         task.resume()
@@ -72,15 +75,22 @@ final class NotchSocket {
 
     // MARK: - Outbound
 
-    func respond(id: String, action: String, text: String? = nil) {
+    func respond(id: String, action: String, text: String? = nil, machineId: String? = nil) {
         var payload: [String: Any] = ["type": "respond", "id": id, "action": action]
         if let text { payload["text"] = text }
+        if let machineId { payload["machineId"] = machineId }
         send(payload)
     }
 
-    func dismiss(id: String) {
-        send(["type": "dismiss", "id": id])
+    func dismiss(id: String, machineId: String? = nil) {
+        var payload: [String: Any] = ["type": "dismiss", "id": id]
+        if let machineId { payload["machineId"] = machineId }
+        send(payload)
     }
+
+    /// Re-pull the aggregated snapshot (self + all paired machines). Local changes
+    /// push instantly; this catches remote-machine changes between pushes.
+    func refresh() { send(["type": "refresh"]) }
 
     private func send(_ payload: [String: Any]) {
         guard let task,
@@ -137,9 +147,15 @@ final class NotchSocket {
 
     private func startPing() {
         pingTimer?.invalidate()
-        pingTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+        tick = 0
+        // 6s cadence: every tick pulls the aggregate (mirrors remote machines);
+        // every 3rd tick (~18s) also pings for keepalive.
+        pingTimer = Timer.scheduledTimer(withTimeInterval: 6, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.send(["type": "ping"])
+                guard let self else { return }
+                self.tick += 1
+                self.refresh()
+                if self.tick % 3 == 0 { self.send(["type": "ping"]) }
             }
         }
     }

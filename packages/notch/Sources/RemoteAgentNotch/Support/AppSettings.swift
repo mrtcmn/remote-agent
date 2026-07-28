@@ -39,6 +39,18 @@ enum AppSettings {
 
     static let soundNames = ["None", "Pop", "Ping", "Tink", "Glass", "Hero", "Purr", "Submarine"]
 
+    /// Launched by the local desktop app (RA_SERVER_URL injected) → one program on
+    /// loopback, so we skip pairing and connect tokenless; the API authenticates the local user.
+    static var isEmbedded: Bool {
+        ProcessInfo.processInfo.environment["RA_SERVER_URL"] != nil
+    }
+
+    /// URL scheme of the host desktop app (packaged builds only). When set, the
+    /// notch deep-links into the app instead of opening a browser tab.
+    static var deepLinkScheme: String? {
+        ProcessInfo.processInfo.environment["RA_DEEPLINK_SCHEME"]
+    }
+
     /// Long-lived machine token (ramt_…) obtained by pairing.
     static var machineToken: String? {
         get { Keychain.read() }
