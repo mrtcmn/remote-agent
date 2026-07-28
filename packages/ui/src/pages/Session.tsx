@@ -1,14 +1,13 @@
 import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sessionPath } from '@/lib/session-route';
 import { useActiveMachine, getActiveMachineId } from '@/lib/active-machine';
 import type { AggregatedSidebar } from '@/lib/api';
-import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft,
   TerminalSquare,
-  Terminal as TerminalIcon,
   Plus,
   Minus,
   GitBranch,
@@ -20,7 +19,6 @@ import {
   Monitor,
   Code2,
   ExternalLink,
-  ChevronsRight,
   KeyRound,
   Container,
   AlertTriangle,
@@ -28,6 +26,9 @@ import {
   Type,
   Presentation,
   Workflow,
+  Cpu,
+  MemoryStick,
+  HardDrive,
 } from 'lucide-react';
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -49,6 +50,8 @@ import {
   ToolbarStatus,
 } from '@/components/ui/Toolbar';
 import { cn } from '@/lib/utils';
+import { useDropUpload } from '@/lib/drop-upload';
+import { MarqueeText } from '@/components/ui/MarqueeText';
 import { toast } from '@/components/ui/Toaster';
 import { useTerminalTheme } from '@/hooks/useTerminalTheme';
 import { ThemeSelector } from '@/components/ThemeSelector';
@@ -296,10 +299,9 @@ function useSystemMetrics() {
   };
 }
 
-function loadColor(pct: number): string {
-  if (pct < 55) return '#34d399';
-  if (pct < 80) return '#fbbf24';
-  return '#f87171';
+// Red only past the alert threshold; otherwise inherit the bar's muted text.
+function loadColor(pct: number): string | undefined {
+  return pct >= 80 ? '#f87171' : undefined;
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
@@ -341,7 +343,29 @@ export function SessionPage() {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('http://localhost:3000');
-  const [toolsCollapsed, setToolsCollapsed] = useState(false);
+  // The tools toolbar renders into the app-wide top bar (Layout's #app-toolbar).
+  const [toolbarSlot, setToolbarSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setToolbarSlot(document.getElementById('app-toolbar'));
+  }, []);
+
+  // Right-edge fade on the tools toolbar while more tools are scrolled out of view
+  const toolsScrollRef = useRef<HTMLDivElement>(null);
+  const [toolsFade, setToolsFade] = useState(false);
+  const updateToolsFade = () => {
+    const el = toolsScrollRef.current;
+    if (el) setToolsFade(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  };
+  useEffect(() => {
+    updateToolsFade();
+    const el = toolsScrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(updateToolsFade);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toolbarSlot]);
   const [showThemeSelector, setShowThemeSelector] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [showReviewDrawer, setShowReviewDrawer] = useState(false);
@@ -352,8 +376,9 @@ export function SessionPage() {
   }, [id]);
 
   const themeBtnRef = useRef<HTMLButtonElement>(null);
-  const { activeTheme, activeFont, activeFontSize, setFontSize } = useTerminalTheme();
+  const { activeTheme, activeFontSize, setFontSize } = useTerminalTheme();
   const { cpu, memUsed, memTotal, diskPct } = useSystemMetrics();
+  const upload = useDropUpload();
 
   const { data: session, isError: sessionFailed, error: sessionError } = useQuery({
     queryKey: ['session', ownerMachine, id],
@@ -421,6 +446,7 @@ export function SessionPage() {
     },
     onSuccess: (terminal) => {
       queryClient.invalidateQueries({ queryKey: ['terminals', id] });
+      queryClient.invalidateQueries({ queryKey: ['sidebar-aggregate'] });
       setActiveTerminalId(terminal.id);
       setViewMode('terminal');
       navigate(sessionPath(ownerMachine, id!, terminal.id), { replace: true });
@@ -431,6 +457,7 @@ export function SessionPage() {
     mutationFn: (terminalId: string) => api.closeTerminal(terminalId),
     onSuccess: (_, closedId) => {
       queryClient.invalidateQueries({ queryKey: ['terminals', id] });
+      queryClient.invalidateQueries({ queryKey: ['sidebar-aggregate'] });
       if (activeTerminalId === closedId) {
         const remaining = terminals.filter((t) => t.id !== closedId);
         setActiveTerminalId(remaining[0]?.id || null);
@@ -595,12 +622,14 @@ export function SessionPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* ── Tools Menu Toolbar ── */}
-      <div className="flex items-stretch h-9 border-b border-border bg-card overflow-hidden w-full shrink-0 electrobun-webkit-app-region-drag">
+    <div className="flex flex-col h-full gap-2">
+      {/* ── Tools Menu Toolbar — portaled into the app-wide top bar ── */}
+      {toolbarSlot && createPortal(
+      <div className="relative flex-1 min-w-0 flex items-stretch overflow-hidden">
         <div
-          className="flex-1 min-w-0 flex items-stretch overflow-x-auto"
-          style={{ scrollbarWidth: 'none' }}
+          ref={toolsScrollRef}
+          onScroll={updateToolsFade}
+          className="flex-1 min-w-0 flex items-stretch overflow-x-auto scrollbar-hide"
         >
           <div className="flex items-stretch px-1 electrobun-webkit-app-region-no-drag">
             {/* Nav */}
@@ -627,16 +656,7 @@ export function SessionPage() {
               />
             )}
 
-            <AnimatePresence initial={false}>
-              {!toolsCollapsed && (
-                <motion.div
-                  key="tool-groups"
-                  initial={{ opacity: 0, width: 0 }}
-                  animate={{ opacity: 1, width: 'auto' }}
-                  exit={{ opacity: 0, width: 0 }}
-                  transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-                  className="flex items-stretch overflow-hidden"
-                >
+            <div className="flex items-stretch">
                   {/* AI */}
                   <Divider />
                   <div className="flex items-stretch gap-0.5">
@@ -654,7 +674,7 @@ export function SessionPage() {
                     />
                   </div>
 
-                  {/* Shell & Git */}
+                  {/* Shell */}
                   <Divider />
                   <div className="flex items-stretch gap-0.5">
                     <ToolBtn
@@ -663,17 +683,6 @@ export function SessionPage() {
                       onClick={() => createMutation.mutate({ type: 'shell' })}
                       disabled={createMutation.isPending}
                     />
-                    {session?.project && (
-                      <ToolBtn
-                        icon={GitBranch}
-                        label="Git"
-                        badge={changeCount}
-                        pill={gitStatus?.branch}
-                        isActive={viewMode === 'git'}
-                        disabled={!!session?.project?.isMultiProject && !activeProject}
-                        onClick={() => setViewMode(viewMode === 'git' ? 'terminal' : 'git')}
-                      />
-                    )}
                   </div>
 
                   {/* Run / Files */}
@@ -760,35 +769,22 @@ export function SessionPage() {
                       </div>
                     </>
                   ) : null}
-                </motion.div>
-              )}
-            </AnimatePresence>
+            </div>
           </div>
         </div>
 
-        {/* Collapse toggle */}
-        <div className="shrink-0 flex items-stretch border-l border-border/60 electrobun-webkit-app-region-no-drag">
-          <button
-            onClick={() => setToolsCollapsed((v) => !v)}
-            className="flex items-center justify-center w-8 h-full text-muted-foreground/40 hover:text-muted-foreground hover:bg-secondary/60 transition-colors"
-          >
-            <motion.span
-              animate={{ rotate: toolsCollapsed ? 180 : 0 }}
-              transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-              className="flex items-center"
-            >
-              <ChevronsRight className="size-3.5" />
-            </motion.span>
-          </button>
-        </div>
-      </div>
+        {/* Right-edge fade: hints that more tools are scrolled out of view */}
+        {toolsFade && (
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-card to-transparent" />
+        )}
+      </div>,
+      toolbarSlot)}
 
+      {/* ── Grouped box: tabs — connected flush under the top bar, lifted a shade above the base ── */}
+      <div className="shrink-0 rounded-b-lg border border-t-0 border-border bg-secondary/40 overflow-hidden">
       {/* ── Tab Bar ── */}
-      <div className="hidden md:flex items-center h-10 border-b border-border bg-card w-full shrink-0 electrobun-webkit-app-region-drag px-1 gap-0.5">
-        <div
-          className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden"
-          style={{ scrollbarWidth: 'none' }}
-        >
+      <div className="hidden md:flex items-center h-10 w-full shrink-0 electrobun-webkit-app-region-drag px-2 gap-0.5">
+        <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-hide">
           <div className="flex items-center h-10 gap-0.5 electrobun-webkit-app-region-no-drag">
             {orderedTabs.map((tab) => (
               <div
@@ -833,7 +829,7 @@ export function SessionPage() {
       </div>
 
       {/* Mobile terminal dropdown */}
-      <div className="md:hidden flex flex-col border-b bg-card/20 shrink-0">
+      <div className="md:hidden flex flex-col shrink-0">
         {session?.project?.isMultiProject && session.project.childLinks && session.project.childLinks.length > 0 && (
           <div className="px-3 pt-2">
             <ProjectSelector
@@ -910,28 +906,19 @@ export function SessionPage() {
         </div>
         </div>
       </div>
+      </div>
 
-      {/* ── Content Area ── */}
-      <div className="flex-1 min-h-0">
+      {/* ── Content Area — xterm stays unboxed on the base bg; panels get a box ── */}
+      <div className={cn('flex-1 min-h-0', viewMode !== 'terminal' && 'rounded-lg border border-border bg-card overflow-hidden')}>
         {viewMode === 'terminal' ? (
           activeTerminal ? (
-            <div className="flex flex-col h-full min-h-0">
-              <div className="flex-1 min-h-0">
-                <Terminal
-                  key={activeTerminal.id}
-                  terminalId={activeTerminal.id}
-                  className="h-full"
-                  onExit={() => { queryClient.invalidateQueries({ queryKey: ['terminals', id] }); }}
-                  onTitleChanged={() => { queryClient.invalidateQueries({ queryKey: ['terminals', id] }); }}
-                />
-              </div>
-              <RecentChangesBar
-                sessionId={id!}
-                projectId={gitProjectId}
-                onOpenFile={(path) => {
-                  setSearchParams((prev) => { prev.set('file', path); return prev; }, { replace: true });
-                  setViewMode('files');
-                }}
+            <div className="h-full min-h-0 px-2">
+              <Terminal
+                key={activeTerminal.id}
+                terminalId={activeTerminal.id}
+                className="h-full"
+                onExit={() => { queryClient.invalidateQueries({ queryKey: ['terminals', id] }); }}
+                onTitleChanged={() => { queryClient.invalidateQueries({ queryKey: ['terminals', id] }); }}
               />
             </div>
           ) : (
@@ -1000,24 +987,51 @@ export function SessionPage() {
         )}
       </div>
 
-      {/* ── Status Bar ── */}
+      {/* ── Bottom box: recent files + status bar, attached rows sharing one radius ── */}
+      <div className="shrink-0 rounded-lg border border-border bg-card">
+      {viewMode === 'terminal' && activeTerminal && (
+        <RecentChangesBar
+          sessionId={id!}
+          projectId={gitProjectId}
+          onOpenFile={(path) => {
+            setSearchParams((prev) => { prev.set('file', path); return prev; }, { replace: true });
+            setViewMode('files');
+          }}
+        />
+      )}
       <ToolbarRoot>
         <ToolbarGroup>
           <ToolbarStatus status="green" label="Connected" pulse />
           <ToolbarDivider />
-          {gitStatus?.branch && (
+          {upload.total > 0 && (
             <>
-              <ToolbarItem icon={GitBranch} label={gitStatus.branch} />
+              <span className="flex items-center gap-1.5 px-2 text-[10.5px] font-medium leading-none tracking-tight text-muted-foreground">
+                <RefreshCw className="size-[10px] animate-spin" />
+                Uploading {Math.min(upload.done + 1, upload.total)}/{upload.total}
+              </span>
               <ToolbarDivider />
             </>
           )}
-          {changeCount > 0 && (
+          {session?.project && (
             <>
-              <ToolbarItem
-                icon={AlertTriangle}
-                label={String(changeCount)}
-                className="text-yellow-600/70 hover:text-yellow-600"
-              />
+              <button
+                onClick={() => setViewMode(viewMode === 'git' ? 'terminal' : 'git')}
+                disabled={!!session?.project?.isMultiProject && !activeProject}
+                className={cn(
+                  'flex items-center gap-1.5 px-2 h-full text-[10.5px] font-medium leading-none tracking-tight',
+                  'transition-colors duration-75 cursor-pointer outline-none disabled:opacity-50 disabled:cursor-not-allowed',
+                  viewMode === 'git'
+                    ? 'bg-secondary text-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                )}
+              >
+                <GitBranch className="size-[11px] shrink-0" />
+                <MarqueeText
+                  text={gitStatus?.branch ?? 'git'}
+                  className="max-w-[10rem] leading-none"
+                />
+                {changeCount > 0 && <ToolBadge count={changeCount} />}
+              </button>
               <ToolbarDivider />
             </>
           )}
@@ -1030,23 +1044,21 @@ export function SessionPage() {
         </ToolbarGroup>
 
         <ToolbarGroup align="right">
-          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground" style={{ fontFamily: activeFont.family }}>
-            <span className="text-muted-foreground/70">cpu</span>
+          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] font-medium leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground">
+            <Cpu className="size-3 text-muted-foreground/70" />
             <span style={{ color: loadColor(cpu), minWidth: '3ch', textAlign: 'right', display: 'inline-block' }} className="tabular-nums">{cpu}%</span>
           </button>
           <ToolbarDivider />
-          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground" style={{ fontFamily: activeFont.family }}>
-            <span className="text-muted-foreground/70">mem</span>
+          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] font-medium leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground">
+            <MemoryStick className="size-3 text-muted-foreground/70" />
             <span style={{ color: loadColor(memTotal > 0 ? (memUsed / memTotal) * 100 : 0), minWidth: '4ch', textAlign: 'right', display: 'inline-block' }} className="tabular-nums">{memUsed.toFixed(1)}</span>
             <span className="text-muted-foreground/60">/{memTotal}</span>
           </button>
           <ToolbarDivider />
-          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground" style={{ fontFamily: activeFont.family }}>
-            <span className="text-muted-foreground/70">disk</span>
+          <button className="flex items-center gap-[3px] px-2 h-full text-[10.5px] font-medium leading-none tracking-tight cursor-default hover:bg-secondary transition-colors duration-75 text-muted-foreground">
+            <HardDrive className="size-3 text-muted-foreground/70" />
             <span style={{ color: loadColor(diskPct), minWidth: '3ch', textAlign: 'right', display: 'inline-block' }} className="tabular-nums">{diskPct}%</span>
           </button>
-          <ToolbarDivider />
-          <ToolbarItem icon={TerminalIcon} label="bash" />
           <ToolbarDivider />
           {/* Font size controls */}
           <div className="flex items-stretch">
@@ -1057,7 +1069,7 @@ export function SessionPage() {
             >
               <Minus className="size-[10px]" />
             </button>
-            <span className="flex items-center px-1 h-full text-[10px] font-mono tabular-nums text-muted-foreground select-none">
+            <span className="flex items-center px-1 h-full text-[10px] font-medium tabular-nums text-muted-foreground select-none">
               <Type className="size-[11px] mr-0.5 opacity-60" />
               {activeFontSize}
             </span>
@@ -1076,7 +1088,7 @@ export function SessionPage() {
               onClick={() => setShowThemeSelector((v) => !v)}
               className={cn(
                 'flex items-center gap-1 px-2 h-full',
-                'text-[10.5px] font-mono leading-none tracking-tight',
+                'text-[10.5px] font-medium leading-none tracking-tight',
                 'text-muted-foreground hover:text-foreground hover:bg-secondary',
                 'transition-colors duration-75 cursor-pointer outline-none',
                 showThemeSelector && 'bg-secondary text-foreground'
@@ -1093,6 +1105,7 @@ export function SessionPage() {
           </div>
         </ToolbarGroup>
       </ToolbarRoot>
+      </div>
 
       <ReviewDrawer
         open={showReviewDrawer}

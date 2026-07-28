@@ -105,7 +105,10 @@ export function FileTree({ sessionId, selectedFile, onFileSelect, basePath = '.'
   }, [sessionId]);
 
   return (
-    <div className="h-full overflow-y-auto py-2 text-sm font-mono">
+    <div
+      className="h-full overflow-y-auto py-2 text-sm font-mono"
+      style={{ fontFamily: 'var(--code-font)' }}
+    >
       <TreeDirectory
         sessionId={sessionId}
         path={basePath}

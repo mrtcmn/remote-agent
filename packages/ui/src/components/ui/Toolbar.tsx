@@ -5,11 +5,9 @@ function ToolbarRoot({ className, children, ...props }: React.ComponentProps<'di
   return (
     <div
       data-slot="toolbar"
-      className={cn(
-        'flex items-stretch w-full select-none shrink-0',
-        'bg-card border-t border-border',
-        className
-      )}
+      // Plain row — the parent box owns border/radius/bg. No overflow-hidden
+      // anywhere up the chain: the ThemeSelector popover must escape this bar.
+      className={cn('flex items-stretch w-full select-none shrink-0', className)}
       style={{ height: 28 }}
       {...props}
     >
@@ -61,7 +59,7 @@ function ToolbarItem({
       data-slot="toolbar-item"
       className={cn(
         'flex items-center gap-1 px-2 h-full',
-        'text-[10.5px] font-mono leading-none tracking-tight',
+        'text-[10.5px] font-medium leading-none tracking-tight',
         'text-muted-foreground hover:text-foreground hover:bg-secondary',
         'transition-colors duration-75 cursor-default outline-none',
         className
@@ -102,7 +100,7 @@ function ToolbarStatus({
       data-slot="toolbar-status"
       className={cn(
         'flex items-center gap-1.5 px-2 h-full',
-        'text-[10.5px] font-mono leading-none tracking-tight',
+        'text-[10.5px] font-medium leading-none tracking-tight',
         'text-muted-foreground hover:text-foreground hover:bg-secondary',
         'transition-colors duration-75 cursor-default outline-none',
         className

@@ -1,41 +1,40 @@
 import { useLocation } from 'react-router-dom';
-import { Menu, X, Bell, LogOut } from 'lucide-react';
+import { Menu, X, LogOut } from 'lucide-react';
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { UpdateBanner } from '@/components/UpdateBanner';
-import { NotificationPanel } from '@/components/NotificationPanel';
 import { AppSidebar } from '@/components/AppSidebar';
 import { ResizeHandle } from '@/components/ResizeHandle';
 import { useSidebar } from '@/hooks/useSidebar';
-import { api } from '@/lib/api';
 
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
   const location = useLocation();
   const { user, logout } = useAuth();
   const { width, resize, sidebarData, isLoading } = useSidebar();
-
-  const { data: unreadData } = useQuery({
-    queryKey: ['notifications', 'unread-count'],
-    queryFn: api.getUnreadCount,
-    refetchInterval: 30000,
-  });
-
-  const unreadCount = unreadData?.count ?? 0;
 
   const isSessionPage = location.pathname.startsWith('/sessions/');
   const isFullHeightPage = isSessionPage || location.pathname === '/kanban';
 
   return (
-    <div className="flex h-dvh">
-      {/* Desktop Sidebar - full height, no border radius */}
+    <div className="flex h-dvh flex-col p-2 bg-background">
+      {/* Full-width top bar: traffic lights → logo → per-page tools (portaled into #app-toolbar) */}
+      <div className="shrink-0 flex items-stretch h-9 rounded-t-lg overflow-hidden border border-border bg-card electrobun-webkit-app-region-drag">
+        {/* macOS traffic lights sit over this spacer in the desktop app */}
+        <div className="hidden electron-titlebar w-16 shrink-0" />
+        <div className="flex items-center px-2 shrink-0">
+          <img src="/logo.png" alt="Remote Agent" className="size-4 rounded" />
+        </div>
+        <div id="app-toolbar" className="flex-1 min-w-0 flex items-stretch" />
+      </div>
+
+      <div className="flex flex-1 min-h-0 gap-2">
+      {/* Desktop Sidebar - grouped box on the base canvas */}
       <aside
-        className="hidden md:flex shrink-0 border-r border-border"
+        className="hidden md:flex shrink-0 mt-2 rounded-lg border border-border overflow-hidden"
         style={{ width }}
       >
         <div className="flex-1 min-w-0">
@@ -76,19 +75,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <div className="ml-auto flex items-center gap-1">
               {user && (
                 <>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="relative h-9 w-9"
-                    onClick={() => setNotificationPanelOpen(!notificationPanelOpen)}
-                  >
-                    <Bell className="h-4 w-4" />
-                    {unreadCount > 0 && (
-                      <span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-medium flex items-center justify-center">
-                        {unreadCount > 9 ? '9+' : unreadCount}
-                      </span>
-                    )}
-                  </Button>
                   <Avatar className="h-7 w-7">
                     <AvatarImage src={user.image} alt={user.name} />
                     <AvatarFallback className="text-xs">{user.name?.charAt(0).toUpperCase()}</AvatarFallback>
@@ -107,46 +93,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Main Content */}
         {isFullHeightPage ? (
-          <main className="flex-1 flex flex-col overflow-hidden min-h-0">{isSessionPage ? children : <div className="flex-1 min-h-0 p-4 md:p-6 flex flex-col">{children}</div>}</main>
+          <main className="flex-1 flex flex-col overflow-hidden min-h-0">{isSessionPage ? children : <div className="flex-1 min-h-0 mt-2 p-4 md:p-6 flex flex-col rounded-lg border border-border bg-card">{children}</div>}</main>
         ) : (
-          <main className="flex-1 overflow-y-auto p-4 md:p-6 safe-area-bottom">
+          <main className="flex-1 overflow-y-auto mt-2 p-4 md:p-6 safe-area-bottom rounded-lg border border-border bg-card">
             <div className="max-w-6xl mx-auto">{children}</div>
           </main>
         )}
       </div>
-
-      {/* Desktop Right Sidebar - Notification Panel */}
-      <aside className="hidden lg:flex shrink-0 w-[320px] border-l border-border overflow-hidden">
-        <div className="flex-1 min-w-0">
-          <NotificationPanel />
-        </div>
-      </aside>
-
-      {/* Mobile Notification Panel Overlay */}
-      {notificationPanelOpen && (
-        <>
-          <div
-            className="lg:hidden fixed inset-0 z-40 bg-black/50"
-            onClick={() => setNotificationPanelOpen(false)}
-          />
-          <aside className="lg:hidden fixed inset-y-0 right-0 z-50 w-[320px] max-w-[85vw] bg-background shadow-xl animate-in slide-in-from-right duration-200">
-            <div className="flex items-center justify-between px-4 py-2 border-b">
-              <span className="text-sm font-medium">Notifications</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setNotificationPanelOpen(false)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="h-[calc(100%-44px)]">
-              <NotificationPanel />
-            </div>
-          </aside>
-        </>
-      )}
+      </div>
     </div>
   );
 }

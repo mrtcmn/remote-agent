@@ -38,7 +38,10 @@ export function ResizeHandle({ onResize, currentWidth }: ResizeHandleProps) {
   return (
     <div
       onMouseDown={handleMouseDown}
-      className="w-1 cursor-col-resize bg-transparent hover:bg-primary/30 active:bg-primary/50 transition-colors shrink-0"
-    />
+      className="group w-1.5 cursor-col-resize shrink-0 flex justify-center"
+    >
+      {/* Line is invisible until you hover the grab zone. */}
+      <div className="w-px h-full bg-primary/50 opacity-0 group-hover:opacity-100 transition-opacity" />
+    </div>
   );
 }

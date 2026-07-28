@@ -94,18 +94,21 @@ export function GitToolbar({ sessionId, projectId, onReview }: GitToolbarProps) 
   const isAnyPending = pullMutation.isPending || pushMutation.isPending || fetchMutation.isPending || checkoutMutation.isPending;
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-b bg-card/30 shrink-0">
-      <div className="relative" ref={dropdownRef}>
+    // Horizontally scrollable, scrollbar hidden — buttons pack left and overflow to
+    // the right on a narrow panel instead of wrapping/squishing (shrink-0 on each).
+    <div className="flex items-center gap-2 px-3 py-2 border-b bg-card/30 shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="relative shrink-0" ref={dropdownRef}>
         <Button
           variant="outline"
           size="sm"
           className="gap-1.5 h-8 font-mono text-xs"
           onClick={() => setShowBranchDropdown(!showBranchDropdown)}
           disabled={checkoutMutation.isPending}
+          title={gitStatus?.branch || ''}
         >
-          <GitBranch className="h-3.5 w-3.5" />
+          <GitBranch className="h-3.5 w-3.5 shrink-0" />
           <span className="max-w-32 truncate">{gitStatus?.branch || '...'}</span>
-          <ChevronDown className="h-3 w-3" />
+          <ChevronDown className="h-3 w-3 shrink-0" />
         </Button>
 
         {showBranchDropdown && (
@@ -138,8 +141,21 @@ export function GitToolbar({ sessionId, projectId, onReview }: GitToolbarProps) 
         )}
       </div>
 
+      {onReview && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 h-8 px-2.5 text-xs shrink-0"
+          onClick={onReview}
+          title="Code Review"
+        >
+          <Presentation className="h-3.5 w-3.5 shrink-0" />
+          <span className="whitespace-nowrap">Code Review</span>
+        </Button>
+      )}
+
       {gitStatus && (gitStatus.ahead > 0 || gitStatus.behind > 0) && (
-        <div className="flex items-center gap-1 text-xs font-mono text-muted-foreground">
+        <div className="flex items-center gap-1 text-xs font-mono text-muted-foreground shrink-0">
           {gitStatus.ahead > 0 && (
             <span className="flex items-center gap-0.5">
               <ArrowUp className="h-3 w-3" />
@@ -155,25 +171,12 @@ export function GitToolbar({ sessionId, projectId, onReview }: GitToolbarProps) 
         </div>
       )}
 
-      <div className="flex-1" />
-
-      {onReview && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="gap-1.5 h-8 px-2.5 text-xs"
-          onClick={onReview}
-          title="Review changes"
-        >
-          <Presentation className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Review</span>
-        </Button>
-      )}
+      <div className="flex-1 min-w-2" />
 
       <Button
         variant="ghost"
         size="sm"
-        className="gap-1.5 h-8 px-2.5 text-xs"
+        className="gap-1.5 h-8 px-2.5 text-xs shrink-0"
         onClick={() => pullMutation.mutate()}
         disabled={isAnyPending}
         title="Pull"
@@ -185,7 +188,7 @@ export function GitToolbar({ sessionId, projectId, onReview }: GitToolbarProps) 
       <Button
         variant="ghost"
         size="sm"
-        className="gap-1.5 h-8 px-2.5 text-xs"
+        className="gap-1.5 h-8 px-2.5 text-xs shrink-0"
         onClick={() => pushMutation.mutate()}
         disabled={isAnyPending}
         title="Push"
@@ -197,7 +200,7 @@ export function GitToolbar({ sessionId, projectId, onReview }: GitToolbarProps) 
       <Button
         variant="ghost"
         size="sm"
-        className="gap-1.5 h-8 px-2.5 text-xs"
+        className="gap-1.5 h-8 px-2.5 text-xs shrink-0"
         onClick={() => fetchMutation.mutate()}
         disabled={isAnyPending}
         title="Fetch"
