@@ -69,17 +69,25 @@ export class PresentationService {
   }
 
   /**
-   * Phase 2: Ask LLM to write a narrative for a single slide.
+   * Phase 2: Ask LLM to write a narrative (and optional mermaid diagram) for a single slide.
    */
-  async generateSlideNarrative(slide: SlidePlanEntry, excerptDiffs: string): Promise<string> {
+  async generateSlideNarrative(
+    slide: SlidePlanEntry,
+    excerptDiffs: string,
+  ): Promise<{ narrative: string; diagram: string }> {
     const prompt = buildNarrationPrompt(slide.title, excerptDiffs);
 
-    const response = await llmEngine.complete({
+    const response = await llmEngine.completeJSON<{ narrative?: string; diagram?: string }>({
       prompt,
       systemPrompt: NARRATION_SYSTEM_PROMPT,
     });
 
-    return response.content || 'Changes made to the listed files.';
+    const structured = response.structured;
+    return {
+      narrative: structured?.narrative?.trim() || response.content?.trim() || 'Changes made to the listed files.',
+      // Strip accidental markdown fences; drop obviously-empty diagrams.
+      diagram: sanitizeDiagram(structured?.diagram),
+    };
   }
 
   /**
@@ -163,9 +171,10 @@ export class PresentationService {
       const { excerpts, fullSlideDiff } = this.extractExcerpts(fullDiff, slidePlan);
 
       let narrative: string;
+      let diagram = '';
       try {
         const excerptText = excerpts.map(e => e.patch).join('\n\n');
-        narrative = await this.generateSlideNarrative(slidePlan, excerptText);
+        ({ narrative, diagram } = await this.generateSlideNarrative(slidePlan, excerptText));
       } catch {
         narrative = 'Narrative unavailable — see diff excerpts below.';
       }
@@ -179,6 +188,7 @@ export class PresentationService {
         files: slidePlan.files,
         excerpts,
         fullDiff: fullSlideDiff,
+        diagram,
         annotations: [],
       };
 
@@ -268,6 +278,23 @@ export class PresentationService {
       }],
     };
   }
+}
+
+/**
+ * Strip markdown code fences the model sometimes wraps around mermaid, and
+ * discard anything that clearly isn't a mermaid diagram.
+ */
+export function sanitizeDiagram(raw: string | undefined): string {
+  if (!raw) return '';
+  let src = raw.trim();
+  // Remove a leading ```mermaid / ``` fence and trailing ``` if present.
+  src = src.replace(/^```(?:mermaid)?\s*/i, '').replace(/\s*```$/, '').trim();
+  if (src.length < 10) return '';
+  // Must start with a known mermaid diagram keyword, else it's noise.
+  if (!/^(flowchart|graph|sequenceDiagram|stateDiagram(-v2)?|classDiagram|erDiagram|journey|gantt)\b/i.test(src)) {
+    return '';
+  }
+  return src;
 }
 
 export const presentationService = new PresentationService();

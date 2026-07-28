@@ -4,8 +4,7 @@ import { eq } from 'drizzle-orm';
 import { db, fcmTokens, notificationPrefs } from '../db';
 import { requireAuth } from '../auth/middleware';
 import { notificationRepository, notificationService } from '../services/notification';
-import { fanOutToMasters } from '../services/aggregation/fan-out';
-import { mergeNotifications } from '../services/aggregation/merge';
+import { aggregateUserNotifications } from '../services/aggregation/notifications';
 
 export const notificationRoutes = new Elysia({ prefix: '/notifications' })
   .use(requireAuth)
@@ -37,31 +36,7 @@ export const notificationRoutes = new Elysia({ prefix: '/notifications' })
   .get('/aggregate', async ({ user, query }) => {
     const statusFilter = query.status?.split(',').filter(Boolean) as any[] | undefined;
     const limit = query.limit ? parseInt(query.limit) : 50;
-
-    const selfNotifs = await notificationRepository.findByUser(user!.id, {
-      status: statusFilter,
-      limit,
-      offset: 0,
-    });
-    const self = { machineId: 'self', machineName: 'This machine', online: true, data: selfNotifs };
-
-    const qs = new URLSearchParams();
-    if (query.status) qs.set('status', query.status);
-    qs.set('limit', String(limit));
-    const remoteRaw = await fanOutToMasters<{ notifications: typeof selfNotifs }>(
-      user!.id,
-      `/notifications?${qs.toString()}`,
-    );
-    const remotes = remoteRaw.map((r) => ({
-      machineId: r.machineId,
-      machineName: r.machineName,
-      online: r.online,
-      error: r.error,
-      data: r.online && r.data ? r.data.notifications : null,
-    }));
-
-    const merged = mergeNotifications([self, ...remotes]);
-    return { ...merged, notifications: merged.notifications.slice(0, limit) };
+    return aggregateUserNotifications(user!.id, { status: statusFilter, limit });
   }, {
     query: t.Object({
       status: t.Optional(t.String()),
@@ -242,6 +217,8 @@ export const notificationRoutes = new Elysia({ prefix: '/notifications' })
     body: t.Object({
       action: t.String(),
       text: t.Optional(t.String()),
+      // One picked value per question, in question order (multi-question prompts).
+      answers: t.Optional(t.Array(t.String())),
     }),
   })
 

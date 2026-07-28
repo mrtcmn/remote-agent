@@ -3,9 +3,10 @@ import { nanoid } from 'nanoid';
 import { eq, and } from 'drizzle-orm';
 import { mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
-import { join } from 'path';
+import { join, basename } from 'path';
 import { userInfo } from 'os';
 import { getWorkspacesRoot, getAgentHome } from '../config/paths';
+import { isLocalMode } from '../config/mode';
 import { db, claudeSessions, terminals } from '../db';
 import { terminalService } from '../services/terminal';
 import { workspaceService } from '../services/workspace';
@@ -351,6 +352,87 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
       image: t.File(),
     }),
     type: 'multipart/form-data',
+  })
+
+  // Drag-and-drop upload — save any file to a temp dir and return its absolute
+  // path so the UI can insert it into the terminal input. A unique subdir per
+  // upload keeps the original filename intact and collision-free.
+  .post('/:id/upload-file', async ({ user, params, body, set }) => {
+    const terminal = await db.query.terminals.findFirst({
+      where: eq(terminals.id, params.id),
+      with: { session: true },
+    });
+
+    if (!terminal) {
+      set.status = 404;
+      return { error: 'Terminal not found' };
+    }
+
+    if (terminal.session.userId !== user!.id) {
+      set.status = 403;
+      return { error: 'Forbidden' };
+    }
+
+    const file = body.file;
+    if (!(file instanceof File)) {
+      set.status = 400;
+      return { error: 'No file provided' };
+    }
+
+    if (file.size > 100 * 1024 * 1024) {
+      set.status = 400;
+      return { error: 'File too large (max 100MB)' };
+    }
+
+    const safeName = (file.name || 'file').replace(/[^\w.-]+/g, '_');
+    const dir = join('/tmp/terminal-drops', nanoid(8));
+    await mkdir(dir, { recursive: true });
+    const filePath = join(dir, safeName);
+    await Bun.write(filePath, file);
+
+    return { filePath };
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({
+      file: t.File(),
+    }),
+    type: 'multipart/form-data',
+  })
+
+  // Local-mode drag-and-drop assist: the browser never reveals a dropped
+  // file's absolute path, but on the machine that received the drop the macOS
+  // drag pasteboard still holds the file:// URLs. Read them natively and only
+  // trust the result if it matches exactly the filenames the UI dropped.
+  // Local mode only — a cloud server has no GUI drag pasteboard.
+  .post('/local-drop-paths', async ({ body, set }) => {
+    if (!isLocalMode() || process.platform !== 'darwin') {
+      set.status = 404;
+      return { error: 'Not available' };
+    }
+    const script =
+      'ObjC.import("AppKit");' +
+      'const pb=$.NSPasteboard.pasteboardWithName($.NSPasteboardNameDrag);' +
+      'const items=pb.pasteboardItems;const urls=[];' +
+      'for(let i=0;i<items.count;i++){' +
+      'const s=items.objectAtIndex(i).stringForType("public.file-url");' +
+      'if(s&&!s.isNil()){const u=$.NSURL.URLWithString(s);if(!u.isNil())urls.push(u.path.js)}}' +
+      'JSON.stringify(urls)';
+    try {
+      const proc = Bun.spawn(['osascript', '-l', 'JavaScript', '-e', script], {
+        stdout: 'pipe',
+        stderr: 'ignore',
+      });
+      const out = (await new Response(proc.stdout).text()).trim();
+      const paths: string[] = JSON.parse(out || '[]');
+      const wanted = [...body.names].sort();
+      const got = paths.map((p) => basename(p)).sort();
+      const matches = wanted.length === got.length && wanted.every((n, i) => n === got[i]);
+      return { paths: matches ? paths : [] };
+    } catch {
+      return { paths: [] };
+    }
+  }, {
+    body: t.Object({ names: t.Array(t.String()) }),
   })
 
   // Close terminal

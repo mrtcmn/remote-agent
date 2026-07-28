@@ -123,24 +123,27 @@ Launch a browser preview for web development projects with viewport presets (mob
 curl -fsSL https://raw.githubusercontent.com/mrtcmn/remote-agent/main/install.sh | bash
 ```
 
+Docker is the only prerequisite (the installer even installs it if missing). Everything else is optional — with no input the installer auto-generates secrets and starts the stack, and you log in with the seeded `test@t.com` / `123456` account (change it after first login).
+
 The installer will:
 1. Check and install Docker & Docker Compose if needed
-2. Create the installation directory at `/opt/remote-agent`
-3. Prompt you for required API keys (Anthropic, GitHub OAuth)
-4. Optionally configure Firebase push notifications
-5. Auto-generate secure `POSTGRES_PASSWORD` and `JWT_SECRET`
-6. Pull the Docker image and start services
+2. Create the installation directory at `/opt/remote-agent` (falls back to `~/remote-agent` without root)
+3. Ask the machine's role:
+   - **master** — hosts sessions; other machines pair to it (optionally prompts for GitHub OAuth and a public `APP_URL`)
+   - **connector** — pairs to an existing master and controls it from here; you only paste the master URL and a pairing token (from the master's *Settings → Paired secondaries*), no credentials asked
+4. Auto-generate secure `POSTGRES_PASSWORD` and `JWT_SECRET`
+5. Pull the Docker image, start services, and (for connectors) auto-pair with the master
 
 Once complete, access the UI at **http://localhost:5100**.
 
 > **Custom install path:** `INSTALL_DIR=~/remote-agent bash install.sh`
+> **Fully non-interactive:** `curl -fsSL … | NONINTERACTIVE=1 bash` — role and pairing via env: `ROLE=connector MASTER_URL=… PAIRING_TOKEN=rapt_…` (plus `GITHUB_CLIENT_ID`, `APP_URL`, `FIREBASE_*` if set)
 
 ## Prerequisites
 
 - **Linux server** (Debian/Ubuntu recommended)
-- **Docker** (20.10+) and **Docker Compose** (v2)
-- **Anthropic API Key** — [console.anthropic.com](https://console.anthropic.com)
-- **GitHub OAuth App** — For authentication
+- **Docker** (20.10+) and **Docker Compose** (v2) — installed automatically if missing
+- **GitHub OAuth App** — optional, for GitHub login
 
 ## Docker Compose Setup
 
@@ -183,10 +186,15 @@ Hot-reloading via Bun's `--watch` flag, PostgreSQL exposed at `127.0.0.1:5432`, 
 
 | Variable | Description |
 |----------|-------------|
-| `GITHUB_CLIENT_ID` | GitHub OAuth App Client ID |
-| `GITHUB_CLIENT_SECRET` | GitHub OAuth App Client Secret |
 | `POSTGRES_PASSWORD` | PostgreSQL database password |
 | `JWT_SECRET` | 64-character hex string for session signing |
+
+### Optional (GitHub login)
+
+| Variable | Description |
+|----------|-------------|
+| `GITHUB_CLIENT_ID` | GitHub OAuth App Client ID — leave empty to use email/password login only |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth App Client Secret |
 
 ### Application
 

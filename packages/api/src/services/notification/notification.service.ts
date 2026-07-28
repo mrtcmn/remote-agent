@@ -129,21 +129,21 @@ export class NotificationService {
     // Create notification record
     const notification = await notificationRepository.create(input);
 
-    // Supersede previous notifications for same terminal if applicable
-    if (input.terminalId && (input.type === 'user_input_required' || input.type === 'permission_request')) {
+    // One live notification per terminal: this new event supersedes the previous
+    // status for the same terminal (see supersedePreviousForTerminal).
+    if (input.terminalId) {
       await notificationRepository.supersedePreviousForTerminal(
         input.terminalId,
-        input.type,
         notification.id
       );
     }
 
-    // Skip push notification if user is actively using the app
-    if (presenceManager.isUserActive(input.userId)) {
-      console.log(`Skipping push notification for active user ${input.userId}`);
+    // In-progress "working" pings only update live clients — never push (they fire
+    // often). Same for any notification while the user is actively in the app.
+    if (input.type === 'session_started' || presenceManager.isUserActive(input.userId)) {
       await notificationRepository.updateStatus(notification.id, 'sent');
       emitCreated({ ...notification, status: 'sent' });
-      return { notification, sendResult: { success: true, results: { skipped_active_user: true } } };
+      return { notification, sendResult: { success: true, results: { skipped_push: true } } };
     }
 
     // Send via adapters
@@ -179,11 +179,14 @@ export class NotificationService {
   async respond(
     userId: string,
     id: string,
-    input: { action: string; text?: string }
+    input: { action: string; text?: string; answers?: string[] }
   ): Promise<{ ok: true; terminalWritten: boolean } | { ok: false; error: 'not_found' | 'forbidden' }> {
     const notification = await notificationRepository.findById(id);
-    if (!notification) return { ok: false, error: 'not_found' };
-    if (notification.userId !== userId) return { ok: false, error: 'forbidden' };
+    if (!notification) { console.log(`[respond] ${id}: not found`); return { ok: false, error: 'not_found' }; }
+    if (notification.userId !== userId) {
+      console.log(`[respond] ${id}: forbidden (owner=${notification.userId} caller=${userId})`);
+      return { ok: false, error: 'forbidden' };
+    }
 
     await notificationRepository.updateStatus(id, 'resolved', input.action);
 
@@ -194,30 +197,74 @@ export class NotificationService {
     ) {
       const { terminalService } = await import('../terminal');
 
-      // Use the label text (what Claude actually expects the user to type);
-      // fall back to the action slug only if nothing else matches.
-      let response: string;
-      if (input.text) {
-        response = input.text;
+      // Claude runs as an interactive TUI, so answers are keystrokes, not typed text:
+      //  - a picked option → navigate the arrow-list (down × index) then Enter
+      //  - a freeform reply / yes / no → type the text then Enter
+      const options = notification.metadata?.options as { label: string; value: string }[] | undefined;
+      const optionIndex = options?.findIndex(o => o.value === input.action) ?? -1;
+      // AskUserQuestion can carry N questions (metadata.questions); answers[i] is
+      // the picked value for question i, in question order.
+      const questions = notification.metadata?.questions as { options: { label: string; value: string }[] }[] | undefined;
+
+      let keys: string;
+      if (input.answers && input.answers.length > 0 && questions && questions.length > 0) {
+        // ponytail: multi-question replay. Assumes each Enter submits the current
+        // question and the TUI re-anchors the next question's arrow-list at the top,
+        // so we emit (down × optionIndex)+Enter per question and concatenate in order.
+        // If Claude's multi-question TUI instead uses Tab between fields or numeric
+        // keys, interleave '\t' or emit `${index + 1}` per question here instead.
+        keys = input.answers.map((answer, i) => {
+          const idx = questions[i]?.options.findIndex(o => o.value === answer) ?? -1;
+          return '\x1b[B'.repeat(Math.max(idx, 0)) + '\r';
+        }).join('');
+      } else if (input.text) {
+        keys = input.text + '\r';
       } else if (input.action === 'approve') {
-        response = 'yes';
+        keys = 'yes\r';
       } else if (input.action === 'deny') {
-        response = 'no';
+        keys = 'no\r';
+      } else if (optionIndex >= 0) {
+        // Interactive AskUserQuestion → drive its on-screen arrow-list (down × index
+        // then Enter). Inferred options (classifier read them out of Claude's freeform
+        // text — nothing selectable on screen) → type the chosen label as a normal
+        // reply, since Claude is just waiting for typed input. Sending arrow keys to a
+        // plain prompt does nothing, which is the "option didn't send" bug.
+        // ponytail: assumes a single-select, top-anchored list for the interactive case.
+        keys = notification.metadata?.interactive
+          ? '\x1b[B'.repeat(optionIndex) + '\r'
+          : (options?.[optionIndex]?.label ?? input.action) + '\r';
       } else {
-        const options = notification.metadata?.options as { label: string; value: string }[] | undefined;
-        response = options?.find(o => o.value === input.action)?.label ?? input.action;
+        keys = input.action + '\r';
       }
 
       try {
-        await terminalService.write(notification.terminalId, response + '\n');
+        await terminalService.write(notification.terminalId, keys);
         terminalWritten = true;
+        console.log(`[respond] ${id}: wrote ${JSON.stringify(keys)} → terminal ${notification.terminalId}`);
       } catch (error) {
-        console.error('Failed to write to terminal:', error);
+        console.error(`[respond] ${id}: write FAILED to terminal ${notification.terminalId} (likely dead/restarted): ${(error as Error).message}`);
         // Don't fail the response — the notification is already resolved
       }
+    } else {
+      console.log(`[respond] ${id}: no terminal write (terminalId=${notification.terminalId}, type=${notification.type})`);
     }
 
     return { ok: true, terminalWritten };
+  }
+
+  /**
+   * Merge a patch into a live notification's metadata and re-push it to connected
+   * clients. Used for silent, high-frequency "working" detail updates (current
+   * tool / todos / context) — no debounce, no supersede, no new DB row. The notch
+   * treats a re-pushed running record as an in-place update, not a fresh alert.
+   */
+  async patchMetadata(id: string, patch: Record<string, unknown>): Promise<NotificationRecord | null> {
+    const existing = await notificationRepository.findById(id);
+    if (!existing) return null;
+    const merged = { ...(existing.metadata ?? {}), ...patch };
+    const updated = await notificationRepository.updateMetadata(id, merged);
+    if (updated) emitCreated(updated);
+    return updated;
   }
 
   async dismissBySession(sessionId: string): Promise<number> {

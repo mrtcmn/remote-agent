@@ -42,6 +42,8 @@ export interface PresentationSlide {
   files: string[];
   excerpts: DiffExcerpt[];
   fullDiff: string;
+  /** Optional mermaid diagram source (flowchart/sequence) explaining the change. Empty when not worth diagramming. */
+  diagram: string;
   annotations: SlideAnnotation[];
 }
 
