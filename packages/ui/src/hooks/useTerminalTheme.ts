@@ -53,7 +53,35 @@ let currentFontId = localStorage.getItem(FONT_STORAGE_KEY) || DEFAULT_FONT_ID;
 let currentWeight = parseInt(localStorage.getItem(WEIGHT_STORAGE_KEY) || String(DEFAULT_WEIGHT), 10);
 let currentFontSize = parseInt(localStorage.getItem(FONTSIZE_STORAGE_KEY) || String(DEFAULT_FONT_SIZE), 10);
 
+// Mirror the terminal's font/size/theme onto CSS variables so every code
+// surface (diffs, file explorer) uses the same settings without prop-drilling.
+// @pierre/diffs reads --diffs-* straight from the cascade, so pointing those at
+// our --code-* vars makes all diff views follow the terminal automatically.
+function applyCodeSurfaceVars() {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement.style;
+  const font = getTerminalFont(currentFontId);
+  const { theme } = getTerminalTheme(currentThemeId);
+
+  root.setProperty('--code-font', font.family);
+  root.setProperty('--code-font-size', `${currentFontSize}px`);
+  root.setProperty('--code-font-weight', String(currentWeight));
+  if (theme.background) root.setProperty('--code-bg', theme.background);
+  if (theme.foreground) root.setProperty('--code-fg', theme.foreground);
+
+  // Font DOES cross into @pierre/diffs: these are inherited custom properties,
+  // and pierre never re-declares them, so they reach its shadow-DOM diff.
+  root.setProperty('--diffs-font-family', 'var(--code-font)');
+  root.setProperty('--diffs-header-font-family', 'var(--code-font)');
+  root.setProperty('--diffs-font-size', 'var(--code-font-size)');
+  // Background does NOT: pierre bakes the theme bg (pierre-dark #070707) as an
+  // INLINE style on its <pre>, which lives inside a shadow root. Inline + shadow
+  // means no external CSS or inherited var can reach it. --code-bg here only
+  // styles the light-DOM chrome around the diff (GitDiffView container).
+}
+
 function notify() {
+  applyCodeSurfaceVars();
   listeners.forEach((cb) => cb());
 }
 
@@ -106,6 +134,9 @@ export function getTerminalFont(id?: string): TerminalFont {
   const target = id || currentFontId;
   return FONTS.find((f) => f.id === target) || FONTS[0];
 }
+
+// Apply once on load so code surfaces are styled before the first theme change.
+applyCodeSurfaceVars();
 
 export function useTerminalTheme() {
   useSyncExternalStore(subscribe, getSnapshot, getSnapshot);

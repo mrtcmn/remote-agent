@@ -96,20 +96,6 @@ export function Terminal({ terminalId, className, onExit, onTitleChanged }: Term
       className={cn('relative h-full w-full', className)}
       style={{ backgroundColor: termBg }}
     >
-      {/* Status indicator */}
-      <div className="absolute top-2 right-2 z-10 flex items-center gap-2 text-xs bg-background/80 px-2 py-1 rounded">
-        <div
-          className={cn(
-            'h-2 w-2 rounded-full',
-            status === 'connected' && 'bg-green-500',
-            status === 'connecting' && 'bg-yellow-500 animate-pulse',
-            status === 'disconnected' && 'bg-red-500',
-            status === 'exited' && 'bg-gray-500'
-          )}
-        />
-        <span className="text-foreground/70 capitalize text-[10px]">{status}</span>
-      </div>
-
       {/* Terminal container – left padding only so scrollbar sits flush right */}
       <div
         ref={terminalRef}

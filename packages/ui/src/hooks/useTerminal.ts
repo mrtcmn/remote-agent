@@ -7,6 +7,8 @@ import { ClipboardAddon } from '@xterm/addon-clipboard';
 import '@xterm/xterm/css/xterm.css';
 import { getApiBase } from '@/lib/api-config';
 import { getActiveMachineId, resolveWsPath } from '@/lib/active-machine';
+import { useDropUpload } from '@/lib/drop-upload';
+import { isElectron } from '@/lib/electron';
 
 // Decode a base64 WebSocket payload to raw bytes. We hand the Uint8Array
 // straight to xterm.write(), which runs a single UTF-8 decoder whose state is
@@ -263,11 +265,30 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
         return true;
       });
 
+      // Terminal input → server. Registered ONCE per xterm instance — `ws` is
+      // the enclosing closure variable, so this always targets the current
+      // socket. (Registering inside connectWebSocket stacked one extra
+      // listener per reconnect, sending every keystroke N times.)
+      dataDisposable = xterm.onData((data) => {
+        if (isDisposed) return;
+        sendInput(data);
+      });
+
       // Allow Ctrl+V/Cmd+V to trigger browser paste, and Ctrl+C/Cmd+C to copy selection
       xterm.attachCustomKeyEventHandler((event) => {
         if (event.type !== 'keydown') return true;
 
         if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+          // Cmd+V (mac) / Ctrl+V (win, linux) are OS paste shortcuts: returning
+          // false lets the browser fire the native 'paste' event (which also
+          // handles image paste). Ctrl+V on macOS is NOT an OS shortcut — no
+          // paste event ever fires — so read the clipboard manually.
+          const isMac = navigator.platform.toUpperCase().includes('MAC');
+          if (isMac && event.ctrlKey && !event.metaKey) {
+            navigator.clipboard.readText()
+              .then((text) => { if (text && !isDisposed) sendInput(text); })
+              .catch(() => {});
+          }
           return false;
         }
         if ((event.ctrlKey || event.metaKey) && event.key === 'c' && xterm!.hasSelection()) {
@@ -367,8 +388,85 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
         }
       };
 
+      // Drag-and-drop files → upload to the session's machine, insert the
+      // returned absolute paths (space-separated) into the terminal input.
+      const handleDragOver = (e: DragEvent) => {
+        if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+      };
+      const handleDrop = async (e: DragEvent) => {
+        if (isDisposed) return;
+        const files = Array.from(e.dataTransfer?.files ?? []);
+        if (files.length === 0) return;
+        e.preventDefault();
+
+        // Local session viewed from a local shell: the dropped files already
+        // live on this machine — extract their paths from the drop payload
+        // instead of round-tripping through a temp upload. WebKit (the desktop
+        // shell) exposes file:// URLs via text/uri-list; Chromium doesn't and
+        // falls through to the upload path below.
+        const activeId = getActiveMachineId();
+        const sameMachine =
+          (!activeId || activeId === 'self') &&
+          (isElectron() || ['localhost', '127.0.0.1'].includes(location.hostname));
+        if (sameMachine) {
+          const uriList = e.dataTransfer?.getData('text/uri-list') ?? '';
+          let localPaths = uriList
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith('file://'))
+            .map((uri) => decodeURIComponent(new URL(uri).pathname));
+          // WebKit sanitizes file:// URLs out of the DOM payload — ask the
+          // local API to read the macOS drag pasteboard instead (it verifies
+          // the paths against the dropped filenames before answering).
+          if (localPaths.length !== files.length) {
+            try {
+              const res = await fetch(`${getApiBase()}/api/terminals/local-drop-paths`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ names: files.map((f) => f.name) }),
+              });
+              localPaths = (await res.json()).paths ?? [];
+            } catch {
+              localPaths = [];
+            }
+          }
+          if (localPaths.length === files.length) {
+            sendInput(localPaths.map((p) => (p.includes(' ') ? `"${p}"` : p)).join(' ') + ' ');
+            return;
+          }
+        }
+
+        const { start, tick, clear } = useDropUpload.getState();
+        start(files.length);
+        const headers: Record<string, string> = {};
+        if (activeId && activeId !== 'self') headers['X-Machine-Id'] = activeId;
+
+        const paths: string[] = [];
+        for (const file of files) {
+          try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const response = await fetch(`${getApiBase()}/api/terminals/${terminalId}/upload-file`, {
+              method: 'POST',
+              headers,
+              credentials: 'include',
+              body: formData,
+            });
+            const result = await response.json();
+            if (result.filePath) paths.push(result.filePath);
+          } catch (error) {
+            console.error('Failed to upload dropped file:', error);
+          }
+          tick();
+        }
+        clear();
+        if (paths.length > 0 && !isDisposed) sendInput(paths.join(' ') + ' ');
+      };
+
       container.addEventListener('paste', handlePaste);
       container.addEventListener('contextmenu', handleContextMenu);
+      container.addEventListener('dragover', handleDragOver);
+      container.addEventListener('drop', handleDrop);
 
       // Improve mobile touch scrolling: boost scroll speed and momentum
       let touchStartY = 0;
@@ -400,6 +498,8 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
       pasteCleanup = () => {
         container.removeEventListener('paste', handlePaste);
         container.removeEventListener('contextmenu', handleContextMenu);
+        container.removeEventListener('dragover', handleDragOver);
+        container.removeEventListener('drop', handleDrop);
         touchScrollCleanup?.();
       };
 
@@ -534,19 +634,6 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
 
       wsRef.current = ws;
       connectWebSocketRef.current = connectWebSocket;
-
-      // Handle terminal input
-      dataDisposable = currentXterm.onData((data) => {
-        if (isDisposed) return;
-        if (ws?.readyState === WebSocket.OPEN) {
-          // Encode as UTF-8 base64
-          const base64 = encodeBase64(data);
-          ws.send(JSON.stringify({
-            type: 'input',
-            data: base64,
-          }));
-        }
-      });
     };
 
     // Handle window resize

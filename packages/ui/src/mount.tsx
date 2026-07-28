@@ -42,5 +42,8 @@ export function mountApp(root: HTMLElement) {
         </QueryClientProvider>
       </React.StrictMode>
     );
+    // Lets the desktop shell know the router is mounted, so a cold-start deep link
+    // (remoteagent://…) can wait for this before client-routing to its target.
+    (window as unknown as { __ra_ready?: boolean }).__ra_ready = true;
   });
 }

@@ -3,3 +3,4 @@ export * from './adapters';
 export * from './classifier';
 export { NotificationService, notificationService } from './notification.service';
 export { notificationRepository } from './notification.repository';
+export { notificationEvents, type NotificationStatusEvent } from './events';

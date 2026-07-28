@@ -236,10 +236,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(params),
     }),
-  respondToNotification: (id: string, action: string, text?: string, machineId?: string) =>
+  // answers = one selected option value per question, in question order (for
+  // multi-question AskUserQuestion prompts); the server replays keystrokes.
+  respondToNotification: (id: string, action: string, text?: string, machineId?: string, answers?: string[]) =>
     request<{ success: boolean }>(`/notifications/${id}/respond`, {
       method: 'POST',
-      body: JSON.stringify({ action, ...(text ? { text } : {}) }),
+      body: JSON.stringify({ action, ...(text ? { text } : {}), ...(answers && answers.length ? { answers } : {}) }),
       machineId,
     }),
 
@@ -838,6 +840,13 @@ export interface NotificationOption {
   isDefault?: boolean;
 }
 
+export interface NotificationQuestion {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options: Array<{ label: string; value: string }>;
+}
+
 export interface NotificationRecord {
   id: string;
   sessionId: string;
@@ -851,6 +860,8 @@ export interface NotificationRecord {
     classifications?: string[];
     options?: NotificationOption[];
     freeformAllowed?: boolean;
+    // Present only when the prompt came from an AskUserQuestion tool_use block.
+    questions?: NotificationQuestion[];
     [key: string]: unknown;
   } | null;
   actions?: NotificationAction[] | null;
@@ -1559,6 +1570,8 @@ export interface PresentationSlide {
   files: string[];
   excerpts: DiffExcerpt[];
   fullDiff: string;
+  /** Optional mermaid diagram source explaining the change; empty when none. */
+  diagram?: string;
   annotations: SlideAnnotation[];
 }
 

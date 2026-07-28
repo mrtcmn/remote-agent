@@ -3,8 +3,10 @@ import { PatchDiff } from '@pierre/diffs/react';
 import { ChevronDown, ChevronRight, FileCode, ArrowUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DIFF_THEME } from '@/lib/constants';
+import { useTerminalTheme } from '@/hooks/useTerminalTheme';
 import { cn } from '@/lib/utils';
 import { SlideAnnotation } from './SlideAnnotation';
+import { MermaidDiagram } from './MermaidDiagram';
 import type { PresentationSlide, SlideAnnotation as SlideAnnotationType } from '@/lib/api';
 
 class DiffErrorBoundary extends Component<
@@ -32,7 +34,10 @@ class DiffErrorBoundary extends Component<
 
 function RawDiffFallback({ patch }: { patch: string }) {
   return (
-    <pre className="overflow-x-auto rounded border border-border bg-muted/50 p-3 text-xs font-mono">
+    <pre
+      className="overflow-x-auto rounded border border-border bg-muted/50 p-3 text-xs font-mono"
+      style={{ fontFamily: 'var(--code-font)' }}
+    >
       {patch.split('\n').map((line, i) => (
         <div
           key={i}
@@ -70,8 +75,10 @@ export function SlideCard({
   onDeleteAnnotation,
   className,
 }: SlideCardProps) {
+  const { activeTheme } = useTerminalTheme();
   const [showFullDiff, setShowFullDiff] = useState(false);
-  const [expandedExcerpts, setExpandedExcerpts] = useState<Set<number>>(new Set());
+  // Only the top (most critical) excerpt is expanded by default; the rest are one click away.
+  const [expandedExcerpts, setExpandedExcerpts] = useState<Set<number>>(() => new Set([0]));
 
   const toggleExcerpt = (index: number) => {
     setExpandedExcerpts((prev) => {
@@ -84,8 +91,8 @@ export function SlideCard({
 
   const diffOptions = {
     diffStyle: 'unified' as const,
-    themeType: 'dark' as const,
-    themes: DIFF_THEME,
+    themeType: activeTheme.type, // follow the terminal's dark/light theme
+    theme: DIFF_THEME,
     overflow: 'scroll' as const,
     lineDiffType: 'word-alt' as const,
   };
@@ -132,7 +139,10 @@ export function SlideCard({
         {slide.narrative}
       </div>
 
-      {/* Diff excerpts */}
+      {/* Diagram (only present for complex changes) */}
+      {slide.diagram && <MermaidDiagram source={slide.diagram} />}
+
+      {/* Diff excerpts — top one shown, rest collapsed */}
       <div className="border-t border-border">
         {slide.excerpts.map((excerpt, i) => (
           <div key={i} className="border-b border-border last:border-b-0">
@@ -146,8 +156,13 @@ export function SlideCard({
                 <ChevronRight className="h-3.5 w-3.5 shrink-0" />
               )}
               <span className="truncate">{excerpt.filePath}</span>
+              {i === 0 && slide.excerpts.length > 1 && (
+                <span className="ml-auto shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-sans font-medium text-primary/80">
+                  most critical
+                </span>
+              )}
             </button>
-            {(expandedExcerpts.has(i) || slide.excerpts.length <= 3) && (
+            {expandedExcerpts.has(i) && (
               <div className="px-2 pb-2">
                 <DiffErrorBoundary fallback={<RawDiffFallback patch={excerpt.patch} />}>
                   <PatchDiff patch={excerpt.patch} options={diffOptions} />

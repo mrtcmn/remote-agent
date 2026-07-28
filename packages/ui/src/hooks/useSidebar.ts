@@ -35,7 +35,7 @@ export function useSidebar() {
   const { data: sidebarData, isLoading } = useQuery({
     queryKey: ['sidebar-aggregate'],
     queryFn: api.getAggregatedSidebar,
-    refetchInterval: 30000,
+    refetchInterval: 5000,
   });
 
   return {

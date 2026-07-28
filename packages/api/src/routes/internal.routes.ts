@@ -1,13 +1,13 @@
 import { Elysia, t } from 'elysia';
 import { eq } from 'drizzle-orm';
-import { readFile } from 'node:fs/promises';
 import { db, claudeSessions, projects, terminals } from '../db';
-import { notificationService } from '../services/notification';
+import { notificationService, notificationRepository } from '../services/notification';
 import type { NotificationType, NotificationAction } from '../services/notification/types';
 import { notificationClassifier } from '../services/notification/classifier';
 import { artifactService } from '../services/artifact';
 import { getProjectCredentialsById } from '../services/git';
 import type { NotificationClassification, ParsedOption, ClassificationResult } from '../services/notification/classifier';
+import { getTranscriptSummary, describeTool, type TranscriptInfo } from './hooks.helpers';
 
 // Helper to get project name for a session
 async function getSessionWithProject(sessionId: string) {
@@ -43,72 +43,6 @@ async function getTerminalName(terminalId: string | undefined): Promise<string |
     return bin || terminal.name;
   } catch {
     return null;
-  }
-}
-
-interface AskUserQuestion {
-  question: string;
-  header?: string;
-  options?: { label: string; description?: string; value?: string }[];
-  multiSelect?: boolean;
-}
-
-interface TranscriptInfo {
-  stopReason?: string;
-  summary?: string;   // Short (≤200 chars) for use as LLM classifier input
-  fullText?: string;  // Full text for notification body stored in DB
-  // Extracted from AskUserQuestion tool calls
-  askQuestion?: AskUserQuestion;
-}
-
-// Helper to parse transcript and get summary + structured tool calls
-async function getTranscriptSummary(transcriptPath: string): Promise<TranscriptInfo> {
-  try {
-    const expandedPath = transcriptPath.replace(/^~/, process.env.HOME || '');
-    const content = await readFile(expandedPath, 'utf-8');
-    const lines = content.trim().split('\n').filter(Boolean);
-
-    // Parse JSONL - scan last 20 entries
-    const entries = lines.slice(-20).map(line => {
-      try { return JSON.parse(line); } catch { return null; }
-    }).filter(Boolean);
-
-    let stopReason: string | undefined;
-    let summary: string | undefined;
-    let fullText: string | undefined;
-    let askQuestion: AskUserQuestion | undefined;
-
-    for (const entry of [...entries].reverse()) {
-      if (entry.stop_reason && !stopReason) {
-        stopReason = entry.stop_reason;
-      }
-
-      if (entry.type === 'assistant' && entry.message?.content && Array.isArray(entry.message.content)) {
-        for (const block of entry.message.content) {
-          // Extract AskUserQuestion tool calls — these have structured options
-          if (!askQuestion && block.type === 'tool_use' && block.name === 'AskUserQuestion') {
-            const questions: AskUserQuestion[] = block.input?.questions ?? [];
-            if (questions.length > 0) {
-              askQuestion = questions[0];
-            }
-          }
-
-          // Extract last text summary from assistant
-          if (!summary && block.type === 'text' && block.text) {
-            const text = block.text;
-            summary = text.length > 200 ? text.slice(0, 200) + '...' : text;
-            fullText = text; // full text for notification body
-          }
-        }
-      }
-
-      if (stopReason && summary && askQuestion) break;
-    }
-
-    return { stopReason, summary, fullText, askQuestion };
-  } catch (error) {
-    console.error('Failed to parse transcript:', error);
-    return {};
   }
 }
 
@@ -217,10 +151,18 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
     }
 
     const hookType = (body as Record<string, unknown>).notification_type as string || body.type || 'idle_prompt';
-    const messageText = transcriptInfo.summary || body.message || body.prompt || 'Attention required';
+    // Feed the classifier the FULL assistant text, not the 200-char summary — the
+    // real choices usually sit at the end of the message and were being cut off.
+    const messageText = transcriptInfo.fullText || transcriptInfo.summary || body.message || body.prompt || 'Attention required';
     console.log('[hooks/attention] hookType:', hookType, '| askQuestion:', transcriptInfo.askQuestion, '| summary:', transcriptInfo.summary);
 
     let classification: ClassificationResult;
+    // metadata.questions — ALL questions from the AskUserQuestion block, so a
+    // client (and the multi-answer respond path) can render/replay each one.
+    // undefined on the LLM fallback path. questions.length is the "N questions" hint.
+    let questionsMeta:
+      | { question: string; header?: string; multiSelect?: boolean; options: { label: string; value: string }[] }[]
+      | undefined;
 
     if (transcriptInfo.askQuestion) {
       // AskUserQuestion found in transcript — use its structured data directly, skip LLM
@@ -228,6 +170,16 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       const parsedOptions: ParsedOption[] = (q.options ?? []).map(o => ({
         label: o.label,
         value: o.value ?? o.label.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+      }));
+      // Derive value EXACTLY as the single-question code above does.
+      questionsMeta = (transcriptInfo.askQuestions ?? [q]).map(qq => ({
+        question: qq.question,
+        ...(qq.header ? { header: qq.header } : {}),
+        ...(qq.multiSelect !== undefined ? { multiSelect: qq.multiSelect } : {}),
+        options: (qq.options ?? []).map(o => ({
+          label: o.label,
+          value: o.value ?? o.label.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+        })),
       }));
       classification = {
         classifications: ['question'],
@@ -244,25 +196,72 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       console.log('[hooks/attention] LLM Classification:', classification);
     }
 
-    // Map to notification type
-    const notificationType: NotificationType = hookType === 'permission_prompt' || classification.classifications.includes('permission')
-      ? 'permission_request'
-      : 'user_input_required';
+    // Trust the classifier for the type, with two guards:
+    //  • a permission_prompt is always a permission request (yes/no).
+    //  • an idle_prompt that's only progress/idle is NOT actionable — the agent is
+    //    still working, so show it as in-progress (blue), never a fake "needs you".
+    const forcePermission = hookType === 'permission_prompt';
+    const rawCls = classification.classifications;
+    // The classifier sometimes mislabels a choice as progress_update/idle while STILL
+    // extracting the real options. Options present = Claude is waiting on a pick = a
+    // question, not "working". Fold that in (unless it's a completion → "what's next?").
+    const cls: NotificationClassification[] =
+      classification.options.length > 0
+        && !rawCls.includes('question') && !rawCls.includes('task_complete')
+        ? [...rawCls, 'question']
+        : rawCls;
+    const actionable = forcePermission
+      || cls.includes('question') || cls.includes('permission') || cls.includes('error');
+    const mapped = mapClassificationToNotification(cls, classification.options, classification.freeformAllowed);
 
+    // "Done, with a follow-up question" reads as DONE, not "needs you": the work is
+    // finished and the question is just an optional "what's next?". So task_complete
+    // wins the status over a co-occurring question — its options stay on the record
+    // (in metadata/actions) for the client to show under a "What's next?" section.
+    // error / permission still outrank it.
+    const completeWithFollowup = cls.includes('task_complete')
+      && !cls.includes('error') && !cls.includes('permission') && !forcePermission;
+
+    // A live background workflow means the main turn going idle is NOT a real
+    // completion — the workflow keeps running and notifies on its own. Show it as
+    // working (blue), never a fake "done". Actionable prompts (a genuine
+    // question/permission/error from the main agent) still win — the user must act.
+    const workflowPending = transcriptInfo.workflowPending === true;
+    const notificationType: NotificationType = forcePermission
+      ? 'permission_request'
+      : actionable
+        ? (completeWithFollowup ? 'task_complete' : mapped.notificationType)
+        : workflowPending
+          ? 'session_started'
+          // idle_prompt fires only when Claude has STOPPED and is waiting — it's
+          // never "working" (that comes solely from PreToolUse → /active or a live
+          // workflow above). So a non-actionable idle prompt = idle/done, shown green.
+          : 'task_complete';
+    const needsInput = notificationType === 'user_input_required'
+      || notificationType === 'permission_request'
+      || notificationType === 'error';
+
+    // Real options → real buttons. A genuine permission with no parsed options → Approve/Deny
+    // (a permission IS yes/no). Otherwise DO NOT fabricate choices — just an Open action so
+    // the client can jump to the terminal ("respond there"). No fake approve/deny.
     const actions = classification.options.length > 0 || classification.freeformAllowed
       ? optionsToActions(classification.options, classification.freeformAllowed)
       : notificationType === 'permission_request'
         ? [{ label: 'Approve', action: 'approve' }, { label: 'Deny', action: 'deny' }]
-        : [{ label: 'Open', action: 'open' }, { label: 'Reply', action: 'reply' }];
+        : [{ label: 'Open', action: 'open' }];
 
-    // Update session status
+    // Only mark the session as waiting when it actually needs the user; a completion
+    // stays 'active' (alive, idle) rather than a stale "waiting for input".
     await db.update(claudeSessions)
-      .set({ status: 'waiting_input' })
+      .set({ status: needsInput ? 'waiting_input' : 'active' })
       .where(eq(claudeSessions.id, body.sessionId));
 
     const titleMap: Record<string, string> = {
       user_input_required: 'Question',
       permission_request: 'Permission Request',
+      task_complete: 'Task Complete',
+      error: 'Error',
+      session_started: 'Working',
     };
     const baseTitle = titleMap[notificationType] || 'Attention Required';
     const title = session.projectName ? `${session.projectName}: ${baseTitle}` : baseTitle;
@@ -280,13 +279,20 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       title,
       body: notificationBody,
       actions,
-      priority: 'high',
+      priority: forcePermission ? 'high' : mapped.priority,
       metadata: {
         ...(session.projectName ? { projectName: session.projectName } : {}),
         ...(terminalName ? { terminalName } : {}),
         classifications: classification.classifications,
+        // metadata.options stays pointed at the FIRST question (backward compat);
+        // metadata.questions carries all N for multi-question clients.
         options: classification.options,
         freeformAllowed: classification.freeformAllowed,
+        // interactive=true only when the options came from a real AskUserQuestion
+        // selector on screen (arrow-drivable). On the LLM-inferred path there's no
+        // selector — the respond path must TYPE the chosen label instead.
+        interactive: !!transcriptInfo.askQuestion,
+        ...(questionsMeta ? { questions: questionsMeta } : {}),
       },
     });
 
@@ -322,10 +328,15 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
     }
 
     // Parse transcript for summary if available
-    let transcriptInfo: { stopReason?: string; summary?: string } = {};
+    let transcriptInfo: TranscriptInfo = {};
     if (body.transcript_path) {
       transcriptInfo = await getTranscriptSummary(body.transcript_path);
     }
+
+    // Carry startedAt from the working card we're about to supersede, so the "done"
+    // card can show how long the task took (frozen at completion).
+    const prevLive = body.terminalId ? await notificationRepository.latestLiveForTerminal(body.terminalId) : null;
+    const startedAt = (prevLive?.metadata as Record<string, unknown> | undefined)?.startedAt;
 
     const messageText = body.last_assistant_message || transcriptInfo.summary || body.prompt || 'Task completed';
 
@@ -388,6 +399,9 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
         ...(session.projectName ? { projectName: session.projectName } : {}),
         ...(terminalName ? { terminalName } : {}),
         ...(transcriptInfo.stopReason ? { stopReason: transcriptInfo.stopReason } : {}),
+        ...(transcriptInfo.model ? { model: transcriptInfo.model } : {}),
+        ...(transcriptInfo.todosTotal ? { todosDone: transcriptInfo.todosDone ?? 0, todosTotal: transcriptInfo.todosTotal } : {}),
+        ...(startedAt ? { startedAt } : {}),
         classifications: classification.classifications,
         classificationConfidence: classification.confidence,
         options: classification.options,
@@ -415,6 +429,76 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
       cwd: t.Optional(t.String()),
       permission_mode: t.Optional(t.String()),
       hook_event_name: t.Optional(t.String()),
+    }, { additionalProperties: true }),
+  })
+
+  // Hook callback for UserPromptSubmit + PreToolUse — the agent is working again.
+  // Flips the terminal's live notification to "in-progress", which supersedes any
+  // pending needs-you (the user just answered) or leftover done.
+  .post('/hooks/active', async ({ body, set }) => {
+    const session = await getSessionWithProject(body.sessionId);
+    if (!session) { set.status = 404; return { error: 'Session not found' }; }
+    if (!body.terminalId) return { success: true, skipped: 'no terminal' };
+
+    await db.update(claudeSessions)
+      .set({ status: 'active' })
+      .where(eq(claudeSessions.id, body.sessionId));
+
+    // Live detail for the session card. currentTool is free (in the PreToolUse
+    // payload); model/todos/context come from a last-20-line transcript parse.
+    // ponytail: that parse runs per tool call — cheap (bounded read) and this is a
+    // local single-user tool; add a per-terminal throttle only if it shows up hot.
+    const activity = describeTool(body.tool_name, body.tool_input);
+    const metrics: TranscriptInfo = body.transcript_path ? await getTranscriptSummary(body.transcript_path) : {};
+    const liveMeta: Record<string, unknown> = {
+      ...(session.projectName ? { projectName: session.projectName } : {}),
+      ...(activity ? { activity } : {}),
+      ...(metrics.model ? { model: metrics.model } : {}),
+      ...(metrics.todosTotal ? { todosDone: metrics.todosDone ?? 0, todosTotal: metrics.todosTotal } : {}),
+      ...(metrics.contextPct !== undefined ? { contextPct: metrics.contextPct } : {}),
+      lastActiveAt: new Date().toISOString(),
+    };
+
+    // PreToolUse fires on every tool call. If we're already showing "working" for
+    // this terminal, patch the live card's detail in place (no new row, no push
+    // popup — running updates are silent on the notch) rather than re-create it.
+    const latest = await notificationRepository.latestLiveForTerminal(body.terminalId);
+    if (latest?.type === 'session_started') {
+      await notificationService.patchMetadata(latest.id, liveMeta);
+      return { success: true, updated: latest.id };
+    }
+
+    // First tool of a fresh turn → create the working card and stamp startedAt so
+    // the card (and the later "done" card) can show elapsed.
+    const terminalName = await getTerminalName(body.terminalId);
+    const title = session.projectName ? `${session.projectName}: Working` : 'Working';
+    const result = await notificationService.createAndSend({
+      userId: session.userId,
+      sessionId: body.sessionId,
+      terminalId: body.terminalId,
+      type: 'session_started', // maps to the running/blue "working" status in clients
+      title,
+      body: 'Working…',
+      actions: [{ label: 'Open', action: 'open' }],
+      priority: 'low',
+      metadata: {
+        ...liveMeta,
+        ...(terminalName ? { terminalName } : {}),
+        startedAt: new Date().toISOString(),
+      },
+    });
+
+    return { success: true, notificationId: result.notification.id };
+  }, {
+    body: t.Object({
+      sessionId: t.String(),
+      terminalId: t.Optional(t.String()),
+      session_id: t.Optional(t.String()),
+      transcript_path: t.Optional(t.String()),
+      hook_event_name: t.Optional(t.String()),
+      prompt: t.Optional(t.String()),
+      tool_name: t.Optional(t.String()),
+      tool_input: t.Optional(t.Any()),
     }, { additionalProperties: true }),
   })
 

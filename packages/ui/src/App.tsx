@@ -15,6 +15,7 @@ import { SshSessionPage } from './pages/Ssh';
 import { Toaster } from './components/ui/Toaster';
 import { useAppTheme } from './hooks/useAppTheme';
 import { isElectron } from './lib/electron';
+import { FEATURE_SECTION_TASKS, FEATURE_SESSION_SSH } from './lib/flags';
 import { useApiConfig } from './lib/api-config';
 import { SetupScreen } from './components/SetupScreen';
 
@@ -80,10 +81,10 @@ export default function App() {
                   {/* Legacy bare session URLs → default to the local machine */}
                   <Route path="/sessions/:id" element={<LegacySessionRedirect />} />
                   <Route path="/projects" element={<ProjectsPage />} />
-                  <Route path="/kanban" element={<KanbanPage />} />
+                  {FEATURE_SECTION_TASKS && <Route path="/kanban" element={<KanbanPage />} />}
                   <Route path="/skills" element={<SkillsPage />} />
                   <Route path="/mcp-servers" element={<McpServersPage />} />
-                  <Route path="/ssh/:sessionId" element={<SshSessionPage />} />
+                  {FEATURE_SESSION_SSH && <Route path="/ssh/:sessionId" element={<SshSessionPage />} />}
                   <Route path="/settings" element={<SettingsPage />} />
                 </Routes>
               </Layout>

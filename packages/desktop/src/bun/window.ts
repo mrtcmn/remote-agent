@@ -24,6 +24,11 @@ export function createWindow(
     frame: { x: b.x ?? 0, y: b.y ?? 0, width: b.width, height: b.height },
     // macOS inset traffic lights; behaves like "hidden" on Win/Linux.
     titleBarStyle: "hiddenInset",
+    // Vertically center the macOS traffic lights in the app's top bar.
+    // Measured from a screenshot: y=20 rendered the dots ~7pt high, so ~27 centers
+    // them against the 36px h-9 bar (+8px canvas padding).
+    // ponytail: visual knob — lower y raises the buttons; nudge if a hair off.
+    trafficLightOffset: { x: 8, y: 27 },
     url: resolveLoadUrl(store),
     rpc,
   });

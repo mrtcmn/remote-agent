@@ -192,7 +192,9 @@ export class WorkspaceService {
     // Use $REMOTE_AGENT_SESSION_ID and $REMOTE_AGENT_TERMINAL_ID env vars (set per-terminal
     // in terminals.routes.ts) so hooks always report the correct session, even when
     // multiple Claude instances share the same settings.json.
-    const baseUrl = `${process.env.RA_API_URL || process.env.REMOTE_AGENT_API || 'http://localhost:5100'}/internal/hooks`;
+    // Default to the port the API actually listens on (13590 local, 5100 remote),
+    // not a hardcoded 5100 — otherwise dev hooks POST to a dead port and silently drop.
+    const baseUrl = `${process.env.RA_API_URL || process.env.REMOTE_AGENT_API || `http://localhost:${getDefaultPort()}`}/internal/hooks`;
 
     // Guard: skip hooks when spawned by the classifier (prevents infinite loop)
     const guard = '[ "$REMOTE_AGENT_CLASSIFIER" = "1" ] && exit 0;';
@@ -201,6 +203,10 @@ export class WorkspaceService {
 
     const completeCommand = `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '. + {"sessionId": env.REMOTE_AGENT_SESSION_ID, "terminalId": env.REMOTE_AGENT_TERMINAL_ID}' | curl -s -X POST "${baseUrl}/complete" -H "Content-Type: application/json" -d @- &`;
 
+    // Fired on UserPromptSubmit + PreToolUse → the agent is working again, so the
+    // terminal flips to in-progress and any pending needs-you notification clears.
+    const activeCommand = `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '. + {"sessionId": env.REMOTE_AGENT_SESSION_ID, "terminalId": env.REMOTE_AGENT_TERMINAL_ID}' | curl -s -X POST "${baseUrl}/active" -H "Content-Type: application/json" -d @- &`;
+
     const defaultHooks: HookConfig = {
       hooks: {
         Notification: [{
@@ -208,6 +214,18 @@ export class WorkspaceService {
           hooks: [{
             type: 'command',
             command: attentionCommand,
+          }],
+        }],
+        UserPromptSubmit: [{
+          hooks: [{
+            type: 'command',
+            command: activeCommand,
+          }],
+        }],
+        PreToolUse: [{
+          hooks: [{
+            type: 'command',
+            command: activeCommand,
           }],
         }],
         Stop: [{
@@ -325,7 +343,7 @@ export class WorkspaceService {
   }
 }
 
-import { getWorkspacesRoot, getSSHKeysRoot, getConfigRoot, getTemplatesRoot, getAgentHome } from '../../config/paths';
+import { getWorkspacesRoot, getSSHKeysRoot, getConfigRoot, getTemplatesRoot, getAgentHome, getDefaultPort } from '../../config/paths';
 
 // Singleton instance
 export const workspaceService = new WorkspaceService({

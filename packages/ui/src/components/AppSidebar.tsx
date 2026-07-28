@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Layers,
@@ -25,8 +26,20 @@ import {
 import { NewSessionModal } from '@/components/NewSessionModal';
 import { SshHostsSection } from '@/components/ssh/SshHostsSection';
 import { AIModelIcon, detectAIModel } from '@/components/AIModelIcon';
+import { FormattedText } from '@/components/FormattedText';
 import { cn } from '@/lib/utils';
-import type { SidebarSession, SessionService, AggregatedSidebar, MachineSidebar } from '@/lib/api';
+import { FEATURE_SECTION_TASKS, FEATURE_SESSION_SSH } from '@/lib/flags';
+import {
+  api,
+  type SidebarSession,
+  type SessionService,
+  type AggregatedSidebar,
+  type MachineSidebar,
+  type AggregatedNotification,
+  type NotificationRecord,
+  type NotificationOption,
+  type NotificationAction,
+} from '@/lib/api';
 import { flattenSidebarSessions, type FlatSession } from '@/lib/sidebar-sessions';
 import { sessionPath, sessionIdFromPath } from '@/lib/session-route';
 import { useActiveMachine } from '@/lib/active-machine';
@@ -57,6 +70,157 @@ const serviceConfig: Record<string, { dot: string; icon: typeof Bot }> = {
   codeServer: { dot: 'bg-emerald-500', icon: Code },
 };
 
+// ─── Notification review ──────────────────────────────────────────────────────
+
+type RespondInput = { action: string; text?: string; answers?: string[] };
+type RespondFn = (notification: AggregatedNotification, input: RespondInput) => void;
+
+/** A pending notification is "needs you" (amber) for input/permission, "error" (red), else null. */
+function notifKind(n: NotificationRecord): 'needs' | 'error' | null {
+  if (n.type === 'error') return 'error';
+  if (n.type === 'user_input_required' || n.type === 'permission_request') return 'needs';
+  return null;
+}
+
+const DANGER_LABELS = /^(deny|cancel|no|reject|abort|stop|skip|ignore|decline|refuse|delete|remove|destroy|revoke|disallow|forbid|block)/i;
+const PRIMARY_LABELS = /^(approve|yes|allow|confirm|proceed|accept|ok|continue|grant|permit|enable)/i;
+
+function getChoiceVariant(label: string): 'primary' | 'secondary' | 'danger' {
+  if (DANGER_LABELS.test(label.trim())) return 'danger';
+  if (PRIMARY_LABELS.test(label.trim())) return 'primary';
+  return 'secondary';
+}
+
+/** Prefer metadata.options (first-question actions), fall back to raw actions. */
+function buildChoices(notification: NotificationRecord): { id: string; label: string; variant: 'primary' | 'secondary' | 'danger' }[] | null {
+  const options = notification.metadata?.options as NotificationOption[] | undefined;
+  const actions = notification.actions as NotificationAction[] | undefined;
+  if (options && options.length > 0) {
+    return options.map((opt) => ({ id: opt.value, label: opt.label, variant: opt.isDefault ? 'primary' : getChoiceVariant(opt.label) }));
+  }
+  if (actions && actions.length > 0) {
+    // open/view navigate and reply is the freeform field — none are real choices.
+    const real = actions.filter((a) => !['open', 'reply', 'view'].includes(a.action));
+    if (real.length > 0) return real.map((act) => ({ id: act.action, label: act.label, variant: getChoiceVariant(act.label) }));
+  }
+  return null;
+}
+
+/** A completed task can still carry an optional follow-up question ("what's next?"). */
+function hasFollowup(n: NotificationRecord): boolean {
+  return n.type === 'task_complete' && (!!buildChoices(n) || !!n.metadata?.freeformAllowed);
+}
+
+const choiceClass = (variant: 'primary' | 'secondary' | 'danger', selected: boolean) =>
+  cn(
+    'px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors max-w-full truncate',
+    selected
+      ? 'bg-foreground text-background border-foreground'
+      : variant === 'primary'
+      ? 'border-foreground/60 text-foreground hover:bg-foreground hover:text-background'
+      : variant === 'danger'
+      ? 'border-red-500/40 text-red-500 hover:bg-red-500/10'
+      : 'border-foreground/20 text-muted-foreground hover:text-foreground hover:border-foreground/40 hover:bg-secondary/60'
+  );
+
+/** Inline review shown under a session/terminal row for a pending notification. */
+function NotifReview({ notification, onRespond, onOpen }: { notification: AggregatedNotification; onRespond: RespondFn; onOpen: () => void }) {
+  const questions = notification.metadata?.questions;
+  const isMulti = !!questions && questions.length > 1;
+  const freeform = !!notification.metadata?.freeformAllowed;
+  const [picks, setPicks] = useState<(string | null)[]>(() => (questions ? questions.map(() => null) : []));
+  const [text, setText] = useState('');
+
+  const body = notification.body ? (
+    <FormattedText
+      text={notification.body}
+      className="text-[11px] text-muted-foreground leading-relaxed border-l-2 border-foreground/20 pl-2"
+    />
+  ) : null;
+
+  // Always offer a way into the terminal — this is the answer when we couldn't parse
+  // real choices ("respond in the terminal") rather than fabricating approve/deny.
+  const openLink = (
+    <button onClick={onOpen} className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2">
+      Open terminal ↗
+    </button>
+  );
+
+  if (isMulti) {
+    const allPicked = picks.every(Boolean);
+    return (
+      <div className="pl-7 pr-2 pb-1.5 pt-0.5 space-y-2" onClick={(e) => e.stopPropagation()}>
+        {body}
+        {questions!.map((q, qi) => (
+          <div key={qi} className="space-y-1">
+            <p className="text-[11px] font-medium text-foreground/80">{q.header || q.question}</p>
+            <div className="flex flex-wrap gap-1">
+              {q.options.map((o) => (
+                <button
+                  key={o.value}
+                  onClick={() => setPicks((p) => { const c = [...p]; c[qi] = o.value; return c; })}
+                  className={choiceClass(getChoiceVariant(o.label), picks[qi] === o.value)}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        <button
+          disabled={!allPicked}
+          onClick={() => onRespond(notification, { action: picks[0] as string, answers: picks as string[] })}
+          className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-foreground text-background hover:opacity-90 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          Submit
+        </button>
+        {openLink}
+      </div>
+    );
+  }
+
+  const choices = buildChoices(notification);
+  const isDone = notification.type === 'task_complete';
+  return (
+    <div className="pl-7 pr-2 pb-1.5 pt-0.5 space-y-2" onClick={(e) => e.stopPropagation()}>
+      {body}
+      {isDone && (choices || freeform) && (
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">What's next?</p>
+      )}
+      {choices && choices.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {choices.map((c) => (
+            <button key={c.id} onClick={() => onRespond(notification, { action: c.id })} className={choiceClass(c.variant, false)}>
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {freeform && (
+        <form
+          onSubmit={(e) => { e.preventDefault(); if (text.trim()) onRespond(notification, { action: 'reply', text }); }}
+          className="flex gap-1"
+        >
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Reply…"
+            className="flex-1 min-w-0 px-2 py-1 rounded-md text-[11px] bg-secondary/60 border border-border focus:outline-none focus:border-foreground/40"
+          />
+          <button
+            type="submit"
+            disabled={!text.trim()}
+            className="px-2 py-1 rounded-md text-[11px] font-medium border border-foreground/20 text-muted-foreground hover:text-foreground hover:border-foreground/40 disabled:opacity-30"
+          >
+            Send
+          </button>
+        </form>
+      )}
+      {openLink}
+    </div>
+  );
+}
+
 // ─── DiffStat ────────────────────────────────────────────────────────────────
 
 function DiffStat({ additions, deletions }: { additions: number; deletions: number }) {
@@ -75,11 +239,15 @@ function ServiceRow({
   sessionId,
   machineId,
   service,
+  notification,
+  onRespond,
   onNavigate,
 }: {
   sessionId: string;
   machineId: string;
   service: SessionService;
+  notification?: AggregatedNotification;
+  onRespond: RespondFn;
   onNavigate: (path: string) => void;
 }) {
   const config = serviceConfig[service.type] || serviceConfig.shell;
@@ -88,8 +256,15 @@ function ServiceRow({
   // same `detectAIModel(name)` mechanism the top tab bar uses, so a Codex /
   // Gemini / OpenAI session shows the right brand instead of a generic bot.
   const isAi = service.type === 'claude';
+  const kind = notification ? notifKind(notification) : null;
+  // A row takes over (shows review) when it needs the user (needs-you / error) OR
+  // when it's a completed task with an optional follow-up ("what's next?"). A plain
+  // working/done record just tints the dot — no hijack, no fabricated buttons.
+  const followup = notification ? hasFollowup(notification) : false;
+  const showReview = kind !== null || followup;
+  const [expanded, setExpanded] = useState(true);
 
-  const handleClick = () => {
+  const navigate = () => {
     if (service.type === 'codeServer' && service.url) {
       window.open(service.url, '_blank');
     } else if (service.type === 'docker') {
@@ -99,20 +274,34 @@ function ServiceRow({
     }
   };
 
+  const dot =
+    kind === 'needs' ? 'bg-amber-500 animate-pulse' : kind === 'error' ? 'bg-red-500' : config.dot;
+
   return (
-    <button
-      onClick={handleClick}
-      className="w-full flex items-center gap-1.5 pl-7 pr-2 py-0.5 rounded text-left text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/50 transition-colors"
-      title={service.label}
-    >
-      <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', config.dot)} />
-      {isAi ? (
-        <AIModelIcon model={detectAIModel(service.label)} size={10} className="shrink-0" />
-      ) : (
-        <Icon className="size-2.5 shrink-0" />
-      )}
-      <span className="text-[12px] font-semibold truncate">{service.label}</span>
-    </button>
+    <div>
+      <button
+        onClick={() => (showReview ? setExpanded((v) => !v) : navigate())}
+        className={cn(
+          'w-full flex items-center gap-1.5 pl-7 pr-2 py-0.5 rounded text-left transition-colors',
+          showReview ? 'text-foreground hover:bg-secondary/50' : 'text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/50'
+        )}
+        title={service.label}
+      >
+        <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', dot)} />
+        {isAi ? (
+          <AIModelIcon model={detectAIModel(service.label)} size={10} className="shrink-0" />
+        ) : (
+          <Icon className="size-2.5 shrink-0" />
+        )}
+        <span className="text-[12px] font-semibold truncate">{service.label}</span>
+        {kind && (
+          <span className={cn('ml-auto shrink-0 text-[9px] font-semibold uppercase tracking-wide', kind === 'error' ? 'text-red-500' : 'text-amber-500')}>
+            {kind === 'error' ? 'error' : 'needs you'}
+          </span>
+        )}
+      </button>
+      {showReview && expanded && <NotifReview notification={notification!} onRespond={onRespond} onOpen={navigate} />}
+    </div>
   );
 }
 
@@ -124,15 +313,24 @@ function SessionRow({
   onSelect,
   projectName,
   projectColor,
+  notifKind,
 }: {
   session: SidebarSession;
   isSelected: boolean;
   onSelect: () => void;
   projectName?: string | null;
   projectColor?: string | null;
+  notifKind?: 'needs' | 'error' | null;
 }) {
   const effectiveStatus = session.liveStatus || session.status;
-  const dotClass = statusDotClass[effectiveStatus] || 'bg-gray-500';
+  // A pending notification on any of this session's terminals overrides the dot:
+  // amber pulse when it needs the user, red on error, else the live status.
+  const dotClass =
+    notifKind === 'needs'
+      ? 'bg-amber-500 animate-pulse'
+      : notifKind === 'error'
+      ? 'bg-red-500'
+      : statusDotClass[effectiveStatus] || 'bg-gray-500';
   const Icon = session.sessionType === 'worktree' ? Layers : GitBranch;
 
   return (
@@ -211,6 +409,9 @@ function SessionEntry({
   isSelected,
   onSelect,
   onNavigate,
+  notifByKey,
+  sessionNotifs,
+  onRespond,
 }: {
   session: SidebarSession;
   machineId: string;
@@ -219,7 +420,22 @@ function SessionEntry({
   isSelected: boolean;
   onSelect: () => void;
   onNavigate: (path: string) => void;
+  notifByKey: Map<string, AggregatedNotification>;
+  sessionNotifs: AggregatedNotification[];
+  onRespond: RespondFn;
 }) {
+  // Session-level notifications with no terminal row of their own (their terminal
+  // isn't among the rendered services) — surface them under the session row.
+  const serviceIds = new Set(session.services?.map((s) => s.id) ?? []);
+  const orphanNotifs = sessionNotifs.filter((n) => !n.terminalId || !serviceIds.has(n.terminalId));
+
+  // Aggregate dot: error wins, then needs-you, else fall through to live status.
+  const aggKind = sessionNotifs.some((n) => notifKind(n) === 'error')
+    ? 'error'
+    : sessionNotifs.some((n) => notifKind(n) === 'needs')
+    ? 'needs'
+    : null;
+
   return (
     <div>
       <SessionRow
@@ -228,11 +444,28 @@ function SessionEntry({
         projectColor={projectColor}
         isSelected={isSelected}
         onSelect={onSelect}
+        notifKind={aggKind}
       />
+      {orphanNotifs.filter((n) => notifKind(n) !== null || hasFollowup(n)).map((n) => (
+        <NotifReview
+          key={n.id}
+          notification={n}
+          onRespond={onRespond}
+          onOpen={() => onNavigate(sessionPath(machineId, session.id))}
+        />
+      ))}
       {session.services?.length > 0 && (
         <div className="space-y-px">
           {session.services.map((service) => (
-            <ServiceRow key={service.id} sessionId={session.id} machineId={machineId} service={service} onNavigate={onNavigate} />
+            <ServiceRow
+              key={service.id}
+              sessionId={session.id}
+              machineId={machineId}
+              service={service}
+              notification={notifByKey.get(service.id)}
+              onRespond={onRespond}
+              onNavigate={onNavigate}
+            />
           ))}
         </div>
       )}
@@ -247,11 +480,17 @@ function MachineSection({
   activeSessionId,
   onSelectSession,
   onNavigate,
+  notifByKey,
+  notifsBySession,
+  onRespond,
 }: {
   machine: MachineSidebar;
   activeSessionId: string | null;
   onSelectSession: (sessionId: string, machine: MachineSidebar) => void;
   onNavigate: (path: string) => void;
+  notifByKey: Map<string, AggregatedNotification>;
+  notifsBySession: Map<string, AggregatedNotification[]>;
+  onRespond: RespondFn;
 }) {
   const isSelf = machine.machineId === 'self';
   const [expanded, setExpanded] = useState(machine.online);
@@ -268,6 +507,9 @@ function MachineSection({
       isSelected={session.id === activeSessionId}
       onSelect={() => onSelectSession(session.id, machine)}
       onNavigate={onNavigate}
+      notifByKey={notifByKey}
+      sessionNotifs={notifsBySession.get(session.id) ?? []}
+      onRespond={onRespond}
     />
   );
 
@@ -360,13 +602,51 @@ interface AppSidebarProps {
 export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const setActiveMachine = useActiveMachine((s) => s.setActive);
   const [newSessionModalOpen, setNewSessionModalOpen] = useState(false);
+
+  // Pending review items, folded into the session rows below. Keyed 'notifications'
+  // so the FCM NotificationListener's invalidation refreshes it too.
+  const { data: notifData } = useQuery({
+    queryKey: ['notifications', 'sidebar'],
+    queryFn: () => api.getAggregatedNotifications({ status: 'pending,sent', limit: 50 }),
+    refetchInterval: 5000,
+  });
+
+  const respondMutation = useMutation({
+    mutationFn: ({ notification, input }: { notification: AggregatedNotification; input: RespondInput }) =>
+      api.respondToNotification(notification.id, input.action, input.text, notification.machineId, input.answers),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['sidebar-aggregate'] });
+    },
+  });
+  const handleRespond = useCallback<RespondFn>(
+    (notification, input) => respondMutation.mutate({ notification, input }),
+    [respondMutation],
+  );
+
+  // Index by terminalId (fallback sessionId) for row placement, plus a per-session
+  // bucket for the aggregate session dot.
+  const { notifByKey, notifsBySession } = useMemo(() => {
+    const byKey = new Map<string, AggregatedNotification>();
+    const bySession = new Map<string, AggregatedNotification[]>();
+    for (const n of notifData?.notifications ?? []) {
+      byKey.set(n.terminalId ?? n.sessionId, n);
+      const list = bySession.get(n.sessionId) ?? [];
+      list.push(n);
+      bySession.set(n.sessionId, list);
+    }
+    return { notifByKey: byKey, notifsBySession: bySession };
+  }, [notifData]);
 
   // The sidebar renders outside the session route, so the route params aren't
   // available here — derive the active session id from the pathname instead.
   const activeSessionId = sessionIdFromPath(location.pathname);
   const activeTab = location.pathname === '/kanban' ? 'tasks' : 'workspaces';
+  // Only worth a tab bar when there's more than one destination to switch between.
+  const tabs = (['workspaces', 'tasks'] as const).filter((tab) => tab !== 'tasks' || FEATURE_SECTION_TASKS);
 
   const handleNavigate = useCallback((path: string) => {
     navigate(path);
@@ -385,11 +665,12 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
 
   return (
     <div className="flex flex-col h-full bg-card text-foreground">
-      {/* Electron: traffic light spacer + drag region */}
-      <div className="hidden electron-titlebar h-[44px] shrink-0 electrobun-webkit-app-region-drag" />
-      {/* Top nav tabs with sliding pill — right side is a drag handle */}
+      {/* Top nav tabs with sliding pill — right side is a drag handle.
+          Hidden entirely when there's nothing to show, so New Session sits
+          vertically centered at the top instead of under an empty strip. */}
+      {(tabs.length > 1 || onClose) && (
       <div className="flex items-center gap-0.5 px-2 pt-3 pb-2 shrink-0 electrobun-webkit-app-region-drag">
-        {(['workspaces', 'tasks'] as const).map((tab) => (
+        {tabs.length > 1 && tabs.map((tab) => (
           <button
             key={tab}
             onClick={() => {
@@ -430,9 +711,10 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
           </button>
         )}
       </div>
+      )}
 
       {/* New Session button */}
-      <div className="px-2 pb-2 shrink-0">
+      <div className="px-2 py-2 shrink-0">
         <motion.button
           whileTap={{ scale: 0.98 }}
           transition={{ duration: 0.12 }}
@@ -474,13 +756,20 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
                 activeSessionId={activeSessionId}
                 onSelectSession={handleSelectSession}
                 onNavigate={handleNavigate}
+                notifByKey={notifByKey}
+                notifsBySession={notifsBySession}
+                onRespond={handleRespond}
               />
             ))}
           </div>
         )}
 
-        <div className="h-px bg-border my-2 shrink-0" />
-        <SshHostsSection onNavigate={handleNavigate} />
+        {FEATURE_SESSION_SSH && (
+          <>
+            <div className="h-px bg-border my-2 shrink-0" />
+            <SshHostsSection onNavigate={handleNavigate} />
+          </>
+        )}
         {/* Empty space below sessions is a window drag handle */}
         <div className="flex-1 min-h-[48px] electrobun-webkit-app-region-drag" />
       </div>
@@ -493,7 +782,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
           { to: '/skills', icon: Sparkles, label: 'Skills' },
           { to: '/mcp-servers', icon: Plug, label: 'MCP Servers' },
           { to: '/settings', icon: Settings, label: 'Settings' },
-        ].map((item) => (
+        ].filter((item) => item.to !== '/kanban' || FEATURE_SECTION_TASKS).map((item) => (
           <Link key={item.to} to={item.to} onClick={onClose}>
             <motion.button
               whileTap={{ scale: 0.99 }}

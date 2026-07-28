@@ -2,6 +2,11 @@
 
 Date: 2026-07-01
 
+> **Status (2026-07-14):** implemented on branch `feat/notch-notifications` —
+> backend (`notificationEvents`, `/ws/notifications`, shared respond) in
+> `packages/api`, Swift app in `packages/notch`. Unverified pending a Mac;
+> see `packages/notch/HANDOFF.md`.
+
 ## Goal
 
 A macOS notch/menu-bar app (forked from [vibe-notch](https://github.com/farouqaldori/vibe-notch),

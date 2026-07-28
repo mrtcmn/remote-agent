@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/Button';
 import { ProjectSelector } from '@/components/ProjectSelector';
 import { cn } from '@/lib/utils';
 import { useReviewComments } from '@/hooks/useReviewComments';
+import { useTerminalTheme } from '@/hooks/useTerminalTheme';
 import { ReviewCommentInput } from './ReviewCommentInput';
 import { ReviewCommentAnnotation } from './ReviewCommentAnnotation';
 import { ReviewBatchPanel } from './ReviewBatchPanel';
@@ -61,7 +62,7 @@ class DiffErrorBoundary extends Component<
 function RawDiffView({ diff, fileName }: { diff: string; fileName?: string }) {
   const lines = diff.split('\n');
   return (
-    <div className="font-mono text-xs leading-relaxed">
+    <div className="font-mono text-xs leading-relaxed" style={{ fontFamily: 'var(--code-font)' }}>
       {fileName && (
         <div className="flex items-center gap-2 px-3 py-2 bg-card/30 border-b border-border/30 text-muted-foreground sticky top-0">
           <FileCode className="h-3.5 w-3.5" />
@@ -142,6 +143,7 @@ interface GitDiffViewProps {
 }
 
 export function GitDiffView({ sessionId, project, className, onProceed }: GitDiffViewProps) {
+  const { activeTheme } = useTerminalTheme();
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   // Show file list by default on desktop, hide on mobile
@@ -434,14 +436,20 @@ export function GitDiffView({ sessionId, project, className, onProceed }: GitDif
           )}
 
           {/* Diff View - Full Width */}
-          <div className="flex-1 min-w-0 overflow-auto bg-[#0d1117]">
+          <div
+            className="flex-1 min-w-0 overflow-auto"
+            style={{ background: 'var(--code-bg, #0d1117)' }}
+          >
             {diffLoading ? (
               <div className="flex items-center justify-center h-full">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             ) : selectedFile && diffData?.diff ? (
               <div className="w-full">
-                <div className="mb-1 px-3 py-2 flex items-center gap-2 font-mono text-xs text-muted-foreground border-b border-border/20 sticky top-0 bg-[#0d1117] z-10">
+                <div
+                  className="mb-1 px-3 py-2 flex items-center gap-2 font-mono text-xs text-muted-foreground border-b border-border/20 sticky top-0 z-10"
+                  style={{ background: 'var(--code-bg, #0d1117)' }}
+                >
                   <FileCode className="h-3.5 w-3.5" />
                   <span className="truncate">{selectedFile}</span>
                 </div>
@@ -450,6 +458,7 @@ export function GitDiffView({ sessionId, project, className, onProceed }: GitDif
                   fileName={selectedFile}
                   options={{
                     theme: DIFF_THEME,
+                    themeType: activeTheme.type,
                     diffStyle: 'unified',
                     enableHoverUtility: true,
                   }}
@@ -592,6 +601,7 @@ interface MultiFileDiffViewProps {
 }
 
 function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, createRenderHoverUtility }: MultiFileDiffViewProps) {
+  const { activeTheme } = useTerminalTheme();
   const { parsedFiles, parseError } = useMemo(() => {
     try {
       const patches = parsePatchFiles(diff);
@@ -678,6 +688,7 @@ function MultiFileDiffView({ diff, getLineAnnotationsForFile, renderAnnotation, 
                   fileDiff={fileDiff}
                   options={{
                     theme: DIFF_THEME,
+                    themeType: activeTheme.type,
                     diffStyle: 'unified',
                     enableHoverUtility: true,
                   }}

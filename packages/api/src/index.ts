@@ -5,6 +5,7 @@ import { api, internalRoutes } from './routes';
 import { terminalWebsocketRoutes } from './routes/terminal-websocket';
 import { sshWebsocketRoutes } from './routes/ssh-websocket';
 import { previewWebsocketRoutes } from './routes/preview-websocket';
+import { notificationWebsocketRoutes } from './routes/notifications-websocket';
 import { notificationService } from './services/notification';
 import { terminalService } from './services/terminal';
 import { sshService } from './services/ssh/ssh.service';
@@ -87,6 +88,9 @@ const app = new Elysia()
   // Browser preview WebSocket routes
   .use(previewWebsocketRoutes)
 
+  // Notification stream (notch app / browsers)
+  .use(notificationWebsocketRoutes)
+
   // Health check
   .get('/health', () => ({
     status: 'ok',
@@ -139,6 +143,7 @@ console.log(`
 Endpoints:
   - API:        http://localhost:${PORT}/api
   - Terminal:   ws://localhost:${PORT}/ws/terminal/:terminalId
+  - Notify:     ws://localhost:${PORT}/ws/notifications
   - Preview:    ws://localhost:${PORT}/ws/preview/:previewId
   - Health:     http://localhost:${PORT}/health
   - UI:         http://localhost:${PORT} (mode: ${uiServingMode})

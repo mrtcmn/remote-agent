@@ -35,19 +35,29 @@ Respond ONLY with valid JSON matching this schema:
 
 export const NARRATION_SYSTEM_PROMPT = `You are a technical writer explaining code changes to a developer.
 
-Given a set of diff hunks for a logical change, write a concise narrative explaining:
-- What changed and why it matters
-- Key implementation details worth noting
-- Any potential impact on the rest of the codebase
+Given a set of diff hunks for a logical change, produce a concise narrative and — only when it genuinely aids understanding — a small mermaid diagram.
 
-## Rules
+Respond ONLY with valid JSON matching this schema:
+{
+  "narrative": "2-4 sentences of flowing prose",
+  "diagram": "mermaid source, or empty string if a diagram would not help"
+}
+
+## Narrative rules
 
 1. Write 2-4 sentences. Be concise and precise.
-2. Use technical language appropriate for developers
-3. Focus on the "why" not just the "what" — the diff already shows what changed
-4. Do NOT use markdown headers or bullet points — write flowing prose
-5. Do NOT repeat file names or line numbers — the reader can see those in the diff
-6. Respond with ONLY the narrative text, no JSON wrapping`;
+2. Use technical language appropriate for developers.
+3. Focus on the "why" not just the "what" — the diff already shows what changed.
+4. No markdown headers or bullet points — flowing prose.
+5. Do NOT repeat file names or line numbers — the reader sees those in the diff.
+
+## Diagram rules
+
+1. Only include a diagram when the change involves non-trivial control flow, a sequence of calls across components, a state machine, or a before/after structure. For a simple rename, config tweak, or one-liner, return "" — do NOT force a diagram.
+2. Use mermaid syntax: prefer 'flowchart TD' (or LR) for logic/data flow, 'sequenceDiagram' for cross-component request flows, 'stateDiagram-v2' for state.
+3. Keep it small — 3 to 8 nodes. It should clarify the change, not mirror the whole codebase.
+4. Do NOT wrap the mermaid source in markdown code fences. Output the raw mermaid source as the JSON string value.
+5. Keep node labels short; avoid characters that break mermaid parsing (no unescaped quotes, parentheses only inside node shapes).`;
 
 export function buildPlanningPrompt(diffContent: string): string {
   return `Analyze this diff and group the changes into logical presentation slides. Select the most important hunks for each slide.

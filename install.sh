@@ -41,12 +41,55 @@ echo "    Remote Agent Installation"
 echo "========================================"
 echo ""
 
-# Check if running as root for /opt installation
+# Fall back to home directory when not root (no sudo required)
 if [ "$INSTALL_DIR" = "/opt/remote-agent" ] && [ "$EUID" -ne 0 ]; then
-    log_error "Installing to /opt requires root privileges."
-    log_info "Run with: sudo bash install.sh"
-    log_info "Or set custom directory: INSTALL_DIR=~/remote-agent bash install.sh"
-    exit 1
+    INSTALL_DIR="$HOME/remote-agent"
+    log_warn "Not running as root — installing to $INSTALL_DIR"
+fi
+
+# Prompt helper: works under `curl | bash` (reads /dev/tty), silently
+# falls back to empty (=defaults) when no terminal is attached.
+prompt() {
+    local ans=""
+    if [ -z "${NONINTERACTIVE:-}" ] && [ -r /dev/tty ]; then
+        read -r -p "$1" ans < /dev/tty || true
+    fi
+    echo "$ans"
+}
+
+rand_hex() {
+    head -c "$1" /dev/urandom | od -An -tx1 | tr -d ' \n'
+}
+
+# Machine role: a master hosts sessions and is driven by paired machines; a
+# connector pairs to an existing master and drives it from its own UI.
+# Auth on a connector comes from the master via the pairing token — no
+# credentials are asked here.
+ROLE="${ROLE:-}"
+if [ -z "$ROLE" ]; then
+    echo ""
+    echo "How will this machine be used?"
+    echo "  1) master    — hosts sessions, other machines pair to it (needs a reachable URL)"
+    echo "  2) connector — pairs to an existing master and controls it from here"
+    ROLE_CHOICE="$(prompt 'Select role [1]: ')"
+    case "$ROLE_CHOICE" in
+        2|connector) ROLE="connector" ;;
+        *) ROLE="master" ;;
+    esac
+fi
+
+MASTER_URL="${MASTER_URL:-}"
+PAIRING_TOKEN="${PAIRING_TOKEN:-}"
+if [ "$ROLE" = "connector" ]; then
+    if [ -z "$MASTER_URL" ]; then
+        MASTER_URL="$(prompt 'Master URL (e.g. https://master.example.com): ')"
+    fi
+    if [ -z "$PAIRING_TOKEN" ]; then
+        PAIRING_TOKEN="$(prompt 'Pairing token (rapt_..., from master Settings > Paired secondaries): ')"
+    fi
+    if [ -z "$MASTER_URL" ] || [ -z "$PAIRING_TOKEN" ]; then
+        log_warn "No master URL/token given — install continues, pair later in Settings > Paired masters."
+    fi
 fi
 
 # Check Docker
@@ -97,43 +140,30 @@ if [ ! -f .env ]; then
     log_info "Setting up environment configuration..."
     echo ""
 
-    # Database password
-    POSTGRES_PASSWORD=$(openssl rand -hex 16)
+    # Generated secrets
+    POSTGRES_PASSWORD=$(rand_hex 16)
+    JWT_SECRET=$(rand_hex 32)
 
-    read -p "Enter GITHUB_CLIENT_ID (for OAuth): " GITHUB_CLIENT_ID
-    if [ -z "$GITHUB_CLIENT_ID" ]; then
-        log_error "GITHUB_CLIENT_ID is required"
-        exit 1
+    # GitHub OAuth is optional — email/password login works out of the box.
+    # Connectors skip these prompts entirely: they sit behind NAT and get
+    # their identity from the master via the pairing token.
+    if [ "$ROLE" = "master" ]; then
+        GITHUB_CLIENT_ID="${GITHUB_CLIENT_ID:-$(prompt 'GITHUB_CLIENT_ID (optional, Enter to skip): ')}"
+        if [ -n "$GITHUB_CLIENT_ID" ] && [ -z "${GITHUB_CLIENT_SECRET:-}" ]; then
+            GITHUB_CLIENT_SECRET="$(prompt 'GITHUB_CLIENT_SECRET: ')"
+        fi
+
+        # Get external IP or use localhost
+        EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "localhost")
+        if [ -z "${APP_URL:-}" ]; then
+            APP_URL="$(prompt "APP_URL [http://${EXTERNAL_IP}:5100]: ")"
+            APP_URL=${APP_URL:-"http://${EXTERNAL_IP}:5100"}
+        fi
+    else
+        APP_URL="${APP_URL:-http://localhost:5100}"
     fi
 
-    read -p "Enter GITHUB_CLIENT_SECRET: " GITHUB_CLIENT_SECRET
-    if [ -z "$GITHUB_CLIENT_SECRET" ]; then
-        log_error "GITHUB_CLIENT_SECRET is required"
-        exit 1
-    fi
-
-    echo ""
-    read -p "Setup Firebase Push Notifications? (y/n) [n]: " SETUP_FIREBASE
-    SETUP_FIREBASE=${SETUP_FIREBASE:-n}
-
-    FIREBASE_PROJECT_ID=""
-    FIREBASE_PRIVATE_KEY=""
-    FIREBASE_CLIENT_EMAIL=""
-
-    if [ "$SETUP_FIREBASE" = "y" ] || [ "$SETUP_FIREBASE" = "Y" ]; then
-        read -p "Enter FIREBASE_PROJECT_ID: " FIREBASE_PROJECT_ID
-        read -p "Enter FIREBASE_CLIENT_EMAIL: " FIREBASE_CLIENT_EMAIL
-        echo "Enter FIREBASE_PRIVATE_KEY (paste and press Ctrl+D):"
-        FIREBASE_PRIVATE_KEY=$(cat)
-    fi
-
-    # Generate JWT secret
-    JWT_SECRET=$(openssl rand -hex 32)
-
-    # Get external IP or use localhost
-    EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "localhost")
-    read -p "Enter APP_URL [http://${EXTERNAL_IP}:5100]: " APP_URL
-    APP_URL=${APP_URL:-"http://${EXTERNAL_IP}:5100"}
+    # Firebase push notifications: optional, env-only (FIREBASE_* vars)
 
     cat > .env << EOF
 # Remote Agent Configuration
@@ -147,17 +177,17 @@ POSTGRES_USER=agent
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_DB=remote_agent
 
-# GitHub OAuth
-GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
-GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+# GitHub OAuth (optional — email/password login works without it)
+GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
 
 # Security
 JWT_SECRET=${JWT_SECRET}
 
 # Firebase Push Notifications (optional)
-FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
-FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY}
-FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL}
+FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:-}
+FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY:-}
+FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL:-}
 
 # Application
 PORT=5100
@@ -200,6 +230,45 @@ if [ $ATTEMPT -gt $MAX_ATTEMPTS ]; then
     exit 1
 fi
 
+# Auto-pair connector with its master using the seeded local account —
+# identity on the master side comes from the pairing token, so no
+# credentials are ever asked.
+PAIRED=""
+if [ "$ROLE" = "connector" ] && [ -n "$MASTER_URL" ] && [ -n "$PAIRING_TOKEN" ]; then
+    log_info "Pairing with master ${MASTER_URL}..."
+    COOKIE_JAR=$(mktemp)
+    SIGNED_IN=""
+    # Seed user is created shortly after boot — retry sign-in briefly
+    for _ in 1 2 3 4 5; do
+        if curl -sf -c "$COOKIE_JAR" -X POST http://localhost:5100/api/auth/sign-in/email \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"test@t.com","password":"123456"}' > /dev/null 2>&1; then
+            SIGNED_IN=1
+            break
+        fi
+        sleep 2
+    done
+
+    if [ -n "$SIGNED_IN" ]; then
+        PAIR_RESP=$(curl -s -b "$COOKIE_JAR" -X POST http://localhost:5100/api/paired-masters \
+            -H 'Content-Type: application/json' \
+            -d "{\"url\":\"${MASTER_URL}\",\"token\":\"${PAIRING_TOKEN}\",\"name\":\"$(hostname 2>/dev/null || echo connector)\"}")
+        if echo "$PAIR_RESP" | grep -q '"master"'; then
+            PAIRED=1
+            log_success "Paired with master ${MASTER_URL}"
+        else
+            log_warn "Auto-pair failed: ${PAIR_RESP}"
+        fi
+    else
+        log_warn "Could not sign in to local instance for pairing."
+    fi
+    rm -f "$COOKIE_JAR"
+
+    if [ -z "$PAIRED" ]; then
+        log_info "Pair manually: Settings > Paired masters (token is single-use — generate a fresh one on the master if needed)"
+    fi
+fi
+
 # Get current version
 CURRENT_VERSION=$(docker exec remote-agent printenv APP_VERSION 2>/dev/null || echo "latest")
 
@@ -214,9 +283,22 @@ echo "  URL:       http://localhost:5100"
 echo ""
 echo "Quick Start:"
 echo "  1. Open http://localhost:5100 in your browser"
-echo "  2. Login with GitHub"
-echo "  3. Set up a PIN for extra security"
-echo "  4. Create a project and start coding!"
+if [ -n "${GITHUB_CLIENT_ID:-}" ]; then
+    echo "  2. Login with GitHub"
+else
+    echo "  2. Login with test@t.com / 123456 (change it after first login)"
+fi
+if [ "$ROLE" = "connector" ]; then
+    if [ -n "$PAIRED" ]; then
+        echo "  3. Your master's sessions appear in the sidebar (machine switcher)"
+    else
+        echo "  3. Finish pairing: Settings > Paired masters"
+    fi
+else
+    echo "  3. Set up a PIN for extra security"
+    echo "  4. To control this machine from another PC: Settings > Paired secondaries"
+    echo "     > Generate pairing token, then install with role 'connector' there."
+fi
 echo ""
 echo "Management Commands:"
 echo "  cd ${INSTALL_DIR}"
