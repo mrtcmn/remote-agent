@@ -57,6 +57,29 @@ prompt() {
     echo "$ans"
 }
 
+# --uninstall / -u / UNINSTALL=1: stop and remove containers, optionally
+# wipe data volumes and the install directory. Exits before touching
+# anything else.
+if [ "${1:-}" = "--uninstall" ] || [ "${1:-}" = "-u" ] || [ -n "${UNINSTALL:-}" ]; then
+    if [ ! -d "$INSTALL_DIR" ] || [ ! -f "$INSTALL_DIR/docker-compose.yml" ]; then
+        log_error "No installation found at $INSTALL_DIR (set INSTALL_DIR=... if it's elsewhere)"
+        exit 1
+    fi
+    cd "$INSTALL_DIR"
+    log_warn "This stops and removes the Remote Agent containers at $INSTALL_DIR."
+    RM_VOLUMES="$(prompt 'Also delete data (database, isolated-mode workspaces)? [y/N]: ')"
+    RM_DIR="$(prompt "Also delete the install directory ($INSTALL_DIR)? [y/N]: ")"
+    case "$RM_VOLUMES" in
+        y|Y|yes) docker compose down -v --remove-orphans; log_warn "Containers and volumes removed." ;;
+        *) docker compose down --remove-orphans; log_success "Containers removed (data volumes kept)." ;;
+    esac
+    case "$RM_DIR" in
+        y|Y|yes) cd /; rm -rf "$INSTALL_DIR"; log_success "Removed $INSTALL_DIR" ;;
+    esac
+    log_success "Uninstall complete."
+    exit 0
+fi
+
 rand_hex() {
     head -c "$1" /dev/urandom | od -An -tx1 | tr -d ' \n'
 }
@@ -166,6 +189,11 @@ curl -fsSL "${REPO_URL}/docker/docker-compose.prod.yml" -o docker-compose.yml
 # Download upgrade script
 curl -fsSL "${REPO_URL}/scripts/upgrade.sh" -o upgrade.sh
 chmod +x upgrade.sh
+
+# Save this installer too, so `./install.sh --uninstall` works later
+# without re-curling
+curl -fsSL "${REPO_URL}/install.sh" -o install.sh
+chmod +x install.sh
 
 log_success "Configuration files downloaded"
 
@@ -405,4 +433,5 @@ echo "  ./upgrade.sh --check      # Check for updates only"
 echo "  docker compose logs -f    # View logs"
 echo "  docker compose restart    # Restart services"
 echo "  docker compose down       # Stop services"
+echo "  ./install.sh --uninstall  # Remove Remote Agent"
 echo ""
