@@ -67,6 +67,12 @@ if [ "${1:-}" = "--uninstall" ] || [ "${1:-}" = "-u" ] || [ -n "${UNINSTALL:-}" 
     fi
     cd "$INSTALL_DIR"
     log_warn "This stops and removes the Remote Agent containers at $INSTALL_DIR."
+    if systemctl is-enabled remote-agent &> /dev/null; then
+        systemctl disable --now remote-agent 2>/dev/null || true
+        rm -f /etc/systemd/system/remote-agent.service
+        systemctl daemon-reload
+        log_warn "Stopped and removed remote-agent.service (host mode)."
+    fi
     RM_VOLUMES="$(prompt 'Also delete data (database, isolated-mode workspaces)? [y/N]: ')"
     RM_DIR="$(prompt "Also delete the install directory ($INSTALL_DIR)? [y/N]: ")"
     case "$RM_VOLUMES" in
@@ -150,6 +156,25 @@ if [ "$ROLE" = "connector" ]; then
     fi
 fi
 
+# Deploy mode: "docker" runs the whole app (incl. Claude sessions) sandboxed
+# in the remote-agent container. "host" keeps only Postgres in Docker and
+# runs the API — and therefore every Claude session it spawns — as a plain
+# host process, with real access to the host filesystem, binaries and
+# network (e.g. an existing host `claude` install). Both modes still need
+# Docker for the database.
+DEPLOY_MODE="${DEPLOY_MODE:-}"
+if [ -z "$DEPLOY_MODE" ]; then
+    echo ""
+    echo "How should the app itself run?"
+    echo "  1) Docker    — fully sandboxed, Claude sessions run inside the container (default)"
+    echo "  2) Host      — Postgres in Docker, API + Claude sessions run natively on this host"
+    DEPLOY_CHOICE="$(prompt 'Select [1]: ')"
+    case "$DEPLOY_CHOICE" in
+        2|host) DEPLOY_MODE="host" ;;
+        *) DEPLOY_MODE="docker" ;;
+    esac
+fi
+
 # Check Docker
 log_info "Checking Docker installation..."
 if ! command -v docker &> /dev/null; then
@@ -228,8 +253,9 @@ if [ ! -f .env ]; then
 
     # Firebase push notifications: optional, env-only (FIREBASE_* vars)
 
-    # Where Claude's session files (workspaces, ssh keys) live
-    if [ -z "${WORKSPACES_SRC:-}" ]; then
+    # Where Claude's session files (workspaces, ssh keys) live — only
+    # meaningful in docker mode; host mode uses the host filesystem directly.
+    if [ "$DEPLOY_MODE" = "docker" ] && [ -z "${WORKSPACES_SRC:-}" ]; then
         echo ""
         echo "Where should Claude's workspace/project files live?"
         echo "  1) Host directory — ${INSTALL_DIR}/workspaces, directly browsable/editable from the host (default)"
@@ -247,8 +273,10 @@ if [ ! -f .env ]; then
         esac
     fi
 
-    # Which interface the app port (5100) binds to on the host
-    if [ -z "${BIND_HOST:-}" ]; then
+    # Which interface the app port (5100) binds to on the host — host mode
+    # always binds all interfaces (it's a plain Bun process, not a container
+    # port mapping), so this only applies to docker mode.
+    if [ "$DEPLOY_MODE" = "docker" ] && [ -z "${BIND_HOST:-}" ]; then
         echo ""
         echo "Bind the app port (5100) to which address?"
         echo "  1) 127.0.0.1 — localhost only, put a reverse proxy in front (default)"
@@ -288,55 +316,138 @@ FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL:-}
 
 # Application
 PORT=5100
-BIND_HOST=${BIND_HOST}
+BIND_HOST=${BIND_HOST:-}
 APP_URL=${APP_URL}
 NODE_ENV=production
 
 # Storage
-WORKSPACES_SRC=${WORKSPACES_SRC}
-SSH_KEYS_SRC=${SSH_KEYS_SRC}
+WORKSPACES_SRC=${WORKSPACES_SRC:-}
+SSH_KEYS_SRC=${SSH_KEYS_SRC:-}
+
+# Deploy mode
+DEPLOY_MODE=${DEPLOY_MODE}
+DB_PORT=5432
 EOF
 
     chmod 600 .env
     log_success "Environment configuration created"
 else
     log_info "Using existing .env file"
+    DEPLOY_MODE="$(grep -m1 '^DEPLOY_MODE=' .env 2>/dev/null | cut -d= -f2)"
+    DEPLOY_MODE="${DEPLOY_MODE:-docker}"
 fi
 
-# Pull Docker image
-echo ""
-log_info "Pulling Docker image: ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-docker pull "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-log_success "Docker image pulled"
-
-# Tear down any existing/stale containers first — both so the port check
-# below isn't fooled by our own old containers still holding the ports, and
-# so a broken container from a prior failed run gets fully recreated.
-docker compose down --remove-orphans 2>/dev/null || true
-
-# Check the ports we're about to bind — every run, not just first install,
-# since another container (e.g. something already using 8080) can show up later.
-log_info "Checking required ports are free..."
 PORT="$(grep -m1 '^PORT=' .env 2>/dev/null | cut -d= -f2)"
 PORT="${PORT:-5100}"
-CODE_SERVER_PORT="$(grep -m1 '^CODE_SERVER_PORT=' .env 2>/dev/null | cut -d= -f2)"
-CODE_SERVER_PORT="${CODE_SERVER_PORT:-8080}"
-ensure_port_free PORT "app UI"
-ensure_port_free CODE_SERVER_PORT "code-server"
-grep -v '^PORT=\|^CODE_SERVER_PORT=' .env > .env.tmp || true
-{
-    cat .env.tmp
-    echo "PORT=${PORT}"
-    echo "CODE_SERVER_PORT=${CODE_SERVER_PORT}"
-} > .env
-rm -f .env.tmp
-chmod 600 .env
-log_success "Ports OK (app: ${PORT}, code-server: ${CODE_SERVER_PORT})"
 
-# Start services
-echo ""
-log_info "Starting Remote Agent..."
-docker compose up -d --remove-orphans
+if [ "$DEPLOY_MODE" = "docker" ]; then
+    # Pull Docker image
+    echo ""
+    log_info "Pulling Docker image: ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+    docker pull "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+    log_success "Docker image pulled"
+
+    # Tear down any existing/stale containers first — both so the port check
+    # below isn't fooled by our own old containers still holding the ports, and
+    # so a broken container from a prior failed run gets fully recreated.
+    docker compose down --remove-orphans 2>/dev/null || true
+
+    # Check the ports we're about to bind — every run, not just first install,
+    # since another container (e.g. something already using 8080) can show up later.
+    log_info "Checking required ports are free..."
+    CODE_SERVER_PORT="$(grep -m1 '^CODE_SERVER_PORT=' .env 2>/dev/null | cut -d= -f2)"
+    CODE_SERVER_PORT="${CODE_SERVER_PORT:-8080}"
+    ensure_port_free PORT "app UI"
+    ensure_port_free CODE_SERVER_PORT "code-server"
+    grep -v '^PORT=\|^CODE_SERVER_PORT=' .env > .env.tmp || true
+    {
+        cat .env.tmp
+        echo "PORT=${PORT}"
+        echo "CODE_SERVER_PORT=${CODE_SERVER_PORT}"
+    } > .env
+    rm -f .env.tmp
+    chmod 600 .env
+    log_success "Ports OK (app: ${PORT}, code-server: ${CODE_SERVER_PORT})"
+
+    # Start services
+    echo ""
+    log_info "Starting Remote Agent..."
+    docker compose up -d --remove-orphans
+else
+    # Host mode: only Postgres runs in Docker. The API — and every Claude
+    # session it spawns — runs as a plain systemd-managed host process.
+    ensure_port_free PORT "app UI"
+    grep -v '^PORT=' .env > .env.tmp || true
+    { cat .env.tmp; echo "PORT=${PORT}"; } > .env
+    rm -f .env.tmp
+    chmod 600 .env
+
+    echo ""
+    log_info "Starting Postgres (Docker)..."
+    docker compose up -d --remove-orphans db
+    log_success "Postgres running"
+
+    if ! command -v bun &> /dev/null; then
+        log_warn "Bun not found. Installing..."
+        curl -fsSL https://bun.sh/install | bash
+        export PATH="$HOME/.bun/bin:$PATH"
+    fi
+    log_success "Bun is installed"
+
+    if ! command -v claude &> /dev/null; then
+        log_warn "Claude Code CLI not found on host. Sessions will fail until it's installed (npm install -g @anthropic-ai/claude-code)."
+    fi
+    CLAUDE_BIN_PATH="$(command -v claude || echo "$HOME/.local/bin/claude")"
+
+    APP_SRC_DIR="${INSTALL_DIR}/app"
+    if [ ! -d "$APP_SRC_DIR/.git" ]; then
+        log_info "Cloning source..."
+        command -v git &> /dev/null || (command -v apt-get &> /dev/null && apt-get update && apt-get install -y git)
+        git clone "https://github.com/${GITHUB_REPO}.git" "$APP_SRC_DIR"
+    else
+        log_info "Updating source..."
+        git -C "$APP_SRC_DIR" pull --ff-only
+    fi
+
+    log_info "Installing dependencies and building..."
+    (cd "$APP_SRC_DIR" && bun install && bun run build)
+    log_success "Build complete"
+
+    POSTGRES_PASSWORD="$(grep -m1 '^POSTGRES_PASSWORD=' .env | cut -d= -f2)"
+    JWT_SECRET="$(grep -m1 '^JWT_SECRET=' .env | cut -d= -f2)"
+    DB_PORT="$(grep -m1 '^DB_PORT=' .env 2>/dev/null | cut -d= -f2)"
+    DB_PORT="${DB_PORT:-5432}"
+    HOST_DATABASE_URL="postgres://agent:${POSTGRES_PASSWORD}@localhost:${DB_PORT}/remote_agent"
+
+    log_info "Running database migrations..."
+    (cd "$APP_SRC_DIR" && DATABASE_URL="$HOST_DATABASE_URL" bun run db:migrate)
+
+    log_info "Installing systemd service..."
+    cat > /etc/systemd/system/remote-agent.service << EOF
+[Unit]
+Description=Remote Agent API (host mode)
+After=network.target docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=${APP_SRC_DIR}
+Environment=DATABASE_URL=${HOST_DATABASE_URL}
+Environment=JWT_SECRET=${JWT_SECRET}
+Environment=CLAUDE_BIN_PATH=${CLAUDE_BIN_PATH}
+Environment=PORT=${PORT}
+Environment=NODE_ENV=production
+Environment=PATH=${HOME}/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=$(command -v bun) run start
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now remote-agent
+    log_success "remote-agent.service started"
+fi
 
 # Wait for health check
 log_info "Waiting for service to be ready..."
@@ -396,7 +507,11 @@ if [ "$ROLE" = "connector" ] && [ -n "$MASTER_URL" ] && [ -n "$PAIRING_TOKEN" ];
 fi
 
 # Get current version
-CURRENT_VERSION=$(docker exec remote-agent printenv APP_VERSION 2>/dev/null || echo "latest")
+if [ "$DEPLOY_MODE" = "docker" ]; then
+    CURRENT_VERSION=$(docker exec remote-agent printenv APP_VERSION 2>/dev/null || echo "latest")
+else
+    CURRENT_VERSION=$(git -C "${INSTALL_DIR}/app" rev-parse --short HEAD 2>/dev/null || echo "latest")
+fi
 
 echo ""
 echo "========================================"
@@ -426,12 +541,22 @@ else
     echo "     > Generate pairing token, then install with role 'connector' there."
 fi
 echo ""
-echo "Management Commands:"
-echo "  cd ${INSTALL_DIR}"
-echo "  ./upgrade.sh              # Check for and install updates"
-echo "  ./upgrade.sh --check      # Check for updates only"
-echo "  docker compose logs -f    # View logs"
-echo "  docker compose restart    # Restart services"
-echo "  docker compose down       # Stop services"
-echo "  ./install.sh --uninstall  # Remove Remote Agent"
+if [ "$DEPLOY_MODE" = "docker" ]; then
+    echo "Management Commands:"
+    echo "  cd ${INSTALL_DIR}"
+    echo "  ./upgrade.sh              # Check for and install updates"
+    echo "  ./upgrade.sh --check      # Check for updates only"
+    echo "  docker compose logs -f    # View logs"
+    echo "  docker compose restart    # Restart services"
+    echo "  docker compose down       # Stop services"
+    echo "  ./install.sh --uninstall  # Remove Remote Agent"
+else
+    echo "Host mode: API runs natively via systemd (Postgres still in Docker)."
+    echo "Management Commands:"
+    echo "  journalctl -u remote-agent -f   # View logs"
+    echo "  systemctl restart remote-agent  # Restart the API"
+    echo "  systemctl stop remote-agent     # Stop the API"
+    echo "  cd ${INSTALL_DIR} && docker compose stop db   # Stop Postgres"
+    echo "  ./install.sh --uninstall        # Remove Remote Agent"
+fi
 echo ""
