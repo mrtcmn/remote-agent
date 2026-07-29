@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Bell, Key, Lock, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw, RefreshCw, ExternalLink, Package, Trash2, Globe, Plus, X, Github, Star, ChevronDown, ChevronRight, Building2 } from 'lucide-react';
+import { Bell, Key, Lock, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw, RefreshCw, ExternalLink, Package, Trash2, Globe, Plus, X, Github, Star, ChevronDown, ChevronRight, Building2, Cpu, Mic } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -28,6 +28,8 @@ export function SettingsPage() {
       <PinSection hasPin={user?.hasPin || false} />
       <MachinesSection />
       <OriginsSection />
+      <LLMEngineSection />
+      <DictationSection />
       <GitHubAppsSection />
       <NotificationSection />
       <SSHKeysSection />
@@ -449,6 +451,194 @@ function OriginsSection() {
             Add
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// OpenAI-compatible presets. baseUrl/model are prefilled but stay editable —
+// set the exact model id your provider lists. Cerebras is picked for its speed.
+const LLM_PRESETS: { id: string; label: string; provider: 'claude-code' | 'openai'; baseUrl: string; model: string }[] = [
+  { id: 'claude-code', label: 'Claude Code (local CLI · default)', provider: 'claude-code', baseUrl: '', model: '' },
+  { id: 'cerebras', label: 'Cerebras (fast)', provider: 'openai', baseUrl: 'https://api.cerebras.ai/v1', model: 'llama-3.3-70b' },
+  { id: 'groq', label: 'Groq', provider: 'openai', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' },
+  { id: 'openai', label: 'OpenAI', provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  { id: 'custom', label: 'Custom (OpenAI-compatible)', provider: 'openai', baseUrl: '', model: '' },
+];
+
+function LLMEngineSection() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({ queryKey: ['llm-settings'], queryFn: api.getLLMSettings });
+
+  const [preset, setPreset] = useState('claude-code');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [model, setModel] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [hasApiKey, setHasApiKey] = useState(false);
+
+  // Hydrate from server once loaded: match the stored config back to a preset.
+  useEffect(() => {
+    if (!data) return;
+    const match = data.provider === 'claude-code'
+      ? 'claude-code'
+      : (LLM_PRESETS.find((p) => p.provider === 'openai' && p.baseUrl === data.baseUrl)?.id ?? 'custom');
+    setPreset(match);
+    setBaseUrl(data.baseUrl);
+    setModel(data.model);
+    setHasApiKey(data.hasApiKey);
+  }, [data]);
+
+  const provider = LLM_PRESETS.find((p) => p.id === preset)?.provider ?? 'openai';
+  const isOpenAI = provider === 'openai';
+
+  const handlePreset = (id: string) => {
+    setPreset(id);
+    const p = LLM_PRESETS.find((x) => x.id === id);
+    if (p && p.id !== 'custom') {
+      setBaseUrl(p.baseUrl);
+      setModel(p.model);
+    }
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: api.updateLLMSettings,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['llm-settings'] });
+      setApiKey('');
+      toast({ title: 'AI engine updated' });
+    },
+    onError: (err) => toast({ title: 'Error', description: (err as Error).message, variant: 'destructive' }),
+  });
+
+  const canSave = provider === 'claude-code'
+    ? true
+    : Boolean(baseUrl && model && (apiKey || hasApiKey));
+
+  const handleSave = () => {
+    saveMutation.mutate({
+      provider,
+      baseUrl: isOpenAI ? baseUrl.trim() : '',
+      model: isOpenAI ? model.trim() : '',
+      ...(apiKey ? { apiKey } : {}),
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Cpu className="h-5 w-5" />
+          <CardTitle>AI Engine</CardTitle>
+        </div>
+        <CardDescription>
+          Model that writes notification summaries and PR-diff slides. Defaults to the local
+          Claude Code CLI; point it at any OpenAI-compatible endpoint for faster/cheaper runs.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-md">
+        <div>
+          <label className="text-sm font-medium">Provider</label>
+          <select
+            value={preset}
+            onChange={(e) => handlePreset(e.target.value)}
+            className="mt-1 w-full rounded-md border bg-transparent px-3 py-2 text-sm"
+          >
+            {LLM_PRESETS.map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {isOpenAI && (
+          <>
+            <div>
+              <label className="text-sm font-medium">Base URL</label>
+              <Input
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                placeholder="https://api.cerebras.ai/v1"
+                className="font-mono text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Model</label>
+              <Input
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder="llama-3.3-70b"
+                className="font-mono text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">API Key</label>
+              <Input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={hasApiKey ? '•••••••• (leave blank to keep)' : 'sk-…'}
+                className="font-mono text-sm"
+              />
+            </div>
+          </>
+        )}
+
+        <Button onClick={handleSave} disabled={!canSave || saveMutation.isPending}>
+          {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+          Save
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DictationSection() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({ queryKey: ['soniox-settings'], queryFn: api.getSonioxSettings });
+  const [apiKey, setApiKey] = useState('');
+  const hasApiKey = data?.hasApiKey ?? false;
+
+  const saveMutation = useMutation({
+    mutationFn: () => api.updateSonioxSettings(apiKey.trim()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['soniox-settings'] });
+      setApiKey('');
+      toast({ title: 'Dictation key saved' });
+    },
+    onError: (err) => toast({ title: 'Error', description: (err as Error).message, variant: 'destructive' }),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Mic className="h-5 w-5" />
+          <CardTitle>Dictation</CardTitle>
+        </div>
+        <CardDescription>
+          Hold <kbd className="px-1 rounded bg-muted font-mono text-xs">⌃⇧</kbd> in a session to talk;
+          the transcript is typed into the active terminal. Powered by Soniox — paste a key from{' '}
+          <a href="https://console.soniox.com" target="_blank" rel="noreferrer" className="underline">console.soniox.com</a>.
+          The key stays on the server; the browser only gets short-lived temporary keys.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-md">
+        <div>
+          <label className="text-sm font-medium flex items-center gap-2">
+            API Key
+            {hasApiKey && <span className="inline-flex items-center gap-1 text-xs text-green-600"><Check className="h-3 w-3" /> configured</span>}
+          </label>
+          <Input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder={hasApiKey ? '•••••••• (leave blank to keep)' : 'soniox api key'}
+            className="font-mono text-sm"
+          />
+        </div>
+        <Button onClick={() => saveMutation.mutate()} disabled={!apiKey.trim() || saveMutation.isPending}>
+          {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+          Save
+        </Button>
       </CardContent>
     </Card>
   );

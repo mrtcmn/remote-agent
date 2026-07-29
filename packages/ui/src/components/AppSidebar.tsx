@@ -22,6 +22,7 @@ import {
   Play,
   Laptop,
   Server,
+  Search,
 } from 'lucide-react';
 import { NewSessionModal } from '@/components/NewSessionModal';
 import { SshHostsSection } from '@/components/ssh/SshHostsSection';
@@ -29,6 +30,8 @@ import { AIModelIcon, detectAIModel } from '@/components/AIModelIcon';
 import { FormattedText } from '@/components/FormattedText';
 import { cn } from '@/lib/utils';
 import { FEATURE_SECTION_TASKS, FEATURE_SESSION_SSH } from '@/lib/flags';
+import { openCommandBar } from '@/components/CommandBar';
+import { Kbd } from '@/components/ui/kbd';
 import {
   api,
   type SidebarSession,
@@ -713,8 +716,22 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
       </div>
       )}
 
+      {/* Command palette entry */}
+      <div className="px-2 pt-2 shrink-0">
+        <button
+          onClick={openCommandBar}
+          className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors electrobun-webkit-app-region-no-drag"
+        >
+          <span className="flex items-center gap-1.5">
+            <Search className="size-3.5" />
+            Search…
+          </span>
+          <Kbd>⌘K</Kbd>
+        </button>
+      </div>
+
       {/* New Session button */}
-      <div className="px-2 py-2 shrink-0">
+      <div className="px-2 pb-2 pt-1 shrink-0">
         <motion.button
           whileTap={{ scale: 0.98 }}
           transition={{ duration: 0.12 }}

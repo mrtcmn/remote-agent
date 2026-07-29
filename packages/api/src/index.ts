@@ -12,6 +12,8 @@ import { sshService } from './services/ssh/ssh.service';
 import { browserPreviewService } from './services/browser-preview';
 import { codeServerManager } from './services/code-server/code-server.service';
 import { originsService } from './services/origins';
+import { llmSettings } from './services/llm-engine';
+import { sonioxSettings } from './services/soniox';
 import { masterSyncService } from './services/master-sync';
 import { machineProxyPlugin } from './plugins/machine-proxy';
 import { seedTestUser } from './auth/seed';
@@ -51,6 +53,8 @@ async function loadIndexHtml(): Promise<string | null> {
 
 // Initialize services
 await originsService.initialize();
+await llmSettings.initialize();
+await sonioxSettings.initialize();
 await notificationService.initialize();
 await terminalService.initialize();
 await sshService.initialize();

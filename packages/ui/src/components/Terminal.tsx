@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { useTerminal } from '@/hooks/useTerminal';
 import { useTerminalTheme } from '@/hooks/useTerminalTheme';
 import { useConnectionRecovery } from '@/hooks/useConnectionRecovery';
@@ -20,9 +20,17 @@ interface TerminalProps {
   onTitleChanged?: (name: string) => void;
 }
 
-export function Terminal({ terminalId, className, onExit, onTitleChanged }: TerminalProps) {
+/** Imperative handle so a parent (e.g. dictation) can type into the PTY. */
+export interface TerminalHandle {
+  sendText: (text: string) => void;
+}
+
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(
+  { terminalId, className, onExit, onTitleChanged },
+  ref
+) {
   const { activeTheme, activeFont, activeWeight, activeFontSize } = useTerminalTheme();
-  const { terminalRef, status, fit, refresh, reconnect } = useTerminal({
+  const { terminalRef, status, fit, refresh, reconnect, sendText } = useTerminal({
     terminalId,
     theme: activeTheme.theme,
     fontFamily: activeFont.family,
@@ -32,6 +40,8 @@ export function Terminal({ terminalId, className, onExit, onTitleChanged }: Term
     onTitleChanged,
   });
   const hasRefreshedRef = useRef(false);
+
+  useImperativeHandle(ref, () => ({ sendText }), [sendText]);
 
   // Auto-reconnect when user returns from idle or tab-hidden
   const handleResume = useCallback(() => {
@@ -104,4 +114,4 @@ export function Terminal({ terminalId, className, onExit, onTitleChanged }: Term
       />
     </div>
   );
-}
+});

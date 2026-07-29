@@ -6,6 +6,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { AppSidebar } from '@/components/AppSidebar';
+import { CommandBar } from '@/components/CommandBar';
 import { ResizeHandle } from '@/components/ResizeHandle';
 import { useSidebar } from '@/hooks/useSidebar';
 
@@ -21,6 +22,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-dvh flex-col p-2 bg-background">
+      <CommandBar />
       {/* Full-width top bar: traffic lights → logo → per-page tools (portaled into #app-toolbar) */}
       <div className="shrink-0 flex items-stretch h-9 rounded-t-lg overflow-hidden border border-border bg-card electrobun-webkit-app-region-drag">
         {/* macOS traffic lights sit over this spacer in the desktop app */}
