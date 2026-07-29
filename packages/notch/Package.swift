@@ -8,6 +8,6 @@ let package = Package(
         .executableTarget(
             name: "RemoteAgentNotch",
             path: "Sources/RemoteAgentNotch"
-        )
+        ),
     ]
 )

@@ -3,12 +3,15 @@
  * Detects model from terminal name (case-insensitive).
  */
 
+import { KIMI_ICON_B64 } from './kimi-icon';
+
 const OPENCODE_ICON_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAYAAADimHc4AAABzUlEQVR4AeycQQrCQBAEF1+g6J/0o5LPCXmCnnNx0E2nNqGEPciw024VffV0PZ/fHo7BqflBCSgAxd+aAhQAE4DjbYACYAJwvA1QAEwAjrcBCgAIDBRpA2AZClAATACOtwEKgAnA8TZAATABOD7egNc8tz2ftJ+4gPQD9r5fAbDBDQXALx00XgGwGAUoACYAx9sABcAE4HgboACYABxvAxSwJHC7XFryLNP4bzYg7KBar4CKUHiugDDgar0CKkLhuQLCgKv1CqgIhecKCAOu1iugIhSeKyAMuFqvgIpQeK6AMOBq/XAC7o9H6z5fdlRAtp4PJ2BrAHSeAmADClAATACOtwEKgAnA8TZAATABON4GKAAmAMev2AD4JTuNVwAsTgEKgAnA8TZAATABON4GKAAmAMfbAAXABOB4G9ApoPe6AnoJdt5XQCfA3uvDCXhOU0ueXmBr3x9OwNoPHH2fAmBDClAATACOtwEKgAnA8TZAAX8QONAVGwDLVIACYAJwfLwByf/+2WJ32k9cQPoBe9+vANigAhQAE4DjbYACYAJw/A8NgH/pQeMVAItVgAJgAnC8DVAATACOtwEKgAnA8TZAATABON4GFALS4w8AAAD//x7wkLQAAAAGSURBVAMAKj5LkLSa6SQAAAAASUVORK5CYII=';
 
-type AIModel = 'claude' | 'gemini' | 'openai' | 'codex' | 'opencode' | 'unknown';
+type AIModel = 'claude' | 'gemini' | 'openai' | 'codex' | 'opencode' | 'kimi' | 'unknown';
 
 export function detectAIModel(name: string): AIModel {
   const lower = name.toLowerCase();
+  if (lower.includes('kimi') || lower.includes('moonshot')) return 'kimi';
   if (lower.includes('gemini')) return 'gemini';
   if (lower.includes('codex')) return 'codex';
   if (lower.includes('openai') || lower.includes('gpt')) return 'openai';
@@ -77,6 +80,18 @@ function OpencodeIcon({ size }: { size: number }) {
   );
 }
 
+function KimiIcon({ size }: { size: number }) {
+  return (
+    <img
+      src={`data:image/png;base64,${KIMI_ICON_B64}`}
+      width={size}
+      height={size}
+      alt="Kimi"
+      style={{ display: 'block', borderRadius: size * 0.25 }}
+    />
+  );
+}
+
 export function AIModelIcon({ model, size = 14, className }: AIModelIconProps) {
   const s = size;
 
@@ -104,6 +119,14 @@ export function AIModelIcon({ model, size = 14, className }: AIModelIconProps) {
     );
   }
 
+  if (model === 'kimi') {
+    return (
+      <span className={className} style={{ display: 'inline-flex', width: s, height: s, flexShrink: 0 }}>
+        <KimiIcon size={s} />
+      </span>
+    );
+  }
+
   // Default: Claude/Anthropic
   return (
     <span className={className} style={{ display: 'inline-flex', width: s, height: s, flexShrink: 0 }}>
@@ -124,7 +147,7 @@ export function TerminalAIIcon({
   size?: number;
   className?: string;
 }) {
-  if (terminalType !== 'claude' && terminalType !== 'opencode') return null;
-  const model = terminalType === 'opencode' ? 'opencode' : detectAIModel(terminalName);
+  if (terminalType !== 'claude' && terminalType !== 'opencode' && terminalType !== 'kimi') return null;
+  const model = terminalType === 'opencode' ? 'opencode' : terminalType === 'kimi' ? 'kimi' : detectAIModel(terminalName);
   return <AIModelIcon model={model} size={size} className={className} />;
 }

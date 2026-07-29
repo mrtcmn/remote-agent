@@ -430,6 +430,20 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ origins }),
     }),
+  getLLMSettings: () =>
+    request<LLMSettings>('/settings/llm'),
+  updateLLMSettings: (body: LLMSettingsInput) =>
+    request<LLMSettings>('/settings/llm', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  getSonioxSettings: () =>
+    request<{ hasApiKey: boolean }>('/settings/soniox'),
+  updateSonioxSettings: (apiKey: string) =>
+    request<{ hasApiKey: boolean }>('/settings/soniox', {
+      method: 'PUT',
+      body: JSON.stringify({ apiKey }),
+    }),
 
   // ─── Run Configs ──────────────────────────────────────────────────────────
 
@@ -719,6 +733,19 @@ export const api = {
   deleteSshCredential: (id: string) => request<{ ok: true }>(`/ssh/credentials/${id}`, { method: 'DELETE' }),
 };
 
+export interface LLMSettings {
+  provider: 'claude-code' | 'openai';
+  baseUrl: string;
+  model: string;
+  hasApiKey: boolean;
+}
+export interface LLMSettingsInput {
+  provider: 'claude-code' | 'openai';
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+}
+
 // ── SSH types ──────────────────────────────────────────────────────────────
 export interface SshHost {
   id: string; label: string; host: string; port: number; username: string;
@@ -940,7 +967,7 @@ export interface PairWorkspaceInput {
   claudeSettings?: Record<string, unknown>;
 }
 
-export type TerminalType = 'shell' | 'claude' | 'opencode' | 'process';
+export type TerminalType = 'shell' | 'claude' | 'opencode' | 'kimi' | 'process';
 
 export interface TerminalInfo {
   id: string;

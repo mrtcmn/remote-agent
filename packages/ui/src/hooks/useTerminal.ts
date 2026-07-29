@@ -9,6 +9,7 @@ import { getApiBase } from '@/lib/api-config';
 import { getActiveMachineId, resolveWsPath } from '@/lib/active-machine';
 import { useDropUpload } from '@/lib/drop-upload';
 import { isElectron } from '@/lib/electron';
+import { shellQuote } from '@/lib/shell-quote';
 
 // Decode a base64 WebSocket payload to raw bytes. We hand the Uint8Array
 // straight to xterm.write(), which runs a single UTF-8 decoder whose state is
@@ -69,6 +70,8 @@ interface UseTerminalReturn {
   fit: () => void;
   refresh: () => void;
   reconnect: () => void;
+  /** Send text straight to the PTY (e.g. dictated speech). */
+  sendText: (text: string) => void;
 }
 
 export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
@@ -431,7 +434,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
             }
           }
           if (localPaths.length === files.length) {
-            sendInput(localPaths.map((p) => (p.includes(' ') ? `"${p}"` : p)).join(' ') + ' ');
+            sendInput(localPaths.map(shellQuote).join(' ') + ' ');
             return;
           }
         }
@@ -707,6 +710,13 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
     }
   }, [externalTheme, externalFontFamily, externalFontWeight, externalFontSize, fit]);
 
+  const sendText = useCallback((text: string) => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'input', data: encodeBase64(text) }));
+    }
+  }, []);
+
   return {
     terminalRef,
     isConnected,
@@ -714,5 +724,6 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
     fit,
     refresh,
     reconnect,
+    sendText,
   };
 }

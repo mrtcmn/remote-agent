@@ -64,7 +64,8 @@ final class NotchWindowController: NSWindowController {
                 switch status {
                 case .opened:
                     notchWindow?.ignoresMouseEvents = false
-                    // Don't steal focus when opened by an incoming notification
+                    // Don't steal focus when opened by an incoming notification —
+                    // you're mid-task in another app.
                     if viewModel?.openReason != .notification {
                         NSApp.activate(ignoringOtherApps: false)
                         notchWindow?.makeKey()

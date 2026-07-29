@@ -32,11 +32,13 @@ import {
 } from 'lucide-react';
 import { api, type TerminalType } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
-import { Terminal } from '@/components/Terminal';
+import { Terminal, type TerminalHandle } from '@/components/Terminal';
 import { AIModelIcon, detectAIModel } from '@/components/AIModelIcon';
 import { GitPanel } from '@/components/git';
 import { FileExplorer } from '@/components/FileExplorer';
 import { RecentChangesBar } from '@/components/RecentChangesBar';
+import { DictationBar } from '@/components/DictationBar';
+import { useDictation } from '@/hooks/useDictation';
 import { RunConfigPanel } from '@/components/RunConfigPanel';
 import { RunFlowView } from '@/components/run-flow/RunFlowView';
 import { BrowserPreview } from '@/components/BrowserPreview';
@@ -191,6 +193,7 @@ function StatusDot({ color = '#22c55e' }: { color?: string }) {
 function getTabAccent(tab: TabData): string {
   if (tab.type === 'process') return tab.color ?? '#22c55e';
   if (tab.type === 'opencode') return '#38bdf8';
+  if (tab.type === 'kimi') return '#1783FF';
   if (tab.type === 'project') return '#60a5fa';
   if (tab.type === 'shell') return '#94a3b8';
   if (tab.type === 'claude') {
@@ -221,6 +224,8 @@ function TabItem({
     <AIModelIcon model={detectAIModel(tab.label)} size={13} />
   ) : tab.type === 'opencode' ? (
     <AIModelIcon model="opencode" size={13} />
+  ) : tab.type === 'kimi' ? (
+    <AIModelIcon model="kimi" size={13} />
   ) : tab.type === 'process' ? (
     <StatusDot color={tab.color ?? '#22c55e'} />
   ) : tab.type === 'project' ? (
@@ -433,7 +438,7 @@ export function SessionPage() {
   const createMutation = useMutation({
     mutationFn: (opts: { type?: TerminalType; name?: string; initialPrompt?: string } = {}) => {
       const prefix = selectedAlias ? `[${selectedAlias}] ` : '';
-      const baseName = opts.name ?? (opts.type === 'claude' ? 'Claude' : opts.type === 'opencode' ? 'Opencode' : 'Shell');
+      const baseName = opts.name ?? (opts.type === 'claude' ? 'Claude' : opts.type === 'opencode' ? 'Opencode' : opts.type === 'kimi' ? 'Kimi' : 'Shell');
       return api.createTerminal({
         sessionId: id!,
         type: opts.type || 'shell',
@@ -528,6 +533,51 @@ export function SessionPage() {
 
   const activeTerminal = terminals.find((t) => t.id === activeTerminalId);
 
+  // ── Push-to-talk dictation ──
+  // Hold ⌃⇧ to talk; the transcript takes over the recent-files bar and is typed
+  // into the active terminal on release (you still hit Enter to send it).
+  const terminalHandleRef = useRef<TerminalHandle>(null);
+  const dictation = useDictation((text) => terminalHandleRef.current?.sendText(text));
+  const { start: startDictation, stop: stopDictation } = dictation;
+  const dictationLive = viewMode === 'terminal' && !!activeTerminal;
+
+  useEffect(() => {
+    if (!dictationLive) return;
+    let charging = false; // ⌃⇧ currently held with nothing else
+    const isChord = (e: KeyboardEvent) => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Control' && e.key !== 'Shift') {
+        // A real Ctrl+Shift+<key> shortcut — not a dictation hold.
+        if (charging) { charging = false; stopDictation(); }
+        return;
+      }
+      if (isChord(e) && !charging) { charging = true; startDictation(); }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if ((e.key === 'Control' || e.key === 'Shift') && charging) {
+        charging = false;
+        stopDictation();
+      }
+    };
+    const onBlur = () => { if (charging) { charging = false; stopDictation(); } };
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('keyup', onKeyUp, true);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('keyup', onKeyUp, true);
+      window.removeEventListener('blur', onBlur);
+      if (charging) stopDictation(); // don't leave the mic hot if the view switches mid-hold
+    };
+  }, [dictationLive, startDictation, stopDictation]);
+
+  // Surface "not configured" / connection errors (bar is gone once we stop).
+  useEffect(() => {
+    if (dictation.error) {
+      toast({ title: 'Dictation', description: dictation.error, variant: 'destructive' });
+    }
+  }, [dictation.error]);
+
   const changeCount = useMemo(() => {
     if (!gitStatus) return 0;
     return (gitStatus.modified?.length || 0) + (gitStatus.staged?.length || 0) + (gitStatus.untracked?.length || 0);
@@ -550,7 +600,7 @@ export function SessionPage() {
         id: t.id,
         label: t.name,
         type: t.type,
-        color: t.type === 'claude' ? '#f97316' : t.type === 'opencode' ? '#6366f1' : t.type === 'process' ? '#22c55e' : undefined,
+        color: t.type === 'claude' ? '#f97316' : t.type === 'opencode' ? '#6366f1' : t.type === 'kimi' ? '#1783FF' : t.type === 'process' ? '#22c55e' : undefined,
       });
     });
     return tabs;
@@ -670,6 +720,12 @@ export function SessionPage() {
                       customIcon={<AIModelIcon model="opencode" size={14} />}
                       label="Opencode"
                       onClick={() => createMutation.mutate({ type: 'opencode' })}
+                      disabled={createMutation.isPending}
+                    />
+                    <ToolBtn
+                      customIcon={<AIModelIcon model="kimi" size={14} />}
+                      label="Kimi"
+                      onClick={() => createMutation.mutate({ type: 'kimi' })}
                       disabled={createMutation.isPending}
                     />
                   </div>
@@ -858,6 +914,8 @@ export function SessionPage() {
                     <AIModelIcon model={detectAIModel(activeTerminal.name)} size={14} />
                   ) : activeTerminal.type === 'opencode' ? (
                     <AIModelIcon model="opencode" size={14} />
+                  ) : activeTerminal.type === 'kimi' ? (
+                    <AIModelIcon model="kimi" size={14} />
                   ) : activeTerminal.type === 'process' ? (
                     <Play className="h-3.5 w-3.5 text-green-500" />
                   ) : (
@@ -890,6 +948,8 @@ export function SessionPage() {
                     <AIModelIcon model={detectAIModel(terminal.name)} size={16} />
                   ) : terminal.type === 'opencode' ? (
                     <AIModelIcon model="opencode" size={16} />
+                  ) : terminal.type === 'kimi' ? (
+                    <AIModelIcon model="kimi" size={16} />
                   ) : terminal.type === 'process' ? (
                     <Play className="h-4 w-4 text-green-500" />
                   ) : (
@@ -914,6 +974,7 @@ export function SessionPage() {
           activeTerminal ? (
             <div className="h-full min-h-0 px-2">
               <Terminal
+                ref={terminalHandleRef}
                 key={activeTerminal.id}
                 terminalId={activeTerminal.id}
                 className="h-full"
@@ -990,14 +1051,18 @@ export function SessionPage() {
       {/* ── Bottom box: recent files + status bar, attached rows sharing one radius ── */}
       <div className="shrink-0 rounded-lg border border-border bg-card">
       {viewMode === 'terminal' && activeTerminal && (
-        <RecentChangesBar
-          sessionId={id!}
-          projectId={gitProjectId}
-          onOpenFile={(path) => {
-            setSearchParams((prev) => { prev.set('file', path); return prev; }, { replace: true });
-            setViewMode('files');
-          }}
-        />
+        dictation.active ? (
+          <DictationBar transcript={dictation.transcript} />
+        ) : (
+          <RecentChangesBar
+            sessionId={id!}
+            projectId={gitProjectId}
+            onOpenFile={(path) => {
+              setSearchParams((prev) => { prev.set('file', path); return prev; }, { replace: true });
+              setViewMode('files');
+            }}
+          />
+        )
       )}
       <ToolbarRoot>
         <ToolbarGroup>

@@ -6,7 +6,6 @@ import { existsSync } from 'fs';
 import { join, basename } from 'path';
 import { userInfo } from 'os';
 import { getWorkspacesRoot, getAgentHome } from '../config/paths';
-import { isLocalMode } from '../config/mode';
 import { db, claudeSessions, terminals } from '../db';
 import { terminalService } from '../services/terminal';
 import { workspaceService } from '../services/workspace';
@@ -16,6 +15,7 @@ import { requireAuth } from '../auth/middleware';
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN_PATH || 'claude';
 const OPENCODE_BIN = process.env.OPENCODE_BIN_PATH || 'opencode';
+const KIMI_BIN = process.env.KIMI_BIN_PATH || 'kimi';
 
 function isValidShellPath(shell: string | null | undefined): shell is string {
   // Reject empty, non-absolute paths, and sentinel values like "unknown"
@@ -159,6 +159,10 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
       command = [OPENCODE_BIN];
       name = body.name || 'Opencode';
       await workspaceService.createUserWorkspace(user!.id);
+    } else if (type === 'kimi') {
+      command = [KIMI_BIN];
+      name = body.name || 'Kimi';
+      await workspaceService.createUserWorkspace(user!.id);
     } else {
       command = body.command || [getDefaultShell(), '-l'];
       name = body.name || 'Terminal';
@@ -198,7 +202,7 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     body: t.Object({
       sessionId: t.String(),
       name: t.Optional(t.String()),
-      type: t.Optional(t.Union([t.Literal('shell'), t.Literal('claude'), t.Literal('opencode'), t.Literal('process')])),
+      type: t.Optional(t.Union([t.Literal('shell'), t.Literal('claude'), t.Literal('opencode'), t.Literal('kimi'), t.Literal('process')])),
       command: t.Optional(t.Array(t.String())),
       cols: t.Optional(t.Number()),
       rows: t.Optional(t.Number()),
@@ -403,9 +407,11 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
   // file's absolute path, but on the machine that received the drop the macOS
   // drag pasteboard still holds the file:// URLs. Read them natively and only
   // trust the result if it matches exactly the filenames the UI dropped.
-  // Local mode only — a cloud server has no GUI drag pasteboard.
+  // ponytail: no isLocalMode() gate — the filename match IS the same-machine
+  // check. A cloud server's pasteboard can't contain the dropped names, so it
+  // returns [] and the caller falls back to uploading.
   .post('/local-drop-paths', async ({ body, set }) => {
-    if (!isLocalMode() || process.platform !== 'darwin') {
+    if (process.platform !== 'darwin') {
       set.status = 404;
       return { error: 'Not available' };
     }

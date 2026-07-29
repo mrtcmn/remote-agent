@@ -29,6 +29,13 @@ final class NotificationStore: ObservableObject {
         return .done
     }
 
+    /// Where a dictated transcript goes: the newest session waiting on free-form
+    /// text, else any session that accepts it. nil → clipboard only.
+    var replyTarget: NotificationRecord? {
+        notifications.first { $0.needsReview && $0.freeformAllowed }
+            ?? notifications.first { $0.freeformAllowed }
+    }
+
     private let socket = NotchSocket()
     private var started = false
 
