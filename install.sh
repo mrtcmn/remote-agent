@@ -61,6 +61,41 @@ rand_hex() {
     head -c "$1" /dev/urandom | od -An -tx1 | tr -d ' \n'
 }
 
+# Port pre-flight: detect a busy host port and offer the next free one
+# instead of letting `docker compose up` fail after everything else ran.
+port_in_use() {
+    if command -v ss &> /dev/null; then
+        ss -ltn 2>/dev/null | awk '{print $4}' | grep -q ":$1\$"
+    elif command -v lsof &> /dev/null; then
+        lsof -iTCP:"$1" -sTCP:LISTEN &> /dev/null
+    else
+        (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && { exec 3<&-; exec 3>&-; return 0; } || return 1
+    fi
+}
+
+next_free_port() {
+    local p=$1
+    while port_in_use "$p"; do p=$((p + 1)); done
+    echo "$p"
+}
+
+# $1 = port var name, $2 = human label. Reads/writes the named var in place.
+ensure_port_free() {
+    local var="$1" label="$2" cur="${!1}"
+    while port_in_use "$cur"; do
+        local suggestion ans
+        suggestion=$(next_free_port "$cur")
+        log_warn "Port $cur ($label) is already in use."
+        ans="$(prompt "Use port $suggestion instead? [Y/n, or type a port]: ")"
+        case "$ans" in
+            n|N|no) log_warn "Continuing with $cur anyway — container may fail to start."; break ;;
+            ""|y|Y|yes) cur="$suggestion" ;;
+            *) cur="$ans" ;;
+        esac
+    done
+    eval "$var=\"\$cur\""
+}
+
 # Machine role: a master hosts sessions and is driven by paired machines; a
 # connector pairs to an existing master and drives it from its own UI.
 # Auth on a connector comes from the master via the pairing token — no
@@ -165,6 +200,40 @@ if [ ! -f .env ]; then
 
     # Firebase push notifications: optional, env-only (FIREBASE_* vars)
 
+    # Where Claude's session files (workspaces, ssh keys) live
+    if [ -z "${WORKSPACES_SRC:-}" ]; then
+        echo ""
+        echo "Where should Claude's workspace/project files live?"
+        echo "  1) Host directory — ${INSTALL_DIR}/workspaces, directly browsable/editable from the host (default)"
+        echo "  2) Isolated Docker volume — sandboxed, not directly accessible on the host"
+        STORAGE_CHOICE="$(prompt 'Select [1]: ')"
+        case "$STORAGE_CHOICE" in
+            2|volume|isolated)
+                WORKSPACES_SRC="workspaces"
+                SSH_KEYS_SRC="ssh-keys"
+                ;;
+            *)
+                WORKSPACES_SRC="./workspaces"
+                SSH_KEYS_SRC="./ssh-keys"
+                ;;
+        esac
+    fi
+
+    # Which interface the app port (5100) binds to on the host
+    if [ -z "${BIND_HOST:-}" ]; then
+        echo ""
+        echo "Bind the app port (5100) to which address?"
+        echo "  1) 127.0.0.1 — localhost only, put a reverse proxy in front (default)"
+        echo "  2) 0.0.0.0   — all interfaces, reachable directly from the network"
+        echo "  3) custom IP"
+        BIND_CHOICE="$(prompt 'Select [1]: ')"
+        case "$BIND_CHOICE" in
+            2|0.0.0.0) BIND_HOST="0.0.0.0" ;;
+            3|custom) BIND_HOST="$(prompt 'Bind IP: ')" ;;
+            *) BIND_HOST="127.0.0.1" ;;
+        esac
+    fi
+
     cat > .env << EOF
 # Remote Agent Configuration
 # Generated on $(date)
@@ -191,8 +260,13 @@ FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL:-}
 
 # Application
 PORT=5100
+BIND_HOST=${BIND_HOST}
 APP_URL=${APP_URL}
 NODE_ENV=production
+
+# Storage
+WORKSPACES_SRC=${WORKSPACES_SRC}
+SSH_KEYS_SRC=${SSH_KEYS_SRC}
 EOF
 
     chmod 600 .env
@@ -207,10 +281,34 @@ log_info "Pulling Docker image: ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
 docker pull "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
 log_success "Docker image pulled"
 
+# Tear down any existing/stale containers first — both so the port check
+# below isn't fooled by our own old containers still holding the ports, and
+# so a broken container from a prior failed run gets fully recreated.
+docker compose down --remove-orphans 2>/dev/null || true
+
+# Check the ports we're about to bind — every run, not just first install,
+# since another container (e.g. something already using 8080) can show up later.
+log_info "Checking required ports are free..."
+PORT="$(grep -m1 '^PORT=' .env 2>/dev/null | cut -d= -f2)"
+PORT="${PORT:-5100}"
+CODE_SERVER_PORT="$(grep -m1 '^CODE_SERVER_PORT=' .env 2>/dev/null | cut -d= -f2)"
+CODE_SERVER_PORT="${CODE_SERVER_PORT:-8080}"
+ensure_port_free PORT "app UI"
+ensure_port_free CODE_SERVER_PORT "code-server"
+grep -v '^PORT=\|^CODE_SERVER_PORT=' .env > .env.tmp || true
+{
+    cat .env.tmp
+    echo "PORT=${PORT}"
+    echo "CODE_SERVER_PORT=${CODE_SERVER_PORT}"
+} > .env
+rm -f .env.tmp
+chmod 600 .env
+log_success "Ports OK (app: ${PORT}, code-server: ${CODE_SERVER_PORT})"
+
 # Start services
 echo ""
 log_info "Starting Remote Agent..."
-docker compose up -d
+docker compose up -d --remove-orphans
 
 # Wait for health check
 log_info "Waiting for service to be ready..."
@@ -218,7 +316,7 @@ MAX_ATTEMPTS=60
 ATTEMPT=1
 
 while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-    if curl -sf http://localhost:5100/health > /dev/null 2>&1; then
+    if curl -sf "http://localhost:${PORT}/health" > /dev/null 2>&1; then
         break
     fi
     sleep 2
@@ -240,7 +338,7 @@ if [ "$ROLE" = "connector" ] && [ -n "$MASTER_URL" ] && [ -n "$PAIRING_TOKEN" ];
     SIGNED_IN=""
     # Seed user is created shortly after boot — retry sign-in briefly
     for _ in 1 2 3 4 5; do
-        if curl -sf -c "$COOKIE_JAR" -X POST http://localhost:5100/api/auth/sign-in/email \
+        if curl -sf -c "$COOKIE_JAR" -X POST "http://localhost:${PORT}/api/auth/sign-in/email" \
             -H 'Content-Type: application/json' \
             -d '{"email":"test@t.com","password":"123456"}' > /dev/null 2>&1; then
             SIGNED_IN=1
@@ -250,7 +348,7 @@ if [ "$ROLE" = "connector" ] && [ -n "$MASTER_URL" ] && [ -n "$PAIRING_TOKEN" ];
     done
 
     if [ -n "$SIGNED_IN" ]; then
-        PAIR_RESP=$(curl -s -b "$COOKIE_JAR" -X POST http://localhost:5100/api/paired-masters \
+        PAIR_RESP=$(curl -s -b "$COOKIE_JAR" -X POST "http://localhost:${PORT}/api/paired-masters" \
             -H 'Content-Type: application/json' \
             -d "{\"url\":\"${MASTER_URL}\",\"token\":\"${PAIRING_TOKEN}\",\"name\":\"$(hostname 2>/dev/null || echo connector)\"}")
         if echo "$PAIR_RESP" | grep -q '"master"'; then
@@ -279,10 +377,10 @@ echo "========================================"
 echo ""
 echo "  Version:   ${CURRENT_VERSION}"
 echo "  Location:  ${INSTALL_DIR}"
-echo "  URL:       http://localhost:5100"
+echo "  URL:       http://localhost:${PORT}"
 echo ""
 echo "Quick Start:"
-echo "  1. Open http://localhost:5100 in your browser"
+echo "  1. Open http://localhost:${PORT} in your browser"
 if [ -n "${GITHUB_CLIENT_ID:-}" ]; then
     echo "  2. Login with GitHub"
 else

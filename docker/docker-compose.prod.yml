@@ -27,14 +27,14 @@ services:
     image: ghcr.io/mrtcmn/remote-agent:${IMAGE_TAG:-latest}
     container_name: remote-agent
     ports:
-      - "127.0.0.1:${PORT:-5100}:5100"
+      - "${BIND_HOST:-127.0.0.1}:${PORT:-5100}:5100"
       - "0.0.0.0:${CODE_SERVER_PORT:-8080}:${CODE_SERVER_PORT:-8080}"
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - workspaces:/app/workspaces
-      - ssh-keys:/app/ssh-keys
+      - ${WORKSPACES_SRC:-./workspaces}:/app/workspaces
+      - ${SSH_KEYS_SRC:-./ssh-keys}:/app/ssh-keys
       - agent-claude:/home/agent/.claude
       # Docker socket for container management
       - /var/run/docker.sock:/var/run/docker.sock
@@ -88,9 +88,11 @@ services:
 volumes:
   postgres:
     name: remote-agent-postgres
+  agent-claude:
+    name: remote-agent-claude
+  # Only used when WORKSPACES_SRC/SSH_KEYS_SRC select isolated mode
+  # (set to the bare names "workspaces"/"ssh-keys" instead of a host path)
   workspaces:
     name: remote-agent-workspaces
   ssh-keys:
     name: remote-agent-ssh-keys
-  agent-claude:
-    name: remote-agent-claude
