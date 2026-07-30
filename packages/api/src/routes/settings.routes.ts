@@ -3,6 +3,7 @@ import { requireAuth } from '../auth/middleware';
 import { llmSettings } from '../services/llm-engine';
 import { sonioxSettings } from '../services/soniox';
 import { originsService } from '../services/origins';
+import { machineIdentity } from '../services/machine-identity';
 
 /** Config without the secret — the API key is write-only. */
 const publicLLM = () => {
@@ -76,4 +77,15 @@ export const settingsRoutes = new Elysia({ prefix: '/settings' })
     body: t.Object({
       origins: t.Array(t.String()),
     }),
+  })
+
+  // GET /settings/machine-name - this machine's own name (sent when pairing)
+  .get('/machine-name', () => ({ name: machineIdentity.get() }))
+
+  // PUT /settings/machine-name - rename this machine
+  .put('/machine-name', async ({ body }) => {
+    const name = await machineIdentity.set(body.name.trim());
+    return { name };
+  }, {
+    body: t.Object({ name: t.String({ minLength: 1, maxLength: 100 }) }),
   });

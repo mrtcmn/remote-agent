@@ -3,8 +3,13 @@ import { eq } from 'drizzle-orm';
 import { auth } from './index';
 import { verifyPin, hasPin } from './pin';
 import { db } from '../db';
-import { user as userTable } from '../db/schema';
+import { user as userTable, pairedMasters } from '../db/schema';
 import { machineRegistry } from '../services/machine-registry';
+import {
+  TUNNEL_INTERNAL_SECRET,
+  TUNNEL_AUTH_HEADER,
+  TUNNEL_MACHINE_HEADER,
+} from '../services/machine-tunnel/internal';
 
 // Auth context type
 export interface AuthContext {
@@ -44,6 +49,39 @@ export const authMiddleware = new Elysia({ name: 'auth' })
           machineId: undefined as string | undefined,
         },
       };
+    }
+
+    // A request our own tunnel client dispatched in-process on behalf of a
+    // master we paired with. The secret proves local origin (see internal.ts);
+    // the originating master id tells us whose machines these are.
+    if (request.headers.get(TUNNEL_AUTH_HEADER) === TUNNEL_INTERNAL_SECRET) {
+      const originMasterId = request.headers.get(TUNNEL_MACHINE_HEADER);
+      if (originMasterId) {
+        const master = await db.query.pairedMasters.findFirst({
+          where: eq(pairedMasters.id, originMasterId),
+        });
+        if (master) {
+          const owner = await db.query.user.findFirst({
+            where: eq(userTable.id, master.ownerUserId),
+          });
+          if (owner) {
+            return {
+              user: {
+                id: owner.id,
+                email: owner.email,
+                name: owner.name,
+                image: owner.image ?? undefined,
+              },
+              session: {
+                id: `tunnel:${master.id}`,
+                userId: owner.id,
+                expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                machineId: master.id as string | undefined,
+              },
+            };
+          }
+        }
+      }
     }
 
     // Fall back to machineToken bearer auth — a paired secondary

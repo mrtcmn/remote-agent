@@ -1,6 +1,7 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../../db';
 import { machines, pairingTokens, type Machine } from '../../db/schema';
+import { machineTunnel } from '../machine-tunnel/server';
 
 const PAIRING_TOKEN_PREFIX = 'rapt_';
 const MACHINE_TOKEN_PREFIX = 'ramt_';
@@ -96,10 +97,18 @@ class MachineRegistryService {
     });
 
     const cutoff = Date.now() - ONLINE_THRESHOLD_MS;
-    return rows.map((m) => ({
-      ...m,
-      online: m.lastSeenAt != null && m.lastSeenAt.getTime() > cutoff,
-    }));
+    return rows.map((m) => {
+      // A live tunnel is a stronger liveness signal than the persisted
+      // heartbeat timestamp, and its stats are fresher than the last DB write.
+      const tunnelStats = machineTunnel.stats(m.id);
+      const tunnelled = machineTunnel.isOnline(m.id);
+      return {
+        ...m,
+        sessionCount: tunnelled && tunnelStats ? tunnelStats.sessionCount : m.sessionCount,
+        version: tunnelled && tunnelStats?.version ? tunnelStats.version : m.version,
+        online: tunnelled || (m.lastSeenAt != null && m.lastSeenAt.getTime() > cutoff),
+      };
+    });
   }
 
   async revoke(id: string, userId: string): Promise<boolean> {

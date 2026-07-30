@@ -1,15 +1,40 @@
 import { Elysia, t } from 'elysia';
 import { auth } from '../auth';
-import { pairedMastersService } from '../services/paired-masters';
-import type { PairedMaster } from '../db/schema';
+import { resolveMachine, machineFetch, type MachineTarget } from '../services/machines/resolve';
+import { machineTunnel } from '../services/machine-tunnel/server';
+import { machineRegistry } from '../services/machine-registry';
 
 const HEADER_NAME = 'x-machine-id';
 const QUERY_NAME = 'machineId';
 
+/** Transport-agnostic far end of a bridged WebSocket. */
+interface Upstream {
+  send(data: string | Uint8Array): void;
+  close(code?: number, reason?: string): void;
+}
+
 interface WsBridge {
-  upstream: WebSocket;
-  buffered: (string | ArrayBuffer)[];
+  upstream: Upstream | null;
+  buffered: (string | Uint8Array)[];
   closed: boolean;
+  /** false while a URL-based upstream is still connecting; undefined for tunnels. */
+  ready?: boolean;
+}
+
+/**
+ * Identify the caller by cookie session or machineToken bearer. The bearer case
+ * is what lets a peer open a relayed WebSocket through its hub.
+ */
+async function resolveCallerUserId(headers: Headers): Promise<string | null> {
+  const session = await auth.api.getSession({ headers });
+  if (session) return session.user.id;
+
+  const authHeader = headers.get('authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    const machine = await machineRegistry.findByToken(authHeader.slice(7).trim());
+    if (machine) return machine.ownerUserId;
+  }
+  return null;
 }
 
 // Keyed by the raw Bun ServerWebSocket, which is stable across Elysia's
@@ -44,24 +69,17 @@ function pickMachineId(url: URL, headers: Headers): string | null {
   return null;
 }
 
-function buildForwardHeaders(source: Headers, machineToken: string): Headers {
+function buildForwardHeaders(source: Headers): Headers {
   const out = new Headers();
   source.forEach((value, key) => {
     const lower = key.toLowerCase();
     if (HOP_BY_HOP.has(lower)) return;
-    if (lower === 'authorization') return;     // replaced below
+    if (lower === 'authorization') return;     // machineFetch sets the bearer
     if (lower === 'cookie') return;            // master uses its own session cookies
     if (lower === HEADER_NAME) return;         // consumed by this plugin
-    if (lower === 'accept-encoding') return;   // forced to identity below
+    if (lower === 'accept-encoding') return;   // machineFetch forces identity
     out.set(key, value);
   });
-  out.set('authorization', `Bearer ${machineToken}`);
-  // Force upstream to respond uncompressed. If we forwarded the browser's
-  // accept-encoding (gzip/br), Bun's fetch would auto-decompress on this side,
-  // but the content-encoding header could still leak back to the browser
-  // (or, with an LB/CF in front, get re-compressed with a mismatched length),
-  // causing ERR_CONTENT_DECODING_FAILED.
-  out.set('accept-encoding', 'identity');
   return out;
 }
 
@@ -87,25 +105,27 @@ export const machineProxyPlugin = new Elysia({ name: 'machine-proxy' })
       });
     }
 
-    const master = await pairedMastersService.get(machineId, session.user.id);
-    if (!master) {
-      return new Response(JSON.stringify({ error: 'Unknown machineId' }), {
+    const target = await resolveMachine(machineId, session.user.id);
+    if (!target) {
+      return new Response(JSON.stringify({ error: 'Unknown or unreachable machineId' }), {
         status: 404,
         headers: { 'content-type': 'application/json' },
       });
     }
 
     url.searchParams.delete(QUERY_NAME);
-    const target = `${master.url}${url.pathname}${url.search}`;
 
     try {
-      const upstream = await fetch(target, {
+      // Body must be buffered: the tunnel frames it, and a relayed request may
+      // be replayed onto a second hop. Streaming only worked for direct fetch.
+      const body = request.method === 'GET' || request.method === 'HEAD'
+        ? null
+        : new Uint8Array(await request.arrayBuffer());
+
+      const upstream = await machineFetch(target, `${url.pathname}${url.search}`, {
         method: request.method,
-        headers: buildForwardHeaders(request.headers, master.machineToken),
-        body: request.body,
-        // @ts-expect-error — Bun supports duplex for streaming bodies
-        duplex: 'half',
-        redirect: 'manual',
+        headers: buildForwardHeaders(request.headers),
+        body,
       });
 
       // Strip hop-by-hop headers on the way back too.
@@ -149,85 +169,138 @@ export const machineProxyPlugin = new Elysia({ name: 'machine-proxy' })
       path: t.String({ minLength: 1 }),
     }),
     async beforeHandle({ request, params, query, set }) {
-      const session = await auth.api.getSession({ headers: request.headers });
-      if (!session) {
+      const userId = await resolveCallerUserId(request.headers);
+      if (!userId) {
         set.status = 401;
         return 'Unauthorized';
-      }
-      const master = await pairedMastersService.get(params.machineId, session.user.id);
-      if (!master) {
-        set.status = 404;
-        return 'Unknown machineId';
       }
       if (!query.path.startsWith('/')) {
         set.status = 400;
         return 'path must start with /';
+      }
+      const target = await resolveMachine(params.machineId, userId);
+      if (!target) {
+        set.status = 404;
+        return 'Unknown or unreachable machineId';
       }
     },
     async open(ws) {
       const { machineId } = ws.data.params;
       const { path } = ws.data.query;
 
-      // Resolve target again (cheap) — beforeHandle already validated ownership.
-      const session = await auth.api.getSession({ headers: ws.data.request.headers });
-      const master = session
-        ? await pairedMastersService.get(machineId, session.user.id)
-        : null;
-      if (!master) {
+      // Resolve again (cheap) — beforeHandle already validated ownership.
+      const userId = await resolveCallerUserId(ws.data.request.headers);
+      const target = userId ? await resolveMachine(machineId, userId) : null;
+      if (!target) {
         ws.close(4401, 'Unauthorized');
         return;
       }
 
-      const upstreamUrl = toWsUrl(master, path);
-      const upstream = new WebSocket(upstreamUrl);
-      const state: WsBridge = { upstream, buffered: [], closed: false };
+      const state: WsBridge = { upstream: null, buffered: [], closed: false };
       wsBridges.set(wsKey(ws), state);
 
-      upstream.addEventListener('open', () => {
-        for (const buf of state.buffered) upstream.send(buf);
-        state.buffered = [];
-      });
-      upstream.addEventListener('message', (event) => {
-        if (typeof event.data === 'string') ws.send(event.data);
-        else ws.send(event.data as ArrayBuffer);
-      });
-      upstream.addEventListener('close', (event) => {
-        state.closed = true;
-        try { ws.close(event.code || 1000, event.reason); } catch { /* already closed */ }
-      });
-      upstream.addEventListener('error', () => {
-        state.closed = true;
-        try { ws.close(1011, 'Upstream error'); } catch { /* already closed */ }
-      });
+      const toClient = {
+        message: (data: string | Uint8Array) => {
+          try { ws.send(data as string | ArrayBuffer); } catch { /* client gone */ }
+        },
+        close: (code: number, reason: string) => {
+          state.closed = true;
+          try { ws.close(code || 1000, reason); } catch { /* already closed */ }
+        },
+      };
+
+      try {
+        state.upstream = target.kind === 'tunnel'
+          ? openTunnelUpstream(target.machineId, path, toClient)
+          : openSocketUpstream(target, path, state, toClient);
+      } catch (err) {
+        toClient.close(1011, (err as Error).message);
+        return;
+      }
+
+      // Anything the client sent while the upstream was connecting.
+      for (const buf of state.buffered) state.upstream.send(buf);
+      state.buffered = [];
     },
     message(ws, message) {
       const state = wsBridges.get(wsKey(ws));
       if (!state) return;
       // Elysia auto-parses JSON-looking strings into objects before this
-      // callback. Re-serialize objects; pass strings/ArrayBuffers through.
-      let payload: string | ArrayBuffer;
-      if (typeof message === 'string' || message instanceof ArrayBuffer) {
-        payload = message;
-      } else {
-        payload = JSON.stringify(message);
-      }
-      if (state.upstream.readyState === WebSocket.OPEN) {
-        state.upstream.send(payload);
-      } else if (state.upstream.readyState === WebSocket.CONNECTING) {
-        state.buffered.push(payload);
-      }
+      // callback. Re-serialize objects; pass strings/binary through.
+      let payload: string | Uint8Array;
+      if (typeof message === 'string') payload = message;
+      else if (message instanceof ArrayBuffer) payload = new Uint8Array(message);
+      else if (message instanceof Uint8Array) payload = message;
+      else payload = JSON.stringify(message);
+
+      if (state.upstream && state.ready !== false) state.upstream.send(payload);
+      else state.buffered.push(payload);
     },
     close(ws) {
       const key = wsKey(ws);
       const state = wsBridges.get(key);
       wsBridges.delete(key);
-      if (state && state.upstream.readyState < WebSocket.CLOSING) {
-        try { state.upstream.close(); } catch { /* already closed */ }
+      if (state && !state.closed) {
+        state.closed = true;
+        try { state.upstream?.close(1000, 'Client closed'); } catch { /* already closed */ }
       }
     },
   });
 
-function toWsUrl(master: PairedMaster, path: string): string {
-  const base = master.url.replace(/^http/, 'ws');
-  return `${base}${path}`;
+/** Bridge to a NAT'd secondary over its tunnel. */
+function openTunnelUpstream(
+  machineId: string,
+  path: string,
+  toClient: { message: (d: string | Uint8Array) => void; close: (c: number, r: string) => void },
+): Upstream {
+  const channel = machineTunnel.openWs(machineId, path, {
+    onMessage: toClient.message,
+    onClose: toClient.close,
+  });
+  return { send: (d) => channel.send(d), close: (c, r) => channel.close(c, r) };
+}
+
+/**
+ * Bridge to a machine reachable by URL. For `relay`, that URL is the hub's own
+ * /ws/proxy endpoint naming the final target — the hub then tunnels the last hop.
+ */
+function openSocketUpstream(
+  target: Exclude<MachineTarget, { kind: 'tunnel' }>,
+  path: string,
+  state: WsBridge,
+  toClient: { message: (d: string | Uint8Array) => void; close: (c: number, r: string) => void },
+): Upstream {
+  const base = target.url.replace(/^http/, 'ws');
+  const url = target.kind === 'relay'
+    ? `${base}/ws/proxy/${target.machineId}?path=${encodeURIComponent(path)}`
+    : `${base}${path}`;
+
+  const socket = new WebSocket(url, {
+    headers: { authorization: `Bearer ${target.token}` },
+  } as unknown as string[]);
+
+  state.ready = false;
+  socket.addEventListener('open', () => {
+    state.ready = true;
+    for (const buf of state.buffered) socket.send(buf);
+    state.buffered = [];
+  });
+  socket.addEventListener('message', (event) => {
+    const data = event.data;
+    toClient.message(typeof data === 'string' ? data : new Uint8Array(data as ArrayBuffer));
+  });
+  socket.addEventListener('close', (event) => toClient.close(event.code, event.reason));
+  socket.addEventListener('error', () => toClient.close(1011, 'Upstream error'));
+
+  return {
+    send: (d) => {
+      if (socket.readyState === WebSocket.OPEN) socket.send(d);
+      else state.buffered.push(d);
+    },
+    close: (code, reason) => {
+      if (socket.readyState < WebSocket.CLOSING) {
+        try { socket.close(code, reason); } catch { /* already closed */ }
+      }
+    },
+  };
 }

@@ -9,7 +9,7 @@ import { requireAuth } from '../auth/middleware';
 import { dockerService } from '../services/docker';
 import { codeServerManager } from '../services/code-server/code-server.service';
 import { buildSidebarData } from '../services/sidebar/build-sidebar';
-import { fanOutToMasters } from '../services/aggregation/fan-out';
+import { fanOutToMachines } from '../services/aggregation/fan-out';
 import { assembleSidebar } from '../services/aggregation/merge';
 
 /** Resolve target path for git operations, supporting worktrees and multi-project. */
@@ -531,7 +531,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       online: true,
       data: await buildSidebarData(user!.id),
     };
-    const remotes = await fanOutToMasters<Awaited<ReturnType<typeof buildSidebarData>>>(
+    const remotes = await fanOutToMachines<Awaited<ReturnType<typeof buildSidebarData>>>(
       user!.id,
       '/sessions/sidebar',
     );

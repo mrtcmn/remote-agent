@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { pairedMasters, type PairedMaster } from '../../db/schema';
+import { machineIdentity } from '../machine-identity';
 
 export interface PairResult {
   ok: true;
@@ -43,10 +44,13 @@ class PairedMastersService {
 
     let response: Response;
     try {
+      // `params.name` is the local nickname for *this* master entry — never
+      // send it as the secondary's own identity, or every secondary that
+      // types the same master nickname collides under one name on the hub.
       response = await fetch(`${url}/api/machines/pair`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ token: params.pairingToken, name: params.name }),
+        body: JSON.stringify({ token: params.pairingToken, name: machineIdentity.get() }),
       });
     } catch (err) {
       return { ok: false, error: `Could not reach master: ${(err as Error).message}` };

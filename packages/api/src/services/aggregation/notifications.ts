@@ -1,5 +1,5 @@
 import { notificationRepository } from '../notification';
-import { fanOutToMasters } from './fan-out';
+import { fanOutToMachines } from './fan-out';
 import { mergeNotifications, type AggregatedNotifications } from './merge';
 
 type NotificationStatus = 'pending' | 'sent' | 'read' | 'resolved' | 'dismissed';
@@ -25,7 +25,7 @@ export async function aggregateUserNotifications(
   const qs = new URLSearchParams();
   if (opts.status?.length) qs.set('status', opts.status.join(','));
   qs.set('limit', String(limit));
-  const remoteRaw = await fanOutToMasters<{ notifications: typeof selfNotifs }>(
+  const remoteRaw = await fanOutToMachines<{ notifications: typeof selfNotifs }>(
     userId,
     `/notifications?${qs.toString()}`,
   );

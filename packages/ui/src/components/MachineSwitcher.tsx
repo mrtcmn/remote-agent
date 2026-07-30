@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronDown, Laptop, Server, Wifi, WifiOff } from 'lucide-react';
-import { api, type PairedMasterSummary } from '@/lib/api';
+import { api, type AggregateMachine } from '@/lib/api';
 import { useActiveMachine } from '@/lib/active-machine';
 import { cn } from '@/lib/utils';
 
@@ -11,12 +11,15 @@ export function MachineSwitcher() {
   const queryClient = useQueryClient();
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // The aggregate already enumerates every machine this one can reach —
+  // paired masters, paired secondaries, and peers behind a shared hub. Reusing
+  // it keeps one source of truth (and shares the sidebar's cached query).
   const { data } = useQuery({
-    queryKey: ['paired-masters'],
-    queryFn: api.listPairedMasters,
+    queryKey: ['sidebar-aggregate'],
+    queryFn: api.getAggregatedSidebar,
     refetchInterval: 15_000,
   });
-  const masters = data?.masters ?? [];
+  const remotes = (data?.machines ?? []).filter((m) => m.machineId !== 'self');
 
   // Close when clicking outside.
   useEffect(() => {
@@ -28,15 +31,15 @@ export function MachineSwitcher() {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  // If the currently active machine was unpaired, fall back to self.
+  // If the currently active machine is no longer reachable, fall back to self.
   useEffect(() => {
     if (machineId === 'self') return;
     if (!data) return;
-    if (!masters.find((m) => m.id === machineId)) reset();
-  }, [data, masters, machineId, reset]);
+    if (!remotes.find((m) => m.machineId === machineId)) reset();
+  }, [data, remotes, machineId, reset]);
 
   const isRemote = machineId !== 'self';
-  const activeMaster = isRemote ? masters.find((m) => m.id === machineId) : null;
+  const activeMachine = isRemote ? remotes.find((m) => m.machineId === machineId) : null;
 
   const pick = (item: { machineId: string; name: string }) => {
     setActive(item);
@@ -63,7 +66,7 @@ export function MachineSwitcher() {
           <Laptop className="size-3.5 shrink-0" />
         )}
         <span className="flex-1 text-left truncate">{name}</span>
-        {activeMaster && <StatusIcon master={activeMaster} />}
+        {activeMachine && <StatusIcon machine={activeMachine} />}
         <ChevronDown className="size-3 shrink-0 opacity-60" />
       </button>
 
@@ -75,16 +78,16 @@ export function MachineSwitcher() {
             selected={!isRemote}
             onClick={() => pick({ machineId: 'self', name: 'This machine' })}
           />
-          {masters.length > 0 && <div className="h-px bg-border" />}
-          {masters.map((m) => (
+          {remotes.length > 0 && <div className="h-px bg-border" />}
+          {remotes.map((m) => (
             <MenuItem
-              key={m.id}
+              key={m.machineId}
               icon={<Server className="size-3.5" />}
-              label={m.name}
-              hint={m.url}
-              selected={m.id === machineId}
-              onClick={() => pick({ machineId: m.id, name: m.name })}
-              right={<StatusIcon master={m} />}
+              label={m.machineName}
+              hint={m.error}
+              selected={m.machineId === machineId}
+              onClick={() => pick({ machineId: m.machineId, name: m.machineName })}
+              right={<StatusIcon machine={m} />}
             />
           ))}
         </div>
@@ -127,11 +130,12 @@ function MenuItem({
   );
 }
 
-function StatusIcon({ master }: { master: PairedMasterSummary }) {
-  const healthy = !master.lastSyncError && master.lastSyncAt;
-  return healthy ? (
+function StatusIcon({ machine }: { machine: AggregateMachine }) {
+  return machine.online ? (
     <Wifi className="size-3 text-green-500 shrink-0" />
   ) : (
-    <WifiOff className="size-3 text-muted-foreground shrink-0" />
+    <span title={machine.error ?? 'Offline'} className="shrink-0 inline-flex">
+      <WifiOff className="size-3 text-muted-foreground" />
+    </span>
   );
 }

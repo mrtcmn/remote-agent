@@ -12,10 +12,14 @@ import { sshService } from './services/ssh/ssh.service';
 import { browserPreviewService } from './services/browser-preview';
 import { codeServerManager } from './services/code-server/code-server.service';
 import { originsService } from './services/origins';
+import { machineIdentity } from './services/machine-identity';
 import { llmSettings } from './services/llm-engine';
 import { sonioxSettings } from './services/soniox';
 import { masterSyncService } from './services/master-sync';
 import { machineProxyPlugin } from './plugins/machine-proxy';
+import { machineRelayPlugin } from './plugins/machine-relay';
+import { machineTunnelRoute } from './services/machine-tunnel/route';
+import { machineTunnelClient } from './services/machine-tunnel/client';
 import { seedTestUser } from './auth/seed';
 
 const PORT = process.env.RA_PORT || process.env.PORT || 5100;
@@ -55,10 +59,10 @@ async function loadIndexHtml(): Promise<string | null> {
 await originsService.initialize();
 await llmSettings.initialize();
 await sonioxSettings.initialize();
+await machineIdentity.initialize();
 await notificationService.initialize();
 await terminalService.initialize();
 await sshService.initialize();
-await masterSyncService.initialize();
 
 // Seed test user
 await seedTestUser();
@@ -75,9 +79,16 @@ const app = new Elysia()
     credentials: true,
   }))
 
-  // Machine proxy — short-circuits requests with X-Machine-Id to paired masters.
-  // Must run before any route so local handlers never see forwarded requests.
+  // Machine relay — forwards requests bearing X-Target-Machine-Id to that
+  // machine's tunnel (secondary → this hub → secondary). Must precede routes.
+  .use(machineRelayPlugin)
+
+  // Machine proxy — short-circuits requests with X-Machine-Id to the resolved
+  // machine. Must run before any route so local handlers never see them.
   .use(machineProxyPlugin)
+
+  // Tunnel endpoint — paired secondaries connect here and hold it open.
+  .use(machineTunnelRoute)
 
   // API routes
   .use(api)
@@ -140,6 +151,17 @@ const app = new Elysia()
   })
 
   .listen(PORT);
+
+// Tunnelled requests re-enter this server over loopback rather than via
+// `app.handle()` — handle() never resolves for these synthesized requests, and
+// loopback also guarantees the request traverses the exact same middleware a
+// normal client request would. Configure before master-sync opens any tunnel.
+machineTunnelClient.configure({
+  dispatch: (request) => fetch(request),
+  sessionCount: () => terminalService.getActiveCount(),
+  version: process.env.npm_package_version || '1.0.0',
+});
+await masterSyncService.initialize();
 
 console.log(`
 🚀 Remote Agent API running at http://localhost:${PORT}

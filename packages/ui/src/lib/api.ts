@@ -424,6 +424,12 @@ export const api = {
   getCLIAdapters: () => request<CLIAdapterInfo[]>('/kanban/adapters'),
 
   // Settings
+  getMachineName: () => request<{ name: string }>('/settings/machine-name'),
+  updateMachineName: (name: string) =>
+    request<{ name: string }>('/settings/machine-name', {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    }),
   getOrigins: () => request<{ origins: string[] }>('/settings/origins'),
   updateOrigins: (origins: string[]) =>
     request<{ origins: string[] }>('/settings/origins', {

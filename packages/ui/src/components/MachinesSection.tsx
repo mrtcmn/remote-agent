@@ -10,6 +10,7 @@ import {
   Unplug,
   Check,
   AlertTriangle,
+  Laptop,
 } from 'lucide-react';
 import { api, type MachineSummary, type PairedMasterSummary } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -20,9 +21,59 @@ import { toast } from '@/components/ui/Toaster';
 export function MachinesSection() {
   return (
     <>
+      <ThisMachineCard />
       <PairedMastersCard />
       <PairingTokensCard />
     </>
+  );
+}
+
+// ─── This machine's own name — sent when pairing with a master ────────────
+
+function ThisMachineCard() {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState('');
+
+  const { data } = useQuery({
+    queryKey: ['machine-name'],
+    queryFn: api.getMachineName,
+  });
+
+  useEffect(() => {
+    if (data && !name) setName(data.name);
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveMutation = useMutation({
+    mutationFn: () => api.updateMachineName(name.trim()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['machine-name'] });
+      toast({ title: 'Machine renamed' });
+    },
+    onError: (err) => toast({ title: 'Error', description: (err as Error).message, variant: 'destructive' }),
+  });
+
+  const dirty = data != null && name.trim() !== '' && name.trim() !== data.name;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Laptop className="h-5 w-5" />
+          <CardTitle>This machine</CardTitle>
+        </div>
+        <CardDescription>
+          The name other machines see for this one — sent when pairing with a master, so it stays
+          stable and unique regardless of what nickname you give a master below.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex items-center gap-2 max-w-md">
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="This machine" />
+        <Button onClick={() => saveMutation.mutate()} disabled={!dirty || saveMutation.isPending}>
+          {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+          Save
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

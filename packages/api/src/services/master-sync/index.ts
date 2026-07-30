@@ -1,5 +1,6 @@
 import { pairedMastersService } from '../paired-masters';
 import { terminalService } from '../terminal';
+import { machineTunnelClient } from '../machine-tunnel/client';
 import type { PairedMaster } from '../../db/schema';
 
 const HEARTBEAT_INTERVAL_MS = 30 * 1000;
@@ -36,6 +37,7 @@ class MasterSyncService {
       clearInterval(this.timer);
       this.timer = null;
     }
+    machineTunnelClient.shutdown();
   }
 
   /** Peers last reported by the given master, or an empty list. */
@@ -53,6 +55,9 @@ class MasterSyncService {
     this.inflight = true;
     try {
       const masters = await pairedMastersService.listAll();
+      // Keep the outbound tunnels matched to the current pairing list; this is
+      // what makes this machine reachable *from* its masters.
+      machineTunnelClient.sync(masters);
       await Promise.all(masters.map((m) => this.syncOne(m)));
     } finally {
       this.inflight = false;
