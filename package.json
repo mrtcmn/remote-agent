@@ -9,7 +9,7 @@
     "dev": "bun run --cwd packages/api dev",
     "dev:ui": "bun run --cwd packages/ui dev",
     "dev:all": "concurrently \"bun run dev\" \"bun run dev:ui\"",
-    "build": "bun run build:api && bun run build:ui",
+    "build": "bun run build:ui && bun run build:api",
     "build:api": "bun run --cwd packages/api build",
     "build:ui": "bun run --cwd packages/ui build",
     "start": "bun run --cwd packages/api start",

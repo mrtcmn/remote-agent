@@ -409,8 +409,11 @@ else
         git -C "$APP_SRC_DIR" pull --ff-only
     fi
 
-    log_info "Installing dependencies and building..."
-    (cd "$APP_SRC_DIR" && bun install && bun run build)
+    # ponytail: UI only. systemd runs `bun run start` (= bun src/index.ts) from
+    # this source tree, so the --compile step and its embedded-ui manifest are
+    # never used in host mode; the API scans packages/ui/dist at runtime.
+    log_info "Installing dependencies and building UI..."
+    (cd "$APP_SRC_DIR" && bun install && bun run build:ui)
     log_success "Build complete"
 
     POSTGRES_PASSWORD="$(grep -m1 '^POSTGRES_PASSWORD=' .env | cut -d= -f2)"
