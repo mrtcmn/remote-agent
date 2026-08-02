@@ -520,7 +520,10 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     query: t.Object({ projectId: t.Optional(t.String()) }),
   })
   // Get sidebar tree data (projects with nested sessions) for THIS machine
-  .get('/sidebar', ({ user }) => buildSidebarData(user!.id))
+  .get('/sidebar', ({ user, query }) =>
+    buildSidebarData(user!.id, { activeOnly: query.activeOnly === '1' }), {
+    query: t.Object({ activeOnly: t.Optional(t.String()) }),
+  })
 
   // Aggregate sidebar across self + all paired machines. Local-only: it runs on
   // this machine and fans out to paired masters, so it is never itself proxied.
@@ -529,11 +532,11 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       machineId: 'self',
       machineName: 'This machine',
       online: true,
-      data: await buildSidebarData(user!.id),
+      data: await buildSidebarData(user!.id, { activeOnly: true }),
     };
     const remotes = await fanOutToMachines<Awaited<ReturnType<typeof buildSidebarData>>>(
       user!.id,
-      '/sessions/sidebar',
+      '/sessions/sidebar?activeOnly=1',
     );
     return assembleSidebar([self, ...remotes]);
   })

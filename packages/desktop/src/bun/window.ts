@@ -1,4 +1,4 @@
-import { BrowserWindow, Utils } from "electrobun/bun";
+import { BrowserWindow, Screen, Utils } from "electrobun/bun";
 import type { BrowserView } from "electrobun/bun";
 import type { Store } from "./store";
 import type { DesktopRPC } from "../shared/rpc";
@@ -14,14 +14,44 @@ export function resolveLoadUrl(store: Store): string {
   return apiUrl || "views://mainview/index.html";
 }
 
+type Bounds = { x?: number; y?: number; width: number; height: number };
+type DisplayLike = { workArea: { x: number; y: number; width: number; height: number }; isPrimary?: boolean };
+
+/** Keep at least this much of the window on a display so it stays grabbable. */
+const MIN_VISIBLE = 48;
+
+/**
+ * Restore saved bounds onto a currently-connected display. Saved coordinates for a
+ * secondary monitor are negative or past the primary display; once that monitor is
+ * unplugged/rearranged the window would be created off-screen. If the saved rect no
+ * longer overlaps any display's work area, recenter on the primary one.
+ */
+export function visibleFrame(b: Bounds, displays: DisplayLike[]): { x: number; y: number; width: number; height: number } {
+  const { width, height, x, y } = b;
+  const center = () => {
+    const a = (displays.find((d) => d.isPrimary) ?? displays[0])?.workArea;
+    if (!a) return { x: 0, y: 0, width, height }; // no displays reported yet
+    return { x: Math.round(a.x + (a.width - width) / 2), y: Math.round(a.y + (a.height - height) / 2), width, height };
+  };
+  if (x == null || y == null) return center();
+
+  const grabbable = displays.some((d) => {
+    const a = d.workArea;
+    const ox = Math.min(x + width, a.x + a.width) - Math.max(x, a.x);
+    const oy = Math.min(y + height, a.y + a.height) - Math.max(y, a.y);
+    return ox >= MIN_VISIBLE && oy >= MIN_VISIBLE;
+  });
+  return grabbable ? { x, y, width, height } : center();
+}
+
 export function createWindow(
   store: Store,
   rpc: ReturnType<typeof BrowserView.defineRPC<DesktopRPC>>,
 ): BrowserWindow {
-  const b = store.get("windowBounds");
+  const frame = visibleFrame(store.get("windowBounds"), Screen.getAllDisplays());
   const win = new BrowserWindow({
     title: "Remote Agent",
-    frame: { x: b.x ?? 0, y: b.y ?? 0, width: b.width, height: b.height },
+    frame,
     // macOS inset traffic lights; behaves like "hidden" on Win/Linux.
     titleBarStyle: "hiddenInset",
     // Vertically center the macOS traffic lights in the app's top bar.

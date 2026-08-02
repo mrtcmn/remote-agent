@@ -5,6 +5,8 @@ import { gitService } from '../git';
 import { dockerService } from '../docker';
 import { codeServerManager } from '../code-server/code-server.service';
 
+const ACTIVE_STATUSES = new Set(['active', 'waiting_input']);
+
 /** Serialize a timestamp defensively — some rows carry null/invalid lastActiveAt. */
 function toIsoString(value: unknown): string {
   const d = value instanceof Date ? value : new Date(value as string | number);
@@ -17,7 +19,7 @@ function toIsoString(value: unknown): string {
  * be called both directly (the local route) and as the "self" leg of the
  * cross-machine aggregate endpoint.
  */
-export async function buildSidebarData(userId: string) {
+export async function buildSidebarData(userId: string, opts: { activeOnly?: boolean } = {}) {
   // Load all projects and sessions for the user
   const [userProjects, allSessions] = await Promise.all([
     db.query.projects.findMany({
@@ -189,6 +191,8 @@ export async function buildSidebarData(userId: string) {
 
   for (const session of workSessions) {
     const data = sessionDataMap.get(session.id);
+    // Same definition the sidebar UI uses (see ui/src/lib/sidebar-sessions.ts).
+    if (opts.activeOnly && !ACTIVE_STATUSES.has(data?.liveStatus ?? session.status)) continue;
     if (session.projectId) {
       const list = projectSessionsMap.get(session.projectId) || [];
       list.push(data);

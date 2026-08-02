@@ -1,5 +1,9 @@
 import { Elysia, t } from 'elysia';
 import { nanoid } from 'nanoid';
+import { readdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join, dirname, resolve } from 'node:path';
 import { eq, and } from 'drizzle-orm';
 import { db, projects, projectLinks } from '../db';
 import type { Project } from '../db/schema';
@@ -19,6 +23,43 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
       where: eq(projects.userId, user!.id),
       orderBy: (p, { desc }) => [desc(p.updatedAt)],
     });
+  })
+
+  // Browse the host filesystem for a folder to add as a project (local mode only —
+  // the API runs on the user's own machine there, so this exposes nothing new).
+  .get('/browse', async ({ query, set }) => {
+    if (!isLocalMode()) {
+      set.status = 400;
+      return { error: 'Browsing local folders is only available in local mode' };
+    }
+
+    let dir = query.path?.trim() || homedir();
+    if (dir.startsWith('~')) dir = join(homedir(), dir.slice(1));
+    dir = resolve(dir);
+
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      set.status = 400;
+      return { error: 'Cannot read that folder' };
+    }
+
+    const parent = dirname(dir);
+    return {
+      path: dir,
+      parent: parent === dir ? null : parent,
+      entries: entries
+        .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+        .map(e => ({
+          name: e.name,
+          path: join(dir, e.name),
+          isRepo: existsSync(join(dir, e.name, '.git')),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  }, {
+    query: t.Object({ path: t.Optional(t.String()) }),
   })
 
   // Get single project
@@ -118,21 +159,29 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
           return { error: 'Adopting a local folder is only available in local mode' };
         }
 
-        try {
-          const result = await gitService.adoptLocalRepo({
-            sourcePath: body.sourcePath,
-            projectName: `${user!.id}/${body.name}`,
-            allowDirty: body.allowDirty,
-          });
+        if (body.inPlace) {
+          // Work directly in the user's folder — no copy into the workspace
+          const result = await gitService.attachLocalRepo(body.sourcePath);
           localPath = result.localPath;
           adoptedRepoUrl = result.repoUrl;
           adoptedDefaultBranch = result.defaultBranch;
-        } catch (err) {
-          if (err instanceof DirtySourceError) {
-            set.status = 409;
-            return { error: 'dirty', changedFiles: err.changedFiles };
+        } else {
+          try {
+            const result = await gitService.adoptLocalRepo({
+              sourcePath: body.sourcePath,
+              projectName: `${user!.id}/${body.name}`,
+              allowDirty: body.allowDirty,
+            });
+            localPath = result.localPath;
+            adoptedRepoUrl = result.repoUrl;
+            adoptedDefaultBranch = result.defaultBranch;
+          } catch (err) {
+            if (err instanceof DirtySourceError) {
+              set.status = 409;
+              return { error: 'dirty', changedFiles: err.changedFiles };
+            }
+            throw err;
           }
-          throw err;
         }
       } else if (body.repoUrl || body.githubRepoFullName) {
         const repoUrl = body.repoUrl || `https://github.com/${body.githubRepoFullName}.git`;
@@ -215,6 +264,7 @@ export const projectRoutes = new Elysia({ prefix: '/projects' })
       githubRepoFullName: t.Optional(t.String()),
       sourcePath: t.Optional(t.String()),
       allowDirty: t.Optional(t.Boolean()),
+      inPlace: t.Optional(t.Boolean()),
     }),
   })
 

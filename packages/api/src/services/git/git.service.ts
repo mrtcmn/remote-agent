@@ -202,17 +202,9 @@ export class GitService {
     return null;
   }
 
-  /**
-   * Adopts an existing local git repo by cloning it into the workspaces root.
-   * Preserves commit history, branches, and the original origin remote URL.
-   * Copies untracked-but-not-gitignored files on top of the clone.
-   * Uncommitted edits to tracked files are NOT carried over.
-   */
-  async adoptLocalRepo(opts: AdoptOptions): Promise<AdoptResult> {
-    const projectPath = join(this.workspacesRoot, opts.projectName);
-
-    // Expand ~ to home, resolve to absolute
-    let source = opts.sourcePath;
+  /** Expands ~, resolves, and checks the path is a git repo outside the workspaces root. */
+  private async validateLocalSource(sourcePath: string): Promise<string> {
+    let source = sourcePath;
     if (source.startsWith('~')) {
       source = join(homedir(), source.slice(1));
     }
@@ -221,7 +213,6 @@ export class GitService {
     }
     source = resolve(source);
 
-    // Validate source exists and is a directory
     let sourceStat;
     try {
       sourceStat = await stat(source);
@@ -232,7 +223,6 @@ export class GitService {
       throw new Error('Source path is not a directory');
     }
 
-    // Validate source is a git repo
     if (!existsSync(join(source, '.git'))) {
       throw new Error('Source path is not a git repository');
     }
@@ -242,6 +232,39 @@ export class GitService {
     if (source === resolvedWorkspaces || source.startsWith(resolvedWorkspaces + '/')) {
       throw new Error('Source path must not be inside the workspaces root');
     }
+
+    return source;
+  }
+
+  /**
+   * Uses an existing local folder as the project directory in place — nothing is
+   * copied, and the agent works directly on the user's files.
+   */
+  async attachLocalRepo(sourcePath: string): Promise<AdoptResult> {
+    const source = await this.validateLocalSource(sourcePath);
+
+    const originResult = await $`git config --get remote.origin.url`.cwd(source).quiet().nothrow();
+    const repoUrl = originResult.exitCode === 0
+      ? originResult.stdout.toString().trim() || null
+      : null;
+
+    const branchResult = await $`git symbolic-ref --short HEAD`.cwd(source).quiet().nothrow();
+    const defaultBranch = branchResult.exitCode === 0
+      ? branchResult.stdout.toString().trim() || null
+      : null;
+
+    return { localPath: source, repoUrl, defaultBranch };
+  }
+
+  /**
+   * Adopts an existing local git repo by cloning it into the workspaces root.
+   * Preserves commit history, branches, and the original origin remote URL.
+   * Copies untracked-but-not-gitignored files on top of the clone.
+   * Uncommitted edits to tracked files are NOT carried over.
+   */
+  async adoptLocalRepo(opts: AdoptOptions): Promise<AdoptResult> {
+    const projectPath = join(this.workspacesRoot, opts.projectName);
+    const source = await this.validateLocalSource(opts.sourcePath);
 
     // Destination must not already exist
     if (existsSync(projectPath)) {

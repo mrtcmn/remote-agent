@@ -24,7 +24,6 @@ import {
   Server,
   Search,
 } from 'lucide-react';
-import { NewSessionModal } from '@/components/NewSessionModal';
 import { SshHostsSection } from '@/components/ssh/SshHostsSection';
 import { AIModelIcon, detectAIModel } from '@/components/AIModelIcon';
 import { FormattedText } from '@/components/FormattedText';
@@ -607,7 +606,6 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const setActiveMachine = useActiveMachine((s) => s.setActive);
-  const [newSessionModalOpen, setNewSessionModalOpen] = useState(false);
 
   // Pending review items, folded into the session rows below. Keyed 'notifications'
   // so the FCM NotificationListener's invalidation refreshes it too.
@@ -719,7 +717,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
       {/* Command palette entry */}
       <div className="px-2 pt-2 shrink-0">
         <button
-          onClick={openCommandBar}
+          onClick={() => openCommandBar()}
           className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors electrobun-webkit-app-region-no-drag"
         >
           <span className="flex items-center gap-1.5">
@@ -735,7 +733,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
         <motion.button
           whileTap={{ scale: 0.98 }}
           transition={{ duration: 0.12 }}
-          onClick={() => setNewSessionModalOpen(true)}
+          onClick={() => openCommandBar('create session ')}
           className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
         >
           <span className="flex items-center gap-1.5">
@@ -815,12 +813,6 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
           </Link>
         ))}
       </div>
-
-      <NewSessionModal
-        open={newSessionModalOpen}
-        onClose={() => setNewSessionModalOpen(false)}
-        preselectedProjectId={null}
-      />
     </div>
   );
 }

@@ -118,7 +118,7 @@ function CreateProjectForm({
   const isLocal = versionInfo?.mode === 'local';
   const hasGitHubApps = githubApps && githubApps.length > 0;
 
-  type Tab = 'github' | 'ssh' | 'local';
+  type Tab = 'github' | 'ssh' | 'empty' | 'local';
   const defaultTab: Tab = hasGitHubApps ? 'github' : isLocal ? 'local' : 'ssh';
   const [tab, setTab] = useState<Tab>(defaultTab);
 
@@ -158,6 +158,15 @@ function CreateProjectForm({
             <Key className="h-4 w-4" />
             SSH / URL
           </button>
+          <button
+            onClick={() => setTab('empty')}
+            className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              activeTab === 'empty' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <FolderGit2 className="h-4 w-4" />
+            Empty Repository
+          </button>
           {isLocal && (
             <button
               onClick={() => setTab('local')}
@@ -173,6 +182,7 @@ function CreateProjectForm({
 
         {activeTab === 'github' && <GitHubRepoForm onClose={onClose} onSuccess={onSuccess} />}
         {activeTab === 'ssh' && <SSHProjectForm onClose={onClose} onSuccess={onSuccess} />}
+        {activeTab === 'empty' && <EmptyProjectForm onClose={onClose} onSuccess={onSuccess} />}
         {activeTab === 'local' && <LocalFolderForm onClose={onClose} onSuccess={onSuccess} />}
       </CardContent>
     </Card>
@@ -190,7 +200,16 @@ function LocalFolderForm({
   const [sourcePath, setSourcePath] = useState('');
   const [name, setName] = useState('');
   const [nameEdited, setNameEdited] = useState(false);
+  const [inPlace, setInPlace] = useState(false);
   const [dirty, setDirty] = useState<{ files: string[] } | null>(null);
+  // null = browser closed; '' = open at the home directory
+  const [browsing, setBrowsing] = useState<string | null>(null);
+
+  const listing = useQuery({
+    queryKey: ['browse-folders', browsing],
+    queryFn: () => api.browseFolders(browsing || undefined),
+    enabled: browsing !== null,
+  });
   const recentPaths = (() => {
     try {
       const raw = localStorage.getItem('recent-local-project-paths');
@@ -220,8 +239,13 @@ function LocalFolderForm({
     },
   });
 
+  // Native dialog when the desktop shell exposes it; otherwise the server-side
+  // folder browser below (the shell has no electronAPI when it loads the http UI).
   const handleBrowse = async () => {
-    if (!electron) return;
+    if (!electron) {
+      setBrowsing(browsing ? null : (sourcePath || ''));
+      return;
+    }
     const result = await electron.selectFolder({ title: 'Pick a git repository folder' });
     if (result.canceled || !result.path) return;
     handlePathChange(result.path);
@@ -239,7 +263,7 @@ function LocalFolderForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!sourcePath || !name) return;
-    createMutation.mutate({ name, sourcePath });
+    createMutation.mutate({ name, sourcePath, inPlace });
   };
 
   const handleConfirmDirty = () => {
@@ -255,28 +279,88 @@ function LocalFolderForm({
           <Input
             value={sourcePath}
             onChange={(e) => handlePathChange(e.target.value)}
-            placeholder={electron ? 'Click Browse to pick a folder' : '/Users/you/code/my-repo'}
-            readOnly={!!electron}
+            placeholder="/Users/you/code/my-repo"
             required
             list="recent-local-paths"
             className="flex-1"
           />
-          {electron ? (
-            <Button type="button" variant="outline" onClick={handleBrowse} className="gap-2 shrink-0">
-              <HardDrive className="h-4 w-4" />
-              Browse
-            </Button>
-          ) : null}
+          <Button type="button" variant="outline" onClick={handleBrowse} className="gap-2 shrink-0">
+            <HardDrive className="h-4 w-4" />
+            Browse
+          </Button>
         </div>
-        {recentPaths.length > 0 && !electron && (
+        {recentPaths.length > 0 && (
           <datalist id="recent-local-paths">
             {recentPaths.map(p => <option key={p} value={p} />)}
           </datalist>
         )}
+
+        {browsing !== null && (
+          <div className="mt-2 border rounded-md text-sm">
+            <div className="flex items-center gap-2 px-2 py-1.5 border-b">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={!listing.data?.parent}
+                onClick={() => setBrowsing(listing.data!.parent!)}
+              >
+                ↑
+              </Button>
+              <span className="font-mono text-xs truncate flex-1">{listing.data?.path ?? '…'}</span>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => { handlePathChange(listing.data!.path); setBrowsing(null); }}
+                disabled={!listing.data}
+              >
+                Use this folder
+              </Button>
+            </div>
+            <div className="max-h-48 overflow-y-auto">
+              {listing.isLoading && <div className="p-2 text-muted-foreground text-xs">Loading…</div>}
+              {listing.error && (
+                <div className="p-2 text-destructive text-xs">{(listing.error as ApiError).message}</div>
+              )}
+              {listing.data?.entries.map(entry => (
+                <button
+                  key={entry.path}
+                  type="button"
+                  onClick={() => setBrowsing(entry.path)}
+                  className="w-full text-left px-2 py-1 hover:bg-accent flex items-center gap-2"
+                >
+                  {entry.isRepo ? <FolderGit2 className="h-3.5 w-3.5 shrink-0" /> : <span className="w-3.5" />}
+                  <span className="truncate">{entry.name}</span>
+                </button>
+              ))}
+              {listing.data?.entries.length === 0 && (
+                <div className="p-2 text-muted-foreground text-xs">No subfolders</div>
+              )}
+            </div>
+          </div>
+        )}
         <p className="text-xs text-muted-foreground mt-1">
-          Local git repository. The folder is copied into the workspace — the original is not touched.
+          {inPlace
+            ? 'The agent works directly in this folder. Nothing is copied; your files are edited in place.'
+            : 'Local git repository. The folder is copied into the workspace — the original is not touched.'}
         </p>
       </div>
+
+      <label className="flex items-start gap-2 text-sm cursor-pointer">
+        <input
+          type="checkbox"
+          checked={inPlace}
+          onChange={(e) => { setInPlace(e.target.checked); setDirty(null); }}
+          className="mt-0.5"
+        />
+        <span>
+          Work in this folder (no copy)
+          <span className="block text-xs text-muted-foreground">
+            Use the folder as-is instead of copying it into the workspace. Deleting the project
+            will not delete the folder.
+          </span>
+        </span>
+      </label>
       <div>
         <label className="text-sm font-medium">Project Name</label>
         <Input
@@ -582,6 +666,58 @@ function SSHProjectForm({
           placeholder="main"
         />
       </div>
+      <div className="flex gap-2 justify-end">
+        <Button type="button" variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={createMutation.isPending}>
+          {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          Create
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function EmptyProjectForm({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [name, setName] = useState('');
+
+  const createMutation = useMutation({
+    mutationFn: api.createProject,
+    onSuccess: () => {
+      toast({ title: 'Project created' });
+      onSuccess();
+    },
+    onError: (error) => {
+      toast({ title: 'Error', description: (error as Error).message, variant: 'destructive' });
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    createMutation.mutate({ name });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label className="text-sm font-medium">Name</label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="my-project"
+          required
+        />
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Creates a brand new folder with an empty git repository (<code>git init</code>) — no clone, no remote.
+      </p>
       <div className="flex gap-2 justify-end">
         <Button type="button" variant="outline" onClick={onClose}>
           Cancel

@@ -1,7 +1,29 @@
-import { listTargets, machineFetch } from '../machines/resolve';
+import { listTargets, machineFetch, type MachineTarget } from '../machines/resolve';
 import type { MachineResult } from './merge';
 
 const FANOUT_TIMEOUT_MS = 8000;
+
+/**
+ * Turn a failed response into something diagnosable: which transport was used,
+ * which host answered, and who answered. An HTML body means an edge/proxy
+ * answered (Cloudflare, nginx), not our API — the two have very different fixes,
+ * and dumping 200 chars of HTML into the field hides that.
+ */
+async function describeFailure(target: MachineTarget, res: Response): Promise<string> {
+  const where = target.kind === 'tunnel'
+    ? 'tunnel'
+    : `${target.kind} ${new URL(target.url).host}`;
+
+  const type = res.headers.get('content-type') ?? '';
+  if (type.includes('application/json')) {
+    const body = (await res.text().catch(() => '')).slice(0, 200);
+    return `HTTP ${res.status} via ${where}: ${body}`;
+  }
+
+  // Non-JSON ⇒ not our API. Name the proxy if it identifies itself.
+  const via = res.headers.get('cf-ray') ? 'cloudflare' : res.headers.get('server') ?? 'proxy';
+  return `HTTP ${res.status} from ${via} (not our API) via ${where}`;
+}
 
 /**
  * Fetch `path` (an /api-relative path, e.g. '/sessions/sidebar') from every
@@ -27,7 +49,7 @@ export async function fanOutToMachines<T>(userId: string, path: string): Promise
       try {
         const res = await machineFetch(target, `/api${path}`, { signal: ctrl.signal });
         if (!res.ok) {
-          return { ...base, online: false, error: `HTTP ${res.status}`, data: null };
+          return { ...base, online: false, error: await describeFailure(target, res), data: null };
         }
         const data = (await res.json()) as T;
         return { ...base, online: true, data };

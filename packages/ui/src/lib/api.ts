@@ -175,6 +175,8 @@ export const api = {
   // Projects
   getProjects: (machineId?: string) => request<Project[]>('/projects', { machineId }),
   getProject: (id: string) => request<Project>(`/projects/${id}`),
+  browseFolders: (path?: string) =>
+    request<FolderListing>(`/projects/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   createProject: (data: CreateProjectInput) => request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
   deleteProject: (id: string, pin: string) =>
     request(`/projects/${id}`, { method: 'DELETE', headers: { 'X-Pin': pin } }),
@@ -912,6 +914,12 @@ export interface SSHKey {
 }
 
 
+export interface FolderListing {
+  path: string;
+  parent: string | null;
+  entries: { name: string; path: string; isRepo: boolean }[];
+}
+
 export interface CreateProjectInput {
   name: string;
   description?: string;
@@ -922,6 +930,7 @@ export interface CreateProjectInput {
   githubRepoFullName?: string;
   sourcePath?: string;
   allowDirty?: boolean;
+  inPlace?: boolean;
 }
 
 // ─── GitHub App Types ────────────────────────────────────────────────────────

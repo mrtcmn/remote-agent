@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { requireAuth } from '../auth/middleware';
 import { machineRegistry } from '../services/machine-registry';
+import { machineTunnel } from '../services/machine-tunnel/server';
 
 export const machineRoutes = new Elysia({ prefix: '/machines' })
   // ─── Public: pair with a pairing token ────────────────────────────────
@@ -56,7 +57,10 @@ export const machineRoutes = new Elysia({ prefix: '/machines' })
     return {
       peers: peers
         .filter((p) => p.id !== session.machineId)
-        .map(({ tokenHash, ...rest }) => rest),
+        // `online` here means "reachable by relay through us", which requires a
+        // live tunnel. A recent heartbeat is not enough — the caller would fan
+        // out to it and get a 502 from our relay.
+        .map(({ tokenHash, ...rest }) => ({ ...rest, online: machineTunnel.isOnline(rest.id) })),
     };
   })
 

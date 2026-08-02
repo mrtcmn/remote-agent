@@ -1,9 +1,14 @@
 import { mkdir, writeFile, readFile, readdir, rm, chmod, copyFile, cp } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { $ } from 'bun';
 import { nanoid } from 'nanoid';
 import { eq } from 'drizzle-orm';
 import { db, sshKeys, projects } from '../../db';
+
+/** True only for paths strictly under the workspaces root — in-place project folders are not. */
+export function isInsideWorkspaces(workspacesRoot: string, path: string): boolean {
+  return resolve(path).startsWith(resolve(workspacesRoot) + '/');
+}
 
 export interface SkillConfig {
   name: string;
@@ -307,8 +312,11 @@ export class WorkspaceService {
       throw new Error('Project not found');
     }
 
-    // Delete project files
-    await rm(project.localPath, { recursive: true, force: true });
+    // Delete project files — but never touch in-place local folders, which live
+    // outside the workspaces root and belong to the user.
+    if (isInsideWorkspaces(this.workspacesRoot, project.localPath)) {
+      await rm(project.localPath, { recursive: true, force: true });
+    }
 
     // Delete from database
     await db.delete(projects).where(eq(projects.id, projectId));
