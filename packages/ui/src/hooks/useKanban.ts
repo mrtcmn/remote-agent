@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, type KanbanStatus, type CreateTaskInput, type UpdateTaskInput, type TaskFiltersInput } from '@/lib/api';
+import { api, type KanbanStatus, type CreateTaskInput, type UpdateTaskInput, type TaskFiltersInput, type ChecklistItem } from '@/lib/api';
 
 export function useKanbanBoard(projectId?: string) {
   return useQuery({
@@ -22,6 +22,11 @@ export function useKanbanTask(taskId: string | null) {
     queryKey: ['kanban', 'task', taskId],
     queryFn: () => api.getKanbanTask(taskId!),
     enabled: !!taskId,
+    // The agent runs off the request path — poll while it is working.
+    refetchInterval: (query) => {
+      const status = query.state.data?.planStatus;
+      return status === 'planning' || status === 'executing' ? 3000 : false;
+    },
   });
 }
 
@@ -37,6 +42,15 @@ export function useAutoFlows(projectId?: string) {
   return useQuery({
     queryKey: ['kanban', 'flows', projectId],
     queryFn: () => api.getAutoFlows(projectId),
+  });
+}
+
+/** Which project is being worked in now — drives the new-task default. */
+export function useActiveProject() {
+  return useQuery({
+    queryKey: ['kanban', 'active-project'],
+    queryFn: () => api.getActiveProject(),
+    staleTime: 15000,
   });
 }
 
@@ -73,6 +87,28 @@ export function useKanbanMutations() {
 
   const deleteTask = useMutation({
     mutationFn: (id: string) => api.deleteKanbanTask(id),
+    onSuccess: invalidateBoard,
+  });
+
+  const planTask = useMutation({
+    mutationFn: (id: string) => api.planKanbanTask(id),
+    onSuccess: invalidateBoard,
+  });
+
+  const executeTask = useMutation({
+    mutationFn: (id: string) => api.executeKanbanTask(id),
+    onSuccess: invalidateBoard,
+  });
+
+  const toggleChecklistItem = useMutation({
+    mutationFn: ({ id, index, done }: { id: string; index: number; done: boolean }) =>
+      api.toggleTaskChecklistItem(id, index, done),
+    onSuccess: invalidateBoard,
+  });
+
+  const setChecklist = useMutation({
+    mutationFn: ({ id, items }: { id: string; items: ChecklistItem[] }) =>
+      api.setTaskChecklist(id, items),
     onSuccess: invalidateBoard,
   });
 
@@ -141,6 +177,8 @@ export function useKanbanMutations() {
 
   return {
     createTask, updateTask, moveTask, deleteTask,
+    planTask, executeTask,
+    toggleChecklistItem, setChecklist,
     addComment, resolveComment, rejectComment, reopenComment, deleteComment,
     addDependency, removeDependency,
     uploadAttachment, deleteAttachment,

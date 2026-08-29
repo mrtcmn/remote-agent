@@ -274,6 +274,8 @@ export const api = {
     request<TerminalInfo>(`/terminals/${id}`),
   createTerminal: (data: CreateTerminalInput) =>
     request<TerminalInfo>('/terminals', { method: 'POST', body: JSON.stringify(data) }),
+  sendTerminalInput: (id: string, data: string) =>
+    request<{ success: boolean }>(`/terminals/${id}/input`, { method: 'POST', body: JSON.stringify({ data }) }),
   resizeTerminal: (id: string, cols: number, rows: number) =>
     request(`/terminals/${id}/resize`, { method: 'POST', body: JSON.stringify({ cols, rows }) }),
   closeTerminal: (id: string) =>
@@ -328,6 +330,7 @@ export const api = {
     return request<KanbanBoardData>(`/kanban/board${query ? `?${query}` : ''}`);
   },
   getKanbanStatuses: () => request<{ id: string; title: string }[]>('/kanban/statuses'),
+  getActiveProject: () => request<ActiveProject>('/kanban/active-project'),
 
   // Tasks
   getKanbanTasks: (filters?: TaskFiltersInput) => {
@@ -352,6 +355,24 @@ export const api = {
     }),
   deleteKanbanTask: (id: string) =>
     request<{ success: boolean }>(`/kanban/tasks/${id}`, { method: 'DELETE' }),
+
+  // Agent — the same background agent plans, then executes its own plan
+  planKanbanTask: (id: string) =>
+    request<KanbanTask>(`/kanban/tasks/${id}/plan`, { method: 'POST' }),
+  executeKanbanTask: (id: string) =>
+    request<KanbanTask>(`/kanban/tasks/${id}/execute`, { method: 'POST' }),
+
+  // Checklist
+  setTaskChecklist: (id: string, items: ChecklistItem[]) =>
+    request<KanbanTask>(`/kanban/tasks/${id}/checklist`, {
+      method: 'PUT',
+      body: JSON.stringify({ items }),
+    }),
+  toggleTaskChecklistItem: (id: string, index: number, done: boolean) =>
+    request<KanbanTask>(`/kanban/tasks/${id}/checklist/toggle`, {
+      method: 'POST',
+      body: JSON.stringify({ index, done }),
+    }),
 
   // Dependencies
   addTaskDependency: (taskId: string, dependsOnTaskId: string) =>
@@ -828,6 +849,8 @@ export interface GitStatus {
   staged: string[];
   modified: string[];
   untracked: string[];
+  /** Added/deleted line counts per tracked path. Untracked files are absent. */
+  stats?: Record<string, { added: number; deleted: number }>;
   recent?: RecentChange[];
 }
 
@@ -1071,6 +1094,24 @@ export type KanbanStatus = 'backlog' | 'todo' | 'in_progress' | 'manual_testing'
 export type KanbanPriority = 'low' | 'medium' | 'high' | 'critical';
 export type AssigneeType = 'user' | 'agent' | 'unassigned';
 export type TaskCommentStatus = 'open' | 'resolved' | 'rejected';
+export type TaskCommentKind = 'user' | 'result';
+export type PlanStatus = 'none' | 'planning' | 'ready' | 'executing' | 'done' | 'failed';
+
+export interface ChecklistItem {
+  text: string;
+  done: boolean;
+}
+
+export interface RunningProject {
+  projectId: string;
+  projectName: string;
+  sessions: number;
+}
+
+/** Resolved only when exactly one project has live sessions. */
+export type ActiveProject =
+  | { resolved: true; projectId: string; projectName: string; sessions: number }
+  | { resolved: false; reason: 'none' | 'ambiguous'; candidates: RunningProject[] };
 export type CLIAdapterType = 'claude_code' | 'gemini_cli' | 'custom';
 
 export interface KanbanTask {
@@ -1094,6 +1135,9 @@ export interface KanbanTask {
   adapterConfig: string | null;
   labels: string | null; // JSON array
   estimatedEffort: string | null;
+  planDoc: string | null; // markdown + mermaid, written by the background agent
+  planStatus: PlanStatus;
+  checklist: string | null; // JSON ChecklistItem[]
   createdAt: string;
   updatedAt: string;
   project?: Project;
@@ -1111,6 +1155,7 @@ export interface TaskComment {
   userId: string;
   parentCommentId: string | null;
   content: string;
+  kind: TaskCommentKind;
   status: TaskCommentStatus;
   resolvedBy: string | null;
   createdAt: string;
@@ -1149,7 +1194,6 @@ export interface KanbanColumn {
 
 export interface KanbanBoardData {
   columns: KanbanColumn[];
-  summary: Record<string, number>;
 }
 
 export interface CreateTaskInput {
@@ -1170,6 +1214,7 @@ export interface CreateTaskInput {
 }
 
 export interface UpdateTaskInput {
+  projectId?: string;
   title?: string;
   description?: string;
   status?: KanbanStatus;

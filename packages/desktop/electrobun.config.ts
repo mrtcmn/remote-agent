@@ -4,7 +4,7 @@ export default {
   app: {
     name: "Remote Agent",
     identifier: "com.remote-agent.app",
-    version: "1.1.0",
+    version: "1.2.0",
     // Deep linking: remoteagent://open/sessions/<id> focuses the app + routes.
     // macOS only, and registration requires the app to live in /Applications.
     urlSchemes: ["remoteagent"],
@@ -37,6 +37,13 @@ export default {
     mac: {
       bundleCEF: false,
       defaultRenderer: "native",
+      // WKWebView hides navigator.mediaDevices entirely unless the host app
+      // declares a microphone usage string; electrobun derives the Info.plist
+      // key (NSMicrophoneUsageDescription) from this entitlement.
+      entitlements: {
+        "com.apple.security.device.audio-input":
+          "Remote Agent uses your microphone for dictation.",
+      },
       icons: "icon.iconset",
       // codesign: true, notarize: true,  // enable in Task 20
     },

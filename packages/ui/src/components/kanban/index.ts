@@ -3,5 +3,8 @@ export { KanbanColumn } from './KanbanColumn';
 export { KanbanCard } from './KanbanCard';
 export { TaskDetailPanel } from './TaskDetailPanel';
 export { TaskComments } from './TaskComments';
+export { PlanDocument } from './PlanDocument';
+export { TaskChecklist } from './TaskChecklist';
+export { StartSessionModal } from './StartSessionModal';
 export { TaskFilters } from './TaskFilters';
 export { CreateTaskModal } from './CreateTaskModal';

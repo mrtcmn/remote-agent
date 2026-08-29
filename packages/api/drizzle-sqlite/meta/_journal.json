@@ -29,6 +29,20 @@
       "when": 1783074832528,
       "tag": "0003_next_hawkeye",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1786664053537,
+      "tag": "0004_small_squadron_supreme",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1786804899628,
+      "tag": "0005_shiny_wrecker",
+      "breakpoints": true
     }
   ]
 }

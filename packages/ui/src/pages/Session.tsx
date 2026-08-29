@@ -30,7 +30,7 @@ import {
   MemoryStick,
   HardDrive,
 } from 'lucide-react';
-import { api, type TerminalType } from '@/lib/api';
+import { api, type TerminalType, type TerminalInfo } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Terminal, type TerminalHandle } from '@/components/Terminal';
 import { AIModelIcon, detectAIModel } from '@/components/AIModelIcon';
@@ -533,6 +533,16 @@ export function SessionPage() {
 
   const activeTerminal = terminals.find((t) => t.id === activeTerminalId);
 
+  // The running agent terminal that review comments can be typed into: the one
+  // in view if it is an agent, otherwise the first running agent terminal.
+  const reviewTargetTerminal = useMemo(() => {
+    const isAgent = (t: TerminalInfo) => t.type === 'claude' || t.type === 'opencode' || t.type === 'kimi';
+    if (activeTerminal && isAgent(activeTerminal) && (activeTerminal.liveStatus || activeTerminal.status) === 'running') {
+      return activeTerminal;
+    }
+    return activeTerminals.find(isAgent);
+  }, [activeTerminal, activeTerminals]);
+
   // ── Push-to-talk dictation ──
   // Hold ⌃⇧ to talk; the transcript takes over the recent-files bar and is typed
   // into the active terminal on release (you still hit Enter to send it).
@@ -990,7 +1000,19 @@ export function SessionPage() {
             sessionId={id!}
             project={activeProject ?? undefined}
             projectId={gitProjectId}
-            onProceed={(message) => {
+            currentTargetLabel={reviewTargetTerminal?.name}
+            onProceed={(message, target) => {
+              if (target === 'current' && reviewTargetTerminal) {
+                // Type the review in but leave the Enter to the user, so a stray
+                // send never interrupts whatever the agent is already doing.
+                api.sendTerminalInput(reviewTargetTerminal.id, message)
+                  .then(() => {
+                    selectTerminal(reviewTargetTerminal.id);
+                    toast({ title: 'Review sent', description: `Typed into ${reviewTargetTerminal.name} — press Enter to run it` });
+                  })
+                  .catch((e) => toast({ title: 'Send failed', description: (e as Error).message, variant: 'destructive' }));
+                return;
+              }
               createMutation.mutate(
                 { type: 'claude', name: 'Review', initialPrompt: message },
                 {

@@ -3,6 +3,32 @@ import { kanbanRepository, type TaskFilters, type TaskListOptions } from './kanb
 const KANBAN_STATUSES = ['backlog', 'todo', 'in_progress', 'manual_testing', 'review_needed', 'completed'] as const;
 type KanbanStatus = typeof KANBAN_STATUSES[number];
 
+export interface RunningProject {
+  projectId: string;
+  projectName: string;
+  sessions: number;
+}
+
+export type ActiveProject =
+  | { resolved: true; projectId: string; projectName: string; sessions: number }
+  | { resolved: false; reason: 'none' | 'ambiguous'; candidates: RunningProject[] };
+
+/**
+ * One project with live sessions is an answer. Nothing running, or several
+ * projects running at once, is a question — return the candidates instead of
+ * picking, so the caller asks rather than guesses.
+ */
+export function pickActiveProject(running: RunningProject[]): ActiveProject {
+  if (running.length === 1) {
+    return { resolved: true, ...running[0] };
+  }
+  return {
+    resolved: false,
+    reason: running.length === 0 ? 'none' : 'ambiguous',
+    candidates: running,
+  };
+}
+
 class KanbanService {
   // ─── Task CRUD ──────────────────────────────────────────────────────────
 
@@ -26,6 +52,7 @@ class KanbanService {
     autoFlow?: boolean;
     adapterType?: string;
     labels?: string[];
+    checklist?: { text: string; done?: boolean }[];
     branch?: string;
     githubIssueNumber?: number;
     githubIssueUrl?: string;
@@ -34,12 +61,25 @@ class KanbanService {
       ...data,
       userId,
       labels: data.labels ? JSON.stringify(data.labels) : undefined,
+      checklist: data.checklist
+        ? JSON.stringify(data.checklist.map(i => ({ text: i.text, done: !!i.done })))
+        : undefined,
     });
   }
 
   async updateTask(taskId: string, userId: string, data: Record<string, any>) {
     if (data.labels && Array.isArray(data.labels)) {
       data.labels = JSON.stringify(data.labels);
+    }
+    if (data.checklist && Array.isArray(data.checklist)) {
+      data.checklist = JSON.stringify(
+        data.checklist.map((i: { text: string; done?: boolean }) => ({ text: i.text, done: !!i.done })),
+      );
+    }
+    // Moving a task points the agent at a different directory, so the target
+    // project must be one this user owns.
+    if (data.projectId && !(await kanbanRepository.userOwnsProject(data.projectId, userId))) {
+      throw new Error('Unknown project');
     }
     return kanbanRepository.updateTask(taskId, userId, data);
   }
@@ -70,6 +110,41 @@ class KanbanService {
 
   async deleteTask(taskId: string, userId: string) {
     return kanbanRepository.deleteTask(taskId, userId);
+  }
+
+  // ─── Which project am I working in? ────────────────────────────────────
+
+  /**
+   * A task belongs to exactly one project, and the agent runs in that
+   * project's directory — so a wrong guess sends it into the wrong repo.
+   * Answer only when the answer is obvious; otherwise hand back the
+   * candidates so the caller can ask.
+   */
+  async getActiveProject(userId: string): Promise<ActiveProject> {
+    return pickActiveProject(await kanbanRepository.findRunningProjects(userId));
+  }
+
+  // ─── Checklist ─────────────────────────────────────────────────────────
+  // Stored as a JSON array on the task, like `labels`. Optional: a task with
+  // no checklist is normal, not empty.
+
+  async setChecklist(taskId: string, userId: string, items: { text: string; done?: boolean }[]) {
+    const checklist = items.map(i => ({ text: i.text, done: !!i.done }));
+    return kanbanRepository.updateTask(taskId, userId, { checklist: JSON.stringify(checklist) });
+  }
+
+  /** Ticks one item. Kept as its own call so an agent needs one round trip. */
+  async setChecklistItem(taskId: string, userId: string, index: number, done: boolean) {
+    const task = await kanbanRepository.findTaskById(taskId, userId);
+    if (!task) throw new Error('Task not found');
+
+    const items: { text: string; done: boolean }[] = task.checklist ? JSON.parse(task.checklist) : [];
+    if (index < 0 || index >= items.length) {
+      throw new Error(`No checklist item ${index}. The task has ${items.length}.`);
+    }
+
+    items[index].done = done;
+    return kanbanRepository.updateTask(taskId, userId, { checklist: JSON.stringify(items) });
   }
 
   // ─── Dependencies ──────────────────────────────────────────────────────
@@ -138,25 +213,31 @@ class KanbanService {
   // ─── Board ──────────────────────────────────────────────────────────────
 
   async getBoardData(userId: string, projectId?: string) {
-    const [tasks, summary] = await Promise.all([
-      kanbanRepository.findTasks(userId, {
-        filters: {
-          projectId,
-          parentTaskId: null, // Top-level tasks only for board view
-        },
-      }),
-      kanbanRepository.getBoardSummary(userId, projectId),
-    ]);
+    const tasks = await kanbanRepository.findTasks(userId, {
+      filters: {
+        projectId,
+        parentTaskId: null, // Top-level tasks only for board view
+      },
+      // ponytail: the board draws every card, so it must not page. Add real
+      // paging if a project ever carries more than this many open tasks.
+      limit: 1000,
+    });
 
-    // Group tasks by status
-    const columns = KANBAN_STATUSES.map(status => ({
-      id: status,
-      title: this.getColumnTitle(status),
-      tasks: tasks.filter(t => t.status === status).sort((a, b) => a.position - b.position),
-      count: summary[status] || 0,
-    }));
+    // Group tasks by status. The count is what the column actually holds —
+    // a separate COUNT(*) counted subtasks the board never draws.
+    const columns = KANBAN_STATUSES.map(status => {
+      const columnTasks = tasks
+        .filter(t => t.status === status)
+        .sort((a, b) => a.position - b.position);
+      return {
+        id: status,
+        title: this.getColumnTitle(status),
+        tasks: columnTasks,
+        count: columnTasks.length,
+      };
+    });
 
-    return { columns, summary };
+    return { columns };
   }
 
   async getStatuses() {

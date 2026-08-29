@@ -1,6 +1,6 @@
-import { eq, and, desc, asc, inArray, like, sql, isNull } from 'drizzle-orm';
+import { eq, and, desc, asc, inArray, like, ne, sql, isNull } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
-import { db, kanbanTasks, kanbanTaskComments, kanbanTaskAttachments, kanbanTaskDependencies, projects, user } from '../../db';
+import { db, kanbanTasks, kanbanTaskComments, kanbanTaskAttachments, kanbanTaskDependencies, projects, user, claudeSessions } from '../../db';
 import type { KanbanTask, NewKanbanTask, KanbanTaskComment, NewKanbanTaskComment } from '../../db';
 
 export interface TaskFilters {
@@ -83,6 +83,37 @@ class KanbanRepository {
     });
   }
 
+  /**
+   * Projects with at least one live session, busiest-first. "Live" is any
+   * session that has not terminated — a paused agent still means you are
+   * working in that project.
+   */
+  async findRunningProjects(userId: string) {
+    const rows = await db.select({
+      projectId: projects.id,
+      projectName: projects.name,
+      sessions: sql<number>`cast(count(${claudeSessions.id}) as integer)`,
+      lastActiveAt: sql<number>`max(${claudeSessions.lastActiveAt})`,
+    })
+      .from(claudeSessions)
+      .innerJoin(projects, eq(claudeSessions.projectId, projects.id))
+      .where(and(
+        eq(claudeSessions.userId, userId),
+        ne(claudeSessions.status, 'terminated'),
+      ))
+      .groupBy(projects.id, projects.name);
+
+    return rows.sort((a, b) => Number(b.lastActiveAt ?? 0) - Number(a.lastActiveAt ?? 0));
+  }
+
+  async userOwnsProject(projectId: string, userId: string) {
+    const project = await db.query.projects.findFirst({
+      where: and(eq(projects.id, projectId), eq(projects.userId, userId)),
+      columns: { id: true },
+    });
+    return !!project;
+  }
+
   async findTaskById(taskId: string, userId: string) {
     return db.query.kanbanTasks.findFirst({
       where: and(eq(kanbanTasks.id, taskId), eq(kanbanTasks.userId, userId)),
@@ -123,6 +154,7 @@ class KanbanRepository {
     adapterType?: string;
     adapterConfig?: string;
     labels?: string;
+    checklist?: string;
     branch?: string;
     githubIssueNumber?: number;
     githubIssueUrl?: string;
@@ -155,6 +187,7 @@ class KanbanRepository {
       adapterType: (data.adapterType || 'claude_code') as any,
       adapterConfig: data.adapterConfig || null,
       labels: data.labels || null,
+      checklist: data.checklist || null,
       branch: data.branch || null,
       githubIssueNumber: data.githubIssueNumber || null,
       githubIssueUrl: data.githubIssueUrl || null,
@@ -166,6 +199,7 @@ class KanbanRepository {
   }
 
   async updateTask(taskId: string, userId: string, data: Partial<{
+    projectId: string;
     title: string;
     description: string;
     status: string;
@@ -179,6 +213,7 @@ class KanbanRepository {
     adapterType: string;
     adapterConfig: string;
     labels: string;
+    checklist: string;
     branch: string;
     githubIssueNumber: number;
     githubIssueUrl: string;
@@ -186,6 +221,7 @@ class KanbanRepository {
   }>) {
     const updateData: Record<string, any> = { updatedAt: new Date() };
 
+    if (data.projectId !== undefined) updateData.projectId = data.projectId;
     if (data.title !== undefined) updateData.title = data.title;
     if (data.description !== undefined) updateData.description = data.description;
     if (data.status !== undefined) updateData.status = data.status;
@@ -199,6 +235,7 @@ class KanbanRepository {
     if (data.adapterType !== undefined) updateData.adapterType = data.adapterType;
     if (data.adapterConfig !== undefined) updateData.adapterConfig = data.adapterConfig;
     if (data.labels !== undefined) updateData.labels = data.labels;
+    if (data.checklist !== undefined) updateData.checklist = data.checklist;
     if (data.branch !== undefined) updateData.branch = data.branch;
     if (data.githubIssueNumber !== undefined) updateData.githubIssueNumber = data.githubIssueNumber;
     if (data.githubIssueUrl !== undefined) updateData.githubIssueUrl = data.githubIssueUrl;
@@ -275,7 +312,7 @@ class KanbanRepository {
     });
   }
 
-  async createComment(data: { taskId: string; userId: string; content: string; parentCommentId?: string }) {
+  async createComment(data: { taskId: string; userId: string; content: string; parentCommentId?: string; kind?: 'user' | 'result' }) {
     const id = nanoid();
     await db.insert(kanbanTaskComments).values({
       id,
@@ -283,6 +320,7 @@ class KanbanRepository {
       userId: data.userId,
       parentCommentId: data.parentCommentId || null,
       content: data.content,
+      kind: data.kind || 'user',
       status: 'open',
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -344,26 +382,6 @@ class KanbanRepository {
     return { success: true };
   }
 
-  // ─── Board Summary ─────────────────────────────────────────────────────
-
-  async getBoardSummary(userId: string, projectId?: string) {
-    const conditions = [eq(kanbanTasks.userId, userId)];
-    if (projectId) conditions.push(eq(kanbanTasks.projectId, projectId));
-
-    // Get counts per status
-    const result = await db.select({
-      status: kanbanTasks.status,
-      count: sql<number>`cast(count(*) as integer)`,
-    })
-      .from(kanbanTasks)
-      .where(and(...conditions))
-      .groupBy(kanbanTasks.status);
-
-    return result.reduce((acc, row) => {
-      acc[row.status] = row.count;
-      return acc;
-    }, {} as Record<string, number>);
-  }
 }
 
 export const kanbanRepository = new KanbanRepository();

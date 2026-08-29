@@ -8,6 +8,7 @@ import { userInfo } from 'os';
 import { getWorkspacesRoot, getAgentHome } from '../config/paths';
 import { db, claudeSessions, terminals } from '../db';
 import { terminalService } from '../services/terminal';
+import { stripAnsi } from '../services/terminal/strip-ansi';
 import { workspaceService } from '../services/workspace';
 import { resolveProjectEnv } from '../services/workspace/env.service';
 import { getProjectCredentials } from '../services/git';
@@ -243,6 +244,66 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
     params: t.Object({
       id: t.String(),
     }),
+  })
+
+  // Plain-text tail of a terminal's output. The websocket carries raw bytes for
+  // xterm; this is the same scrollback with escape sequences stripped, for
+  // callers that just want to read (the MCP server, scripts).
+  .get('/:id/output', async ({ user, params, query, set }) => {
+    const terminal = await db.query.terminals.findFirst({
+      where: eq(terminals.id, params.id),
+      with: { session: true },
+    });
+
+    if (!terminal) {
+      set.status = 404;
+      return { error: 'Terminal not found' };
+    }
+
+    if (terminal.session.userId !== user!.id) {
+      set.status = 403;
+      return { error: 'Forbidden' };
+    }
+
+    // Live buffer if the terminal is still up, else what was persisted on close.
+    const raw = terminalService.getRawScrollback(params.id);
+    const text = raw ? new TextDecoder().decode(raw) : (terminal.scrollback ?? '');
+    const lines = stripAnsi(text).split('\n');
+    const tail = Math.min(query.lines ? parseInt(query.lines, 10) || 200 : 200, 2000);
+
+    return { output: lines.slice(-tail).join('\n'), truncated: lines.length > tail };
+  }, {
+    params: t.Object({ id: t.String() }),
+    query: t.Object({ lines: t.Optional(t.String()) }),
+  })
+
+  // Write to a terminal's stdin — the HTTP twin of the websocket's input frame.
+  .post('/:id/input', async ({ user, params, body, set }) => {
+    const terminal = await db.query.terminals.findFirst({
+      where: eq(terminals.id, params.id),
+      with: { session: true },
+    });
+
+    if (!terminal) {
+      set.status = 404;
+      return { error: 'Terminal not found' };
+    }
+
+    if (terminal.session.userId !== user!.id) {
+      set.status = 403;
+      return { error: 'Forbidden' };
+    }
+
+    try {
+      await terminalService.write(params.id, body.data);
+      return { success: true };
+    } catch (error) {
+      set.status = 500;
+      return { error: (error as Error).message };
+    }
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({ data: t.String() }),
   })
 
   // Resize terminal

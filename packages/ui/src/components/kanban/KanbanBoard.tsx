@@ -10,7 +10,10 @@ interface KanbanBoardProps {
   onQuickAdd: (title: string, status: KanbanStatus) => void;
 }
 
-export function KanbanBoard({ data, onTaskClick, onMoveTask, onQuickAdd }: KanbanBoardProps) {
+export function KanbanBoard({ data, projectId, onTaskClick, onMoveTask, onQuickAdd }: KanbanBoardProps) {
+  // With one project filtered in, the name on every card is noise. Across all
+  // projects it is the only way to tell whose task this is.
+  const showProject = !projectId;
   const [draggedTask, setDraggedTask] = useState<KanbanTask | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
 
@@ -64,6 +67,7 @@ export function KanbanBoard({ data, onTaskClick, onMoveTask, onQuickAdd }: Kanba
           }}
           onDrop={handleDrop}
           onQuickAdd={onQuickAdd}
+          showProject={showProject}
           isDragOver={dragOverColumn === column.id && draggedTask?.status !== column.id}
         />
       ))}

@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { requireAuth } from '../auth/middleware';
-import { kanbanService } from '../services/kanban';
+import { kanbanService, agentPlanService } from '../services/kanban';
 import { autoFlowService } from '../services/auto-flow';
 import { cliAdapterRegistry } from '../services/cli-adapter';
 import { nanoid } from 'nanoid';
@@ -26,6 +26,11 @@ export const kanbanRoutes = new Elysia({ prefix: '/kanban' })
   // Get all statuses
   .get('/statuses', async () => {
     return kanbanService.getStatuses();
+  })
+
+  // Which project is being worked in right now — resolved only when obvious.
+  .get('/active-project', async ({ user }) => {
+    return kanbanService.getActiveProject(user!.id);
   })
 
   // ─── Tasks ────────────────────────────────────────────────────────────
@@ -97,6 +102,7 @@ export const kanbanRoutes = new Elysia({ prefix: '/kanban' })
       autoFlow: t.Optional(t.Boolean()),
       adapterType: t.Optional(t.String()),
       labels: t.Optional(t.Array(t.String())),
+      checklist: t.Optional(t.Array(t.Object({ text: t.String(), done: t.Optional(t.Boolean()) }))),
       branch: t.Optional(t.String()),
       githubIssueNumber: t.Optional(t.Number()),
       githubIssueUrl: t.Optional(t.String()),
@@ -119,6 +125,7 @@ export const kanbanRoutes = new Elysia({ prefix: '/kanban' })
   }, {
     params: t.Object({ id: t.String() }),
     body: t.Object({
+      projectId: t.Optional(t.String()),
       title: t.Optional(t.String()),
       description: t.Optional(t.String()),
       status: t.Optional(t.String()),
@@ -131,6 +138,7 @@ export const kanbanRoutes = new Elysia({ prefix: '/kanban' })
       autoFlow: t.Optional(t.Boolean()),
       adapterType: t.Optional(t.String()),
       labels: t.Optional(t.Array(t.String())),
+      checklist: t.Optional(t.Array(t.Object({ text: t.String(), done: t.Optional(t.Boolean()) }))),
       branch: t.Optional(t.String()),
       githubIssueNumber: t.Optional(t.Number()),
       githubIssueUrl: t.Optional(t.String()),
@@ -191,6 +199,59 @@ export const kanbanRoutes = new Elysia({ prefix: '/kanban' })
 
   .delete('/dependencies/:id', async ({ params }) => {
     return kanbanService.removeDependency(params.id);
+  }, {
+    params: t.Object({ id: t.String() }),
+  })
+
+  // ─── Checklist ─────────────────────────────────────────────────────────
+
+  .put('/tasks/:id/checklist', async ({ user, params, body, set }) => {
+    try {
+      return await kanbanService.setChecklist(params.id, user!.id, body.items);
+    } catch (error) {
+      set.status = 400;
+      return { error: (error as Error).message };
+    }
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({
+      items: t.Array(t.Object({ text: t.String(), done: t.Optional(t.Boolean()) })),
+    }),
+  })
+
+  .post('/tasks/:id/checklist/toggle', async ({ user, params, body, set }) => {
+    try {
+      return await kanbanService.setChecklistItem(params.id, user!.id, body.index, body.done);
+    } catch (error) {
+      set.status = 400;
+      return { error: (error as Error).message };
+    }
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({ index: t.Number(), done: t.Boolean() }),
+  })
+
+  // ─── Agent plan / execute ──────────────────────────────────────────────
+  // Both spawn the same background CLI agent; only the prompt differs.
+
+  .post('/tasks/:id/plan', async ({ user, params, set }) => {
+    try {
+      return await agentPlanService.plan(params.id, user!.id);
+    } catch (error) {
+      set.status = 400;
+      return { error: error instanceof Error ? error.message : 'Failed to start planner' };
+    }
+  }, {
+    params: t.Object({ id: t.String() }),
+  })
+
+  .post('/tasks/:id/execute', async ({ user, params, set }) => {
+    try {
+      return await agentPlanService.execute(params.id, user!.id);
+    } catch (error) {
+      set.status = 400;
+      return { error: error instanceof Error ? error.message : 'Failed to start executor' };
+    }
   }, {
     params: t.Object({ id: t.String() }),
   })

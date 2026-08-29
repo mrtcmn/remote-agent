@@ -362,6 +362,11 @@ export const kanbanTasks = pgTable('kanban_tasks', {
   labels: text('labels'), // JSON array of strings
   estimatedEffort: text('estimated_effort'), // e.g., "1h", "1d"
 
+  // Agent plan document — markdown with mermaid fences, written by the background agent
+  planDoc: text('plan_doc'),
+  planStatus: text('plan_status').notNull().default('none'), // none | planning | ready | executing | done | failed
+  checklist: text('checklist'), // JSON [{ text, done }] — optional, the agent ticks it off
+
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
@@ -379,6 +384,7 @@ export const kanbanTaskComments = pgTable('kanban_task_comments', {
   userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
   parentCommentId: text('parent_comment_id'), // For threaded replies
   content: text('content').notNull(),
+  kind: text('kind').notNull().default('user'), // user | result (agent execution report)
   status: taskCommentStatusEnum('status').notNull().default('open'),
   resolvedBy: text('resolved_by'),
   createdAt: timestamp('created_at').notNull().defaultNow(),

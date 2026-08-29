@@ -310,6 +310,11 @@ export const kanbanTasks = sqliteTable('kanban_tasks', {
   labels: text('labels'), // JSON array
   estimatedEffort: text('estimated_effort'),
 
+  // Agent plan document — markdown with mermaid fences, written by the background agent
+  planDoc: text('plan_doc'),
+  planStatus: text('plan_status').notNull().default('none'), // none | planning | ready | executing | done | failed
+  checklist: text('checklist'), // JSON [{ text, done }] — optional, the agent ticks it off
+
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
@@ -327,6 +332,7 @@ export const kanbanTaskComments = sqliteTable('kanban_task_comments', {
   userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
   parentCommentId: text('parent_comment_id'),
   content: text('content').notNull(),
+  kind: text('kind').notNull().default('user'), // user | result (agent execution report)
   status: text('status').notNull().default('open'), // open | resolved | rejected
   resolvedBy: text('resolved_by'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),

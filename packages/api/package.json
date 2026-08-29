@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
+    "mcp": "bun run src/mcp-server.ts",
     "ui-manifest": "bun run scripts/generate-ui-manifest.ts",
     "build": "bun run scripts/generate-ui-manifest.ts && bun build src/index.ts --compile --outfile dist/server --external playwright --external playwright-core --external cpu-features",
     "db:generate": "drizzle-kit generate",

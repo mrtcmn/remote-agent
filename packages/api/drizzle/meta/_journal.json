@@ -120,6 +120,20 @@
       "when": 1783074861006,
       "tag": "0016_rapid_shockwave",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786664072765,
+      "tag": "0017_real_rocket_racer",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786804900033,
+      "tag": "0018_fresh_the_liberteens",
+      "breakpoints": true
     }
   ]
 }

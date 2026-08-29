@@ -5,7 +5,9 @@ import { GitToolbar } from './GitToolbar';
 import { GitChangesTab } from './GitChangesTab';
 import { GitLogTab } from './GitLogTab';
 import { GitBranchesTab } from './GitBranchesTab';
+import { DiffWorkerPool } from './DiffRenderer';
 import { PresentationModal } from '@/components/presentation/PresentationModal';
+import type { ReviewTarget } from '@/components/review/ReviewComposer';
 
 type GitTab = 'changes' | 'log' | 'branches';
 
@@ -14,10 +16,19 @@ interface GitPanelProps {
   project?: Project;
   projectId?: string;
   className?: string;
-  onProceed?: (message: string) => void;
+  /** Name of the live agent terminal, used to label the "open session" send target. */
+  currentTargetLabel?: string;
+  onProceed?: (message: string, target: ReviewTarget) => void;
 }
 
-export function GitPanel({ sessionId, project: _project, projectId, className, onProceed }: GitPanelProps) {
+export function GitPanel({
+  sessionId,
+  project: _project,
+  projectId,
+  className,
+  currentTargetLabel,
+  onProceed,
+}: GitPanelProps) {
   const [activeTab, setActiveTab] = useState<GitTab>('changes');
   const [presentationRequest, setPresentationRequest] = useState<PresentationRequest | null>(null);
 
@@ -32,42 +43,49 @@ export function GitPanel({ sessionId, project: _project, projectId, className, o
   }, []);
 
   return (
-    <div className={cn('flex flex-col h-full bg-background', className)}>
-      <GitToolbar sessionId={sessionId} projectId={projectId} onReview={handleReview} />
+    <DiffWorkerPool>
+      <div className={cn('flex flex-col h-full bg-background', className)}>
+        <GitToolbar sessionId={sessionId} projectId={projectId} onReview={handleReview} />
 
-      <div className="flex items-center border-b bg-card/20 shrink-0">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={cn(
-              'px-4 py-2 text-xs font-medium transition-colors relative',
-              activeTab === tab.id
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            )}
-          >
-            {tab.label}
-            {activeTab === tab.id && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-            )}
-          </button>
-        ))}
+        <div className="flex items-center border-b bg-card/20 shrink-0">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                'px-4 py-2 text-xs font-medium transition-colors relative',
+                activeTab === tab.id ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              {tab.label}
+              {activeTab === tab.id && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+              )}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 min-h-0 flex">
+          {activeTab === 'changes' && (
+            <GitChangesTab
+              sessionId={sessionId}
+              projectId={projectId}
+              currentTargetLabel={currentTargetLabel}
+              onProceed={onProceed}
+            />
+          )}
+          {activeTab === 'log' && <GitLogTab sessionId={sessionId} projectId={projectId} />}
+          {activeTab === 'branches' && <GitBranchesTab sessionId={sessionId} projectId={projectId} />}
+        </div>
+
+        {presentationRequest && (
+          <PresentationModal
+            sessionId={sessionId}
+            request={presentationRequest}
+            onClose={() => setPresentationRequest(null)}
+          />
+        )}
       </div>
-
-      <div className="flex-1 min-h-0 flex">
-        {activeTab === 'changes' && <GitChangesTab sessionId={sessionId} projectId={projectId} onProceed={onProceed} />}
-        {activeTab === 'log' && <GitLogTab sessionId={sessionId} projectId={projectId} />}
-        {activeTab === 'branches' && <GitBranchesTab sessionId={sessionId} projectId={projectId} />}
-      </div>
-
-      {presentationRequest && (
-        <PresentationModal
-          sessionId={sessionId}
-          request={presentationRequest}
-          onClose={() => setPresentationRequest(null)}
-        />
-      )}
-    </div>
+    </DiffWorkerPool>
   );
 }

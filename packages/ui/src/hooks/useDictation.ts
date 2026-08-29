@@ -55,6 +55,10 @@ export function useDictation(onText?: (text: string) => void) {
     finalRef.current = '';
 
     try {
+      // Undefined in a non-secure context, or in a webview whose host app has no
+      // microphone usage description — say so instead of throwing a TypeError.
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone unavailable here');
+
       const res = await fetch(`${getApiBase()}/api/dictation/token`);
       const body = await res.json().catch(() => ({}));
       if (cancelled()) return;

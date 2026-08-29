@@ -26,6 +26,9 @@ export class ClaudeCodeAdapter extends BaseCLIAdapter {
     try {
       const proc = Bun.spawn([CLAUDE_BIN, ...args], {
         cwd: config.projectPath,
+        // The prompt goes on stdin: `--allowedTools` is variadic and would
+        // otherwise swallow a trailing prompt argument.
+        stdin: new TextEncoder().encode(config.prompt),
         stdout: 'pipe',
         stderr: 'pipe',
         env: this.buildEnv(config),
@@ -42,7 +45,7 @@ export class ClaudeCodeAdapter extends BaseCLIAdapter {
       let costUsd: number | undefined;
       try {
         const parsed = JSON.parse(output);
-        if (parsed.cost_usd) costUsd = parsed.cost_usd;
+        costUsd = parsed.total_cost_usd ?? parsed.cost_usd;
       } catch {
         // Not JSON output, that's fine
       }
@@ -84,9 +87,6 @@ export class ClaudeCodeAdapter extends BaseCLIAdapter {
     if (config.allowedTools?.length) {
       args.push('--allowedTools', config.allowedTools.join(','));
     }
-
-    // The prompt goes last
-    args.push(config.prompt);
 
     return args;
   }

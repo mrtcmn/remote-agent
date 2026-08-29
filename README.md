@@ -115,6 +115,22 @@ Add inline review comments to Claude's work, batch them, and send them back to C
 
 Launch a browser preview for web development projects with viewport presets (mobile, tablet, desktop). Powered by Puppeteer with real-time screenshot streaming.
 
+### MCP Server
+
+Drive Remote Agent from any MCP client (Claude Code, Claude Desktop, ...):
+
+```bash
+claude mcp add remote-agent -- bun run /path/to/remote-agent/packages/api/src/mcp-server.ts
+```
+
+Tools cover sessions (`open_session` with a prompt, `show_session`, `send_prompt`, `close_session`),
+project env vars, run configs and run flows. Every tool takes an optional `machine` argument —
+`list_machines` names the paired instances, and calls are relayed to them over whatever transport
+they are on, so one MCP server reaches your whole fleet.
+
+It talks to the HTTP API, so it also works against a remote instance: set `RA_URL` and `RA_TOKEN`
+(a machine token). On a local install both are optional — it signs in as the seeded local user.
+
 ## Quick Start
 
 ### One-Command Installation

@@ -291,6 +291,25 @@
   color: hsl(var(--muted-foreground));
 }
 
+/* ── Diagram lightbox ────────────────────────────────────────────────────
+   A native <dialog>, so Esc, the backdrop and the top layer come for free. */
+.ra-lightbox {
+  width: 92vw;
+  height: 88vh;
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.75rem;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  overflow: hidden;
+}
+.ra-lightbox::backdrop {
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(2px);
+}
+
 /* Better touch targets on mobile */
 @media (max-width: 767px) {
   .touch-target {

@@ -6,22 +6,14 @@ import { cn } from '@/lib/utils';
 import { KanbanCard } from './KanbanCard';
 import type { KanbanTask, KanbanColumn as KanbanColumnType, KanbanStatus } from '@/lib/api';
 
-const columnColors: Record<string, string> = {
-  backlog: 'border-t-gray-400',
-  todo: 'border-t-blue-400',
-  in_progress: 'border-t-yellow-400',
-  manual_testing: 'border-t-orange-400',
-  review_needed: 'border-t-purple-400',
-  completed: 'border-t-green-400',
-};
-
-const columnBgColors: Record<string, string> = {
-  backlog: 'bg-gray-50/50 dark:bg-gray-900/20',
-  todo: 'bg-blue-50/50 dark:bg-blue-900/10',
-  in_progress: 'bg-yellow-50/50 dark:bg-yellow-900/10',
-  manual_testing: 'bg-orange-50/50 dark:bg-orange-900/10',
-  review_needed: 'bg-purple-50/50 dark:bg-purple-900/10',
-  completed: 'bg-green-50/50 dark:bg-green-900/10',
+// Linear-style: a neutral column, one coloured dot to name the state.
+const statusDots: Record<string, string> = {
+  backlog: 'bg-zinc-500',
+  todo: 'bg-blue-400',
+  in_progress: 'bg-yellow-400',
+  manual_testing: 'bg-orange-400',
+  review_needed: 'bg-purple-400',
+  completed: 'bg-green-400',
 };
 
 interface KanbanColumnProps {
@@ -31,6 +23,7 @@ interface KanbanColumnProps {
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, status: KanbanStatus) => void;
   onQuickAdd: (title: string, status: KanbanStatus) => void;
+  showProject?: boolean;
   isDragOver: boolean;
 }
 
@@ -41,6 +34,7 @@ export function KanbanColumn({
   onDragOver,
   onDrop,
   onQuickAdd,
+  showProject,
   isDragOver,
 }: KanbanColumnProps) {
   const [isAddingTask, setIsAddingTask] = useState(false);
@@ -66,9 +60,7 @@ export function KanbanColumn({
   return (
     <div
       className={cn(
-        'flex flex-col min-w-[300px] max-w-[340px] w-[320px] rounded-xl border border-t-4',
-        columnColors[column.id],
-        columnBgColors[column.id],
+        'flex flex-col min-w-[300px] max-w-[340px] w-[320px] rounded-xl border bg-card/40',
         isDragOver && 'ring-2 ring-primary/30 border-primary/50',
         'transition-all duration-150',
       )}
@@ -79,8 +71,9 @@ export function KanbanColumn({
       onDrop={(e) => onDrop(e, column.id)}
     >
       {/* Column Header */}
-      <div className="flex items-center justify-between p-3 pb-2">
+      <div className="flex items-center justify-between px-2.5 py-2">
         <div className="flex items-center gap-2">
+          <span className={cn('h-2 w-2 rounded-full', statusDots[column.id])} />
           <h3 className="font-semibold text-sm">{column.title}</h3>
           <span className="flex items-center justify-center h-5 min-w-[20px] px-1.5 text-[11px] font-medium rounded-full bg-muted text-muted-foreground">
             {column.count}
@@ -100,13 +93,14 @@ export function KanbanColumn({
       </div>
 
       {/* Cards */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 pt-0 space-y-2 min-h-[100px]">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2 space-y-1.5 min-h-[100px]">
         {column.tasks.map((task) => (
           <KanbanCard
             key={task.id}
             task={task}
             onClick={onTaskClick}
             onDragStart={onDragStart}
+            showProject={showProject}
           />
         ))}
 

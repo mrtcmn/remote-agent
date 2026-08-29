@@ -54,6 +54,9 @@ export interface GitStatus {
   staged: string[];
   modified: string[];
   untracked: string[];
+  // Added/deleted line counts per tracked path (worktree vs HEAD). Untracked
+  // files are absent — `git diff` does not see them.
+  stats?: Record<string, { added: number; deleted: number }>;
   // Present only when status() is called with { recent: true } — changed files
   // sorted newest-first by file mtime. Opt-in so idle sessions skip the fs.stat cost.
   recent?: RecentChange[];
@@ -441,8 +444,10 @@ export class GitService {
       }
     }
 
+    const stats = await this.perFileDiffStats(projectPath);
+
     if (!opts.recent) {
-      return { branch, ahead, behind, staged, modified, untracked };
+      return { branch, ahead, behind, staged, modified, untracked, stats };
     }
 
     // Opt-in: stat each changed file for its mtime, sort newest-first.
@@ -465,7 +470,28 @@ export class GitService {
       .filter((r): r is RecentChange => r !== null)
       .sort((a, b) => b.mtimeMs - a.mtimeMs);
 
-    return { branch, ahead, behind, staged, modified, untracked, recent };
+    return { branch, ahead, behind, staged, modified, untracked, stats, recent };
+  }
+
+  /**
+   * Per-file added/deleted line counts for the whole worktree against HEAD.
+   * Binary files report 0/0 because git prints "-" instead of a count.
+   */
+  private async perFileDiffStats(projectPath: string): Promise<Record<string, { added: number; deleted: number }>> {
+    // ponytail: one `git diff` for every file. Per-file calls only if a huge
+    // repo makes this measurably slow.
+    const result = await $`git diff --numstat HEAD`.cwd(projectPath).quiet().nothrow();
+    if (result.exitCode !== 0) return {}; // no commits yet
+
+    const stats: Record<string, { added: number; deleted: number }> = {};
+    for (const line of result.stdout.toString().split('\n')) {
+      if (!line.trim()) continue;
+      const [added, deleted, ...pathParts] = line.split('\t');
+      const path = pathParts.join('\t');
+      if (!path) continue;
+      stats[path] = { added: parseInt(added) || 0, deleted: parseInt(deleted) || 0 };
+    }
+    return stats;
   }
 
   async log(projectPath: string, limit = 50): Promise<Array<{

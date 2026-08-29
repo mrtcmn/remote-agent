@@ -34,4 +34,39 @@ describe('GitService.status recent', () => {
     expect(s.recent?.map((r) => r.path)).toEqual(['b', 'a', 'c']);
     expect(s.recent?.every((r) => r.status === 'untracked')).toBe(true);
   });
+
+  test('stats is empty on a repo with no commits', async () => {
+    expect(await git.status(dir).then((s) => s.stats)).toEqual({});
+  });
+});
+
+describe('GitService.status stats', () => {
+  let dir: string;
+  const git = new GitService();
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'git-stats-'));
+    await $`git init -q`.cwd(dir);
+    await $`git config user.email t@t.co`.cwd(dir);
+    await $`git config user.name t`.cwd(dir);
+    await writeFile(join(dir, 'kept.txt'), 'one\ntwo\nthree\n');
+    await $`git add -A`.cwd(dir);
+    await $`git commit -qm init`.cwd(dir);
+    // Drop one line and add two: 2 added, 1 deleted.
+    await writeFile(join(dir, 'kept.txt'), 'one\nthree\nfour\nfive\n');
+    await writeFile(join(dir, 'brand-new.txt'), 'x\n');
+  });
+
+  afterAll(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('counts added and deleted lines per tracked file', async () => {
+    const s = await git.status(dir);
+    expect(s.stats?.['kept.txt']).toEqual({ added: 2, deleted: 1 });
+  });
+
+  test('leaves untracked files out of stats', async () => {
+    const s = await git.status(dir);
+    expect(s.untracked).toContain('brand-new.txt');
+    expect(s.stats?.['brand-new.txt']).toBeUndefined();
+  });
 });

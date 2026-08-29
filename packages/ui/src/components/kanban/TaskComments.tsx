@@ -1,9 +1,10 @@
 import { useState, useRef } from 'react';
 import {
   Send, Check, X, RotateCcw, Reply, Paperclip,
-  Trash2, MessageSquare, CheckCircle2, XCircle
+  Trash2, MessageSquare, CheckCircle2, XCircle, Bot
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { FormattedText } from '@/components/FormattedText';
 import { cn } from '@/lib/utils';
 import { api, type TaskComment, type TaskAttachment } from '@/lib/api';
 
@@ -162,13 +163,21 @@ function CommentItem({
   onCancelReply: () => void;
   onUploadAttachment: (file: File, commentId?: string) => void;
 }) {
+  // The agent's execution report — its own island, markdown-rendered.
+  const isResult = comment.kind === 'result';
+
   return (
-    <div className={cn('border-l-2 pl-3 py-2 rounded-r-md', statusStyles[comment.status])}>
+    <div className={cn(
+      'border-l-2 pl-3 py-2 rounded-r-md',
+      isResult
+        ? 'border-l-primary bg-primary/[0.04] border border-l-2 rounded-md pr-3'
+        : statusStyles[comment.status],
+    )}>
       {/* Header */}
       <div className="flex items-center gap-2 mb-1">
-        {statusIcons[comment.status]}
+        {isResult ? <Bot className="h-3.5 w-3.5 text-primary" /> : statusIcons[comment.status]}
         <span className="text-xs font-medium">
-          {comment.user?.name || 'Unknown'}
+          {isResult ? 'Agent result' : comment.user?.name || 'Unknown'}
         </span>
         <span className="text-xs text-muted-foreground">
           {new Date(comment.createdAt).toLocaleDateString(undefined, {
@@ -177,16 +186,21 @@ function CommentItem({
         </span>
         <span className={cn(
           'ml-auto text-[10px] px-1.5 py-0.5 rounded font-medium',
-          comment.status === 'open' && 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+          isResult && 'bg-primary/15 text-primary',
+          !isResult && comment.status === 'open' && 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
           comment.status === 'resolved' && 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
           comment.status === 'rejected' && 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
         )}>
-          {comment.status}
+          {isResult ? 'result' : comment.status}
         </span>
       </div>
 
       {/* Content */}
-      <p className="text-sm whitespace-pre-wrap mb-2">{comment.content}</p>
+      {isResult ? (
+        <FormattedText text={comment.content} className="text-sm mb-2" />
+      ) : (
+        <p className="text-sm whitespace-pre-wrap mb-2">{comment.content}</p>
+      )}
 
       {/* Attachments */}
       {comment.attachments && comment.attachments.length > 0 && (

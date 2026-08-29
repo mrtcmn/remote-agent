@@ -7,7 +7,13 @@ import { KanbanBoard } from '@/components/kanban/KanbanBoard';
 import { TaskDetailPanel } from '@/components/kanban/TaskDetailPanel';
 import { TaskFilters } from '@/components/kanban/TaskFilters';
 import { CreateTaskModal } from '@/components/kanban/CreateTaskModal';
-import { useKanbanBoard, useKanbanTask, useKanbanMutations } from '@/hooks/useKanban';
+import { useKanbanBoard, useKanbanTask, useKanbanMutations, useActiveProject } from '@/hooks/useKanban';
+import { filterBoard } from '@/lib/kanban-filter';
+import { StartSessionModal } from '@/components/kanban/StartSessionModal';
+import { sessionPath } from '@/lib/session-route';
+import { getActiveMachineId } from '@/lib/active-machine';
+import { useNavigate } from 'react-router-dom';
+import type { TerminalType } from '@/lib/api';
 import { api, type KanbanTask, type KanbanStatus, type KanbanPriority, type AssigneeType } from '@/lib/api';
 
 export function KanbanPage() {
@@ -22,6 +28,9 @@ export function KanbanPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createModalDefaultStatus, setCreateModalDefaultStatus] = useState<KanbanStatus | undefined>();
+  const [showSessionModal, setShowSessionModal] = useState(false);
+  const [startingSession, setStartingSession] = useState(false);
+  const navigate = useNavigate();
 
   // Data
   const { data: projects = [] } = useQuery({
@@ -29,6 +38,7 @@ export function KanbanPage() {
     queryFn: () => api.getProjects(),
   });
 
+  const { data: activeProject } = useActiveProject();
   const { data: boardData, isLoading } = useKanbanBoard(selectedProjectId);
   const { data: selectedTask } = useKanbanTask(selectedTaskId);
 
@@ -51,13 +61,27 @@ export function KanbanPage() {
   };
 
   const handleQuickAdd = (title: string, status: KanbanStatus) => {
-    if (!selectedProjectId && projects.length === 0) {
-      toast({ title: 'Error', description: 'No project available', variant: 'destructive' });
+    // The agent runs inside one project directory, so never guess which one.
+    // The board filter wins; then the project actually running; then the only
+    // project there is. If none of those answer it, ask instead of choosing.
+    const runningId = activeProject?.resolved ? activeProject.projectId : undefined;
+    const projectId = selectedProjectId ?? runningId ?? (projects.length === 1 ? projects[0].id : undefined);
+    if (!projectId) {
+      const running = activeProject && !activeProject.resolved ? activeProject.candidates : [];
+      toast({
+        title: projects.length === 0 ? 'No project available' : 'Which project?',
+        description: projects.length === 0
+          ? 'Create a project before you add tasks.'
+          : running.length > 1
+            ? `${running.map(c => c.projectName).join(', ')} are all running. Choose one in the filter bar.`
+            : 'Nothing is running, so pick the project in the filter bar. The agent works in its directory.',
+        variant: 'destructive',
+      });
       return;
     }
     mutations.createTask.mutate(
       {
-        projectId: selectedProjectId || projects[0].id,
+        projectId,
         title,
         status,
       },
@@ -81,21 +105,40 @@ export function KanbanPage() {
     });
   };
 
+  /**
+   * Opens a session on the task and hands the agent the prompt. The session is
+   * linked back to the task so the board shows where the work is happening.
+   */
+  const handleStartSession = async (prompt: string, agent: TerminalType) => {
+    if (!selectedTask?.project) return;
+    setStartingSession(true);
+    try {
+      const session = await api.createSession(selectedTask.projectId);
+      const terminal = await api.createTerminal({
+        sessionId: session.id,
+        type: agent,
+        initialPrompt: prompt,
+        persist: true,
+      });
+      mutations.updateTask.mutate({ id: selectedTask.id, data: { sessionId: session.id } });
+      setShowSessionModal(false);
+      navigate(sessionPath(getActiveMachineId(), session.id, terminal.id));
+    } catch (error) {
+      toast({ title: 'Could not start the session', description: (error as Error).message, variant: 'destructive' });
+    } finally {
+      setStartingSession(false);
+    }
+  };
+
   // Filter the board data client-side for status/priority/assignee/search
-  const filteredBoardData = boardData ? {
-    ...boardData,
-    columns: boardData.columns
-      .filter(col => statusFilter.length === 0 || statusFilter.includes(col.id))
-      .map(col => ({
-        ...col,
-        tasks: col.tasks.filter(task => {
-          if (priorityFilter.length > 0 && !priorityFilter.includes(task.priority)) return false;
-          if (assigneeFilter && task.assigneeType !== assigneeFilter) return false;
-          if (searchQuery && !task.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-          return true;
-        }),
-      })),
-  } : undefined;
+  const filteredBoardData = boardData
+    ? filterBoard(boardData, {
+        status: statusFilter,
+        priority: priorityFilter,
+        assignee: assigneeFilter,
+        search: searchQuery,
+      })
+    : undefined;
 
   return (
     <div className="flex flex-col h-full">
@@ -153,6 +196,7 @@ export function KanbanPage() {
       {selectedTask && (
         <TaskDetailPanel
           task={selectedTask}
+          projects={projects}
           onClose={() => setSelectedTaskId(null)}
           onUpdate={(data) => mutations.updateTask.mutate({ id: selectedTask.id, data })}
           onDelete={() => {
@@ -178,6 +222,29 @@ export function KanbanPage() {
             mutations.addDependency.mutate({ taskId: selectedTask.id, dependsOnTaskId })
           }
           onRemoveDependency={(depId) => mutations.removeDependency.mutate(depId)}
+          onPlan={() => mutations.planTask.mutate(selectedTask.id, {
+            onError: (error) => toast({ title: 'Planner', description: (error as Error).message, variant: 'destructive' }),
+          })}
+          onExecute={() => mutations.executeTask.mutate(selectedTask.id, {
+            onError: (error) => toast({ title: 'Executor', description: (error as Error).message, variant: 'destructive' }),
+          })}
+          onStartSession={() => setShowSessionModal(true)}
+          onToggleChecklistItem={(index, done) =>
+            mutations.toggleChecklistItem.mutate({ id: selectedTask.id, index, done })
+          }
+          onReplaceChecklist={(items) =>
+            mutations.setChecklist.mutate({ id: selectedTask.id, items })
+          }
+        />
+      )}
+
+      {/* Start Session Modal */}
+      {showSessionModal && selectedTask && (
+        <StartSessionModal
+          task={selectedTask}
+          busy={startingSession}
+          onClose={() => setShowSessionModal(false)}
+          onStart={handleStartSession}
         />
       )}
 

@@ -3,17 +3,21 @@ import {
   X, Edit3, Save, Trash2, GitBranch, Link2, Plus, Upload,
   ArrowRight, AlertTriangle,
   Clock, Tag, Zap, ExternalLink,
-  ChevronDown, ChevronUp
+  ChevronDown, ChevronUp, TerminalSquare
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { cn } from '@/lib/utils';
 import { TaskComments } from './TaskComments';
+import { PlanDocument } from './PlanDocument';
+import { TaskChecklist } from './TaskChecklist';
 import {
   api,
   type KanbanTask,
   type KanbanStatus,
   type KanbanPriority,
+  type Project,
+  type ChecklistItem,
 } from '@/lib/api';
 
 const statusOptions: { value: KanbanStatus; label: string; color: string }[] = [
@@ -34,6 +38,7 @@ const priorityOptions: { value: KanbanPriority; label: string; color: string }[]
 
 interface TaskDetailPanelProps {
   task: KanbanTask;
+  projects: Project[];
   onClose: () => void;
   onUpdate: (data: Record<string, any>) => void;
   onDelete: () => void;
@@ -46,10 +51,16 @@ interface TaskDetailPanelProps {
   onDeleteAttachment: (attachmentId: string) => void;
   onAddDependency: (dependsOnTaskId: string) => void;
   onRemoveDependency: (depId: string) => void;
+  onPlan: () => void;
+  onExecute: () => void;
+  onStartSession: () => void;
+  onToggleChecklistItem: (index: number, done: boolean) => void;
+  onReplaceChecklist: (items: ChecklistItem[]) => void;
 }
 
 export function TaskDetailPanel({
   task,
+  projects,
   onClose,
   onUpdate,
   onDelete,
@@ -62,6 +73,11 @@ export function TaskDetailPanel({
   onDeleteAttachment,
   onAddDependency,
   onRemoveDependency,
+  onPlan,
+  onExecute,
+  onStartSession,
+  onToggleChecklistItem,
+  onReplaceChecklist,
 }: TaskDetailPanelProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
@@ -118,11 +134,28 @@ export function TaskDetailPanel({
       <div className="relative w-full max-w-2xl bg-background border-l shadow-xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             {isBlocked && <AlertTriangle className="h-4 w-4 text-amber-500" />}
             <span className="text-xs text-muted-foreground font-mono">{task.id.slice(0, 8)}</span>
+            {task.project && (
+              <>
+                <span className="text-xs text-muted-foreground">·</span>
+                <span className="text-xs font-medium truncate">{task.project.name}</span>
+              </>
+            )}
           </div>
           <div className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs gap-1.5"
+              onClick={onStartSession}
+              disabled={!task.project}
+              title="Open an interactive session on this task"
+            >
+              <TerminalSquare className="h-4 w-4" />
+              Session
+            </Button>
             <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={onDelete}>
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -240,6 +273,23 @@ export function TaskDetailPanel({
               </div>
             )}
           </div>
+
+          {/* Agent plan document */}
+          <PlanDocument
+            task={task}
+            projects={projects}
+            onPlan={onPlan}
+            onExecute={onExecute}
+            onAdapterChange={(adapterType) => onUpdate({ adapterType })}
+            onProjectChange={(projectId) => onUpdate({ projectId })}
+          />
+
+          {/* Checklist — optional, and the agent ticks it off over MCP */}
+          <TaskChecklist
+            task={task}
+            onToggle={onToggleChecklistItem}
+            onReplace={onReplaceChecklist}
+          />
 
           {/* Collapsible Details */}
           <div>

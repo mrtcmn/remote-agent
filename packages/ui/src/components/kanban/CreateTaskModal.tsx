@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { X, Plus, Zap } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { X, Plus, Zap, Radio } from 'lucide-react';
+import { useActiveProject } from '@/hooks/useKanban';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { cn } from '@/lib/utils';
@@ -22,7 +23,21 @@ export function CreateTaskModal({
 }: CreateTaskModalProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [projectId, setProjectId] = useState(defaultProjectId || projects[0]?.id || '');
+  // Never preselect by list order. Prefer the board filter, then the project
+  // that is actually running, then the only project there is. Anything else
+  // stays blank so the person picks.
+  const { data: active } = useActiveProject();
+  const runningId = active?.resolved ? active.projectId : undefined;
+  const [projectId, setProjectId] = useState('');
+  const [touched, setTouched] = useState(false);
+
+  // `active` arrives after the first render, so fill in once it lands.
+  const suggested = defaultProjectId || runningId || (projects.length === 1 ? projects[0].id : '');
+  useEffect(() => {
+    if (!touched && suggested) setProjectId(suggested);
+  }, [suggested, touched]);
+
+  const ambiguous = active && !active.resolved && active.reason === 'ambiguous';
   const [status, setStatus] = useState<KanbanStatus>(defaultStatus || 'backlog');
   const [priority, setPriority] = useState<KanbanPriority>('medium');
   const [assigneeType, setAssigneeType] = useState<AssigneeType>('unassigned');
@@ -75,7 +90,7 @@ export function CreateTaskModal({
             <label className="text-sm font-medium block mb-1">Project *</label>
             <select
               value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
+              onChange={(e) => { setProjectId(e.target.value); setTouched(true); }}
               className="w-full h-9 px-3 text-sm rounded-md border bg-background"
               required
             >
@@ -84,6 +99,21 @@ export function CreateTaskModal({
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
+
+            {/* Say why this project is preselected, so a wrong default is visible. */}
+            {projectId && projectId === runningId && !defaultProjectId && (
+              <p className="flex items-center gap-1.5 mt-1 text-[11px] text-green-500">
+                <Radio className="h-3 w-3" />
+                Running now — {active?.resolved ? active.sessions : 0} live session(s)
+              </p>
+            )}
+            {ambiguous && !touched && (
+              <p className="mt-1 text-[11px] text-amber-500">
+                {active.candidates.length} projects are running
+                {' '}({active.candidates.map(c => c.projectName).join(', ')}).
+                {' '}Pick the one this task belongs to.
+              </p>
+            )}
           </div>
 
           {/* Title */}

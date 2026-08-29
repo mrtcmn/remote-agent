@@ -1,0 +1,1 @@
+ALTER TABLE `kanban_tasks` ADD `checklist` text;
