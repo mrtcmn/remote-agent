@@ -1,11 +1,11 @@
 {
   "name": "@remote-agent/desktop",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run build:notch && ELECTROBUN_BUILD_ENV=dev RA_NOTCH_DIR=\"$PWD/../notch\" concurrently -k \"bun run dev:api\" \"bun run dev:ui\" \"electrobun dev\"",
-    "dev:api": "RA_MODE=local RA_PORT=13590 bun run --cwd ../api src/index.ts",
+    "dev": "bun run build:notch && ELECTROBUN_BUILD_ENV=dev RA_NOTCH_DIR=\"$PWD/../notch\" RA_PORT=13690 RA_UI_PORT=13691 concurrently -k \"bun run dev:api\" \"bun run dev:ui\" \"electrobun dev\"",
+    "dev:api": "RA_MODE=local bun run --cwd ../api src/index.ts",
     "dev:ui": "vite",
     "build:ui": "vite build",
     "build:notch": "swift build -c release --package-path ../notch",

@@ -5,10 +5,12 @@ import type { DesktopRPC } from "../shared/rpc";
 
 const DEV = process.argv.includes("--dev") || process.env.ELECTROBUN_BUILD_ENV === "dev";
 const REMOTE = process.argv.includes("--remote");
+// Must match the Vite dev server in vite.config.ts (RA_UI_PORT, default 13691).
+const DEV_UI_PORT = process.env.RA_UI_PORT ?? "13691";
 
 /** Mirrors the load-URL branching of packages/electron/src/main.ts. */
 export function resolveLoadUrl(store: Store): string {
-  if (DEV) return REMOTE ? "https://ra.grasco.dev" : "http://localhost:13591";
+  if (DEV) return REMOTE ? "https://ra.grasco.dev" : `http://localhost:${DEV_UI_PORT}`;
   const apiUrl = store.get("apiUrl");
   if (store.get("mode") === "local") return apiUrl || "http://localhost:13590";
   return apiUrl || "views://mainview/index.html";

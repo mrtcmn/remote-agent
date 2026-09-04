@@ -55,6 +55,7 @@ struct SettingsView: View {
     @State private var pairingError: String?
     @State private var suppressWhenActive = AppSettings.suppressWhenDesktopActive
     @State private var sound = AppSettings.notificationSound
+    @State private var anchor = AppSettings.anchor
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var launchAtLoginError: String?
 
@@ -112,6 +113,15 @@ struct SettingsView: View {
             }
 
             Section("Behavior") {
+                Picker("Position", selection: $anchor) {
+                    Text("Notch").tag(NotchAnchor.notch)
+                    Text("Beside the Dock").tag(NotchAnchor.dock)
+                }
+                .onChange(of: anchor) { _, value in
+                    AppSettings.anchor = value
+                    NotificationCenter.default.post(name: .notchAnchorChanged, object: nil)
+                }
+
                 Toggle("Don't pop up while the Remote Agent app is focused", isOn: $suppressWhenActive)
                     .onChange(of: suppressWhenActive) { _, value in
                         AppSettings.suppressWhenDesktopActive = value

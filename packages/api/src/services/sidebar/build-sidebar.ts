@@ -3,9 +3,16 @@ import { db, claudeSessions, projects, projectLinks, reviewComments, worktrees }
 import { terminalService } from '../terminal';
 import { gitService } from '../git';
 import { dockerService } from '../docker';
+import { attributeContainers, ContainerCache, type SessionPath } from '../docker/session-containers';
 import { codeServerManager } from '../code-server/code-server.service';
 
 const ACTIVE_STATUSES = new Set(['active', 'waiting_input']);
+
+/** Every agent CLI we can launch. They all read as one thing in the sidebar. */
+const AGENT_TERMINALS = new Set(['claude', 'opencode', 'kimi']);
+
+/** Survives a stalled docker daemon so container rows don't blink out. */
+const containerCache = new ContainerCache();
 
 /** Serialize a timestamp defensively — some rows carry null/invalid lastActiveAt. */
 function toIsoString(value: unknown): string {
@@ -71,10 +78,32 @@ export async function buildSidebarData(userId: string, opts: { activeOnly?: bool
   // Fetch docker and code-server status once (used for all sessions)
   const CODE_SERVER_URL = process.env.VITE_CODE_SERVER_URL || '';
   const [dockerContainers, codeServerStatus] = await Promise.all([
-    dockerService.listContainers().catch(() => [] as any[]),
+    dockerService.listContainers().then(
+      (list) => {
+        containerCache.record(list.filter((c) => c.state === 'running'));
+        return containerCache.current();
+      },
+      // A failed check is not evidence of nothing running; the cache decides.
+      () => containerCache.current()
+    ),
     Promise.resolve(codeServerManager.getStatus()),
   ]);
-  const runningContainerCount = dockerContainers.filter((c: any) => c.state === 'running').length;
+
+  // Docker labels say which checkout a container was brought up from, so each
+  // session gets only its own containers instead of everything on the host.
+  const sessionPaths: SessionPath[] = [];
+  for (const session of workSessions) {
+    // Drizzle's inference collapses these rows to {} in this file, hence the casts.
+    const wt = session.worktreeId
+      ? (worktreeMap.get(session.worktreeId) as { path?: string } | undefined)
+      : undefined;
+    const project = userProjects.find((p: any) => p.id === session.projectId) as
+      | { localPath?: string }
+      | undefined;
+    const path = wt?.path ?? project?.localPath;
+    if (path) sessionPaths.push({ sessionId: session.id, path });
+  }
+  const containersBySession = attributeContainers(dockerContainers, sessionPaths);
 
   // Build session data with live status and git stats
   const sessionDataMap = new Map<string, any>();
@@ -132,15 +161,16 @@ export async function buildSidebarData(userId: string, opts: { activeOnly?: bool
       status: string;
       count?: number;
       url?: string;
+      image?: string;
     }> = [];
 
     const runningTerminals = terminals.filter(t => t.status === 'running');
 
     for (const term of runningTerminals) {
-      if (term.type === 'claude') {
-        // Use the terminal's name so the sidebar shows the actual title
-        // (e.g. "Load Hetzner JSON") rather than a generic "Claude".
-        services.push({ type: 'claude', id: term.id, label: term.name || 'Claude', status: 'running' });
+      // Use the terminal's name so the sidebar shows the actual title
+      // (e.g. "Load Hetzner JSON") rather than a generic "Claude".
+      if (AGENT_TERMINALS.has(term.type)) {
+        services.push({ type: term.type, id: term.id, label: term.name || 'Agent', status: 'running' });
       } else if (term.type === 'shell') {
         services.push({ type: 'shell', id: term.id, label: term.name || 'Shell', status: 'running' });
       } else if (term.type === 'process') {
@@ -148,14 +178,14 @@ export async function buildSidebarData(userId: string, opts: { activeOnly?: bool
       }
     }
 
-    // Docker: attach to active sessions only
-    if (runningContainerCount > 0 && liveStatus === 'active') {
+    // Docker: one row per container started from this session's checkout.
+    for (const c of containersBySession.get(session.id) ?? []) {
       services.push({
         type: 'docker',
-        id: 'docker',
-        label: `Docker (${runningContainerCount})`,
+        id: `docker:${c.id}`,
+        label: c.names,
         status: 'running',
-        count: runningContainerCount,
+        image: c.image,
       });
     }
 

@@ -16,29 +16,42 @@ final class NotchWindowController: NSWindowController {
         self.screen = screen
 
         let screenFrame = screen.frame
-        let notchSize = screen.notchSize
+        let anchor = AppSettings.anchor
 
-        // Window covers full width at top, tall enough for the opened panel
-        let windowHeight: CGFloat = 600
-        let windowFrame = NSRect(
-            x: screenFrame.origin.x,
-            y: screenFrame.maxY - windowHeight,
-            width: screenFrame.width,
-            height: windowHeight
-        )
+        // Collapsed pill: the camera housing on the notch, a small capsule beside the Dock.
+        let pillSize = anchor == .notch ? screen.notchSize : CGSize(width: 320, height: 64)
 
-        // Device notch rect — positioned at horizontal center
-        let deviceNotchRect = CGRect(
-            x: (screenFrame.width - notchSize.width) / 2,
-            y: 0,
-            width: notchSize.width,
-            height: notchSize.height
-        )
+        // The window must hold the opened panel. It is pinned to the top edge
+        // for the notch, and to the bottom-right corner for the Dock.
+        let windowFrame: NSRect
+        switch anchor {
+        case .notch:
+            let windowHeight: CGFloat = 600
+            windowFrame = NSRect(
+                x: screenFrame.origin.x,
+                y: screenFrame.maxY - windowHeight,
+                width: screenFrame.width,
+                height: windowHeight
+            )
+        case .dock:
+            let width = min(560, screenFrame.width)
+            let height = min(600, screenFrame.height)
+            windowFrame = NSRect(
+                x: screenFrame.maxX - width,
+                y: screenFrame.minY,
+                width: width,
+                height: height
+            )
+        }
 
         self.viewModel = NotchViewModel(
-            deviceNotchRect: deviceNotchRect,
-            screenRect: screenFrame,
-            windowHeight: windowHeight,
+            geometry: NotchGeometry(
+                anchor: anchor,
+                pillSize: pillSize,
+                screenRect: screenFrame,
+                windowFrame: windowFrame,
+                dockHeight: screen.bottomDockHeight
+            ),
             hasPhysicalNotch: screen.hasPhysicalNotch
         )
 

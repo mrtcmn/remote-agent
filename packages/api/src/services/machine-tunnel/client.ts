@@ -8,6 +8,28 @@ import { TUNNEL_INTERNAL_SECRET, TUNNEL_AUTH_HEADER, TUNNEL_MACHINE_HEADER } fro
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
+/** A connection that lives this long counts as good and clears the attempt count. */
+const STABLE_MS = 60_000;
+/** Consecutive failed attempts before the tunnel gives up. */
+const MAX_ATTEMPTS = 10;
+/** The master sends this when another connection takes over our machine id. */
+const CLOSE_REPLACED = 4000;
+
+/**
+ * Attempt count after a socket closed. A connection that held for STABLE_MS
+ * counts as good, so the count restarts; a flap keeps counting up.
+ */
+export function nextAttempts(attempts: number, openMs: number): number {
+  return openMs >= STABLE_MS ? 1 : attempts + 1;
+}
+
+/** Jittered exponential backoff before retry number `attempts` (1 = the first). */
+export function retryDelay(attempts: number, random: number = Math.random()): number {
+  const backoff = Math.min(BASE_BACKOFF_MS * 2 ** (attempts - 1), MAX_BACKOFF_MS);
+  // Without jitter, N secondaries reconnect in lockstep after a master restart
+  // and hammer it together.
+  return backoff * (0.5 + random * 0.5);
+}
 
 /** Serves a Request against this machine's own API (loopback). */
 export type LocalDispatch = (request: Request) => Promise<Response>;
@@ -24,6 +46,7 @@ class MasterTunnel {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private attempts = 0;
+  private openedAt = 0;
   private stopped = false;
   private channels = new Map<string, WebSocket>();
 
@@ -71,7 +94,7 @@ class MasterTunnel {
     this.ws = ws;
 
     ws.addEventListener('open', () => {
-      this.attempts = 0;
+      this.openedAt = Date.now();
       console.log(`[machine-tunnel] connected to ${this.master.name}`);
       this.sendHeartbeat();
       this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
@@ -84,7 +107,20 @@ class MasterTunnel {
       });
     });
 
-    ws.addEventListener('close', () => this.scheduleReconnect('closed'));
+    ws.addEventListener('close', (event) => {
+      // 4000 = the master replaced us with another connection for the same
+      // machine id. A second instance holds this identity, so retrying only
+      // takes turns kicking each other off.
+      if (event.code === CLOSE_REPLACED) {
+        console.warn(
+          `[machine-tunnel] ${this.master.name} replaced this connection — ` +
+          `another instance uses the same machine token. Not retrying.`,
+        );
+        this.stop();
+        return;
+      }
+      this.scheduleReconnect('closed');
+    });
     ws.addEventListener('error', () => {
       // 'error' is always followed by 'close'; let close drive the retry.
     });
@@ -99,11 +135,23 @@ class MasterTunnel {
     this.ws = null;
     if (this.stopped || this.reconnectTimer) return;
 
-    // Jittered exponential backoff — without jitter, N secondaries reconnect in
-    // lockstep after a master restart and hammer it together.
-    const backoff = Math.min(BASE_BACKOFF_MS * 2 ** this.attempts, MAX_BACKOFF_MS);
-    const delay = backoff * (0.5 + Math.random() * 0.5);
-    this.attempts += 1;
+    // A tunnel that opens and dies at once made no progress, so only a
+    // connection that held for STABLE_MS clears the count. A flapping master
+    // really does back off and stop.
+    const openMs = this.openedAt > 0 ? Date.now() - this.openedAt : 0;
+    this.openedAt = 0;
+    this.attempts = nextAttempts(this.attempts, openMs);
+
+    if (this.attempts >= MAX_ATTEMPTS) {
+      this.stopped = true;
+      console.warn(
+        `[machine-tunnel] ${this.master.name} ${reason}; gave up after ${MAX_ATTEMPTS} tries. ` +
+        `Restart the app, or unpair and pair again, to try once more.`,
+      );
+      return;
+    }
+
+    const delay = retryDelay(this.attempts);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();

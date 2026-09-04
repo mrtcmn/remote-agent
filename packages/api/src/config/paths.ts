@@ -3,7 +3,9 @@ import { homedir } from 'node:os';
 import { isLocalMode } from './mode';
 
 function localBase(): string {
-  return join(homedir(), 'remote-agent');
+  // RA_HOME keeps a second instance (dev beside the installed app) off the
+  // same SQLite file and workspaces.
+  return process.env.RA_HOME || join(homedir(), 'remote-agent');
 }
 
 export function getWorkspacesRoot(): string {

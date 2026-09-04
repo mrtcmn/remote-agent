@@ -117,6 +117,16 @@ enum StatusKind {
     }
 
     /// Section header in the grouped list.
+    /// Sort order for the collapsed pill and the grouped list: most urgent first.
+    var rank: Int {
+        switch self {
+        case .review:  return 0
+        case .error:   return 1
+        case .running: return 2
+        case .done:    return 3
+        }
+    }
+
     var groupLabel: String {
         switch self {
         case .running: return "WORKING"

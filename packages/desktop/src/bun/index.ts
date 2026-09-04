@@ -11,9 +11,12 @@ import { createTray } from "./tray";
 import { startLocalApi, stopLocalApi } from "./local-api";
 import { startNotch, stopNotch } from "./notch";
 
-// Dev: `desktop:dev` sets this. The webview loads Vite (13591), which proxies
-// /api + /ws to the `bun run dev` API on 13590 — so we skip the embedded server.
+// Dev: `desktop:dev` sets this. The webview loads Vite (13691), which proxies
+// /api + /ws to the `bun run dev` API on 13690 — so we skip the embedded server.
+// Dev keeps its own ports so the installed app can stay open on 13590.
 const DEV = process.argv.includes("--dev") || process.env.ELECTROBUN_BUILD_ENV === "dev";
+const DEV_API_PORT = process.env.RA_PORT ?? "13690";
+const DEV_UI_PORT = process.env.RA_UI_PORT ?? "13691";
 
 const store = createStore(Utils.paths.userData);
 const rpc = createRpc(store);
@@ -71,10 +74,10 @@ ApplicationMenu.setApplicationMenu([
 (async () => {
   if (DEV) {
     // Use the running `bun run dev` API via the Vite proxy. Setting apiUrl to the
-    // webview origin makes the UI issue same-origin (relative) requests → proxy → 13590.
-    store.set("apiUrl", "http://localhost:13591");
+    // webview origin makes the UI issue same-origin (relative) requests → proxy → the API.
+    store.set("apiUrl", `http://localhost:${DEV_UI_PORT}`);
     // Notch talks to the API directly (websockets don't need the Vite proxy).
-    startNotch("http://localhost:13590");
+    startNotch(`http://localhost:${DEV_API_PORT}`);
   } else if (store.get("mode") === "local") {
     try {
       const apiUrl = await startLocalApi();

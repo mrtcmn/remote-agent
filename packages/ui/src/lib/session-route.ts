@@ -27,3 +27,13 @@ export function sessionIdFromPath(pathname: string): string | null {
   // Legacy bare:    sessions/:id            -> id is the 2nd segment.
   return segments.length >= 3 ? segments[2] : segments[1];
 }
+
+/**
+ * Extract the terminal id from a `/sessions/:machineId/:id/:terminalId` pathname.
+ * Null when the route names no terminal, or for the legacy bare form.
+ */
+export function terminalIdFromPath(pathname: string): string | null {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] !== 'sessions' || segments.length < 4) return null;
+  return segments[3];
+}

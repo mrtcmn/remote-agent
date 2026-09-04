@@ -9,5 +9,10 @@ let package = Package(
             name: "RemoteAgentNotch",
             path: "Sources/RemoteAgentNotch"
         ),
+        .testTarget(
+            name: "RemoteAgentNotchTests",
+            dependencies: ["RemoteAgentNotch"],
+            path: "Tests"
+        ),
     ]
 )

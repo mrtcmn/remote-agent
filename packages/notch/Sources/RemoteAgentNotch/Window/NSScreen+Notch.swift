@@ -47,4 +47,10 @@ extension NSScreen {
     var hasPhysicalNotch: Bool {
         safeAreaInsets.top > 0
     }
+
+    /// Height of the Dock band at the bottom of this screen. 0 when the Dock
+    /// hides or sits on a side.
+    var bottomDockHeight: CGFloat {
+        max(0, visibleFrame.minY - frame.minY)
+    }
 }

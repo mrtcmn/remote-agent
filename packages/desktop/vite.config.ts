@@ -2,6 +2,11 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
+// Dev ports: 13690/13691, clear of the installed app on 13590. Override with
+// RA_PORT and RA_UI_PORT.
+const API_PORT = process.env.RA_PORT ?? "13690";
+const UI_PORT = Number(process.env.RA_UI_PORT ?? 13691);
+
 export default defineConfig({
   root: "src/mainview",
   plugins: [react()],
@@ -20,17 +25,17 @@ export default defineConfig({
   // Serve the UI's static assets (logo.png, favicons, etc.) at the root.
   publicDir: path.resolve(__dirname, "../ui/public"),
   server: {
-    port: 13591,
+    port: UI_PORT,
     proxy: {
       "/api": {
         // 127.0.0.1 (not localhost): node can resolve localhost to ::1 and miss Bun's IPv4 bind.
-        target: "http://127.0.0.1:13590",
+        target: `http://127.0.0.1:${API_PORT}`,
         changeOrigin: false,
         cookieDomainRewrite: "localhost",
         secure: false,
       },
       "/ws": {
-        target: "ws://127.0.0.1:13590",
+        target: `ws://127.0.0.1:${API_PORT}`,
         ws: true,
       },
     },

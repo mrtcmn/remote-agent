@@ -6,12 +6,13 @@ if (isLocal) {
   const { migrate } = await import('drizzle-orm/bun-sqlite/migrator');
   const { drizzle } = await import('drizzle-orm/bun-sqlite');
   const { Database } = await import('bun:sqlite');
-  const { join } = await import('node:path');
-  const { homedir } = await import('node:os');
+  const { dirname } = await import('node:path');
   const { mkdir } = await import('node:fs/promises');
+  // Same path the server opens, so RA_HOME migrates the right database.
+  const { getLocalDbPath } = await import('../config/paths');
 
-  const dbPath = join(homedir(), 'remote-agent', 'data', 'local.db');
-  await mkdir(join(homedir(), 'remote-agent', 'data'), { recursive: true });
+  const dbPath = getLocalDbPath();
+  await mkdir(dirname(dbPath), { recursive: true });
 
   const sqlite = new Database(dbPath);
   sqlite.exec('PRAGMA journal_mode = WAL;');

@@ -4,7 +4,7 @@ export default {
   app: {
     name: "Remote Agent",
     identifier: "com.remote-agent.app",
-    version: "1.2.0",
+    version: "1.3.0",
     // Deep linking: remoteagent://open/sessions/<id> focuses the app + routes.
     // macOS only, and registration requires the app to live in /Applications.
     urlSchemes: ["remoteagent"],

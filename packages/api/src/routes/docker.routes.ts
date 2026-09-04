@@ -3,6 +3,7 @@ import { requireAuth } from '../auth/middleware';
 import { isLocalMode } from '../config/mode';
 import { getLocalSystemStats } from '../services/system-stats';
 import { dockerService } from '../services/docker';
+import { SESSION_LABEL } from '../services/docker/session-containers';
 import { terminalService } from '../services/terminal';
 import { nanoid } from 'nanoid';
 import { db, projects, claudeSessions, projectLinks } from '../db';
@@ -209,6 +210,9 @@ export const dockerRoutes = new Elysia({ prefix: '/docker' })
         name: body.name,
         ports: body.ports,
         env: body.env,
+        // Stamped so the sidebar can attribute this container to its session
+        // even when it runs outside any compose project.
+        labels: body.sessionId ? { [SESSION_LABEL]: body.sessionId } : undefined,
       });
       return { success: true, containerId: containerId.trim() };
     } catch (error) {
@@ -221,6 +225,7 @@ export const dockerRoutes = new Elysia({ prefix: '/docker' })
       name: t.Optional(t.String()),
       ports: t.Optional(t.Array(t.String())),
       env: t.Optional(t.Record(t.String(), t.String())),
+      sessionId: t.Optional(t.String()),
     }),
   })
 

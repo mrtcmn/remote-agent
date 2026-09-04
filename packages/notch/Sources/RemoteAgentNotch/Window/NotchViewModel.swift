@@ -34,9 +34,14 @@ final class NotchViewModel: ObservableObject {
     let geometry: NotchGeometry
     let hasPhysicalNotch: Bool
 
-    var deviceNotchRect: CGRect { geometry.deviceNotchRect }
+    var pillSize: CGSize { geometry.pillSize }
     var screenRect: CGRect { geometry.screenRect }
     var windowHeight: CGFloat { geometry.windowHeight }
+    var anchor: NotchAnchor { geometry.anchor }
+
+    /// Beside the Dock nothing hides an idle pill, so it goes away when there
+    /// is no activity. On the notch the physical housing hides it.
+    var hidesWhenIdle: Bool { anchor == .dock || hasPhysicalNotch }
 
     var openedSize: CGSize {
         CGSize(width: min(screenRect.width * 0.45, 480), height: 400)
@@ -46,12 +51,8 @@ final class NotchViewModel: ObservableObject {
     private let events = EventMonitors.shared
     private var hoverTimer: DispatchWorkItem?
 
-    init(deviceNotchRect: CGRect, screenRect: CGRect, windowHeight: CGFloat, hasPhysicalNotch: Bool) {
-        self.geometry = NotchGeometry(
-            deviceNotchRect: deviceNotchRect,
-            screenRect: screenRect,
-            windowHeight: windowHeight
-        )
+    init(geometry: NotchGeometry, hasPhysicalNotch: Bool) {
+        self.geometry = geometry
         self.hasPhysicalNotch = hasPhysicalNotch
         setupEventHandlers()
     }
@@ -106,7 +107,7 @@ final class NotchViewModel: ObservableObject {
                 notchClose()
                 // Re-post the click so it reaches the window/app behind us
                 repostClickAt(location)
-            } else if geometry.notchScreenRect.contains(location) {
+            } else if geometry.collapsedScreenRect.contains(location) {
                 notchClose()
             }
         case .closed, .popping:

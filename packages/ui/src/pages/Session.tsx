@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { AnimatePresence } from 'motion/react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sessionPath } from '@/lib/session-route';
@@ -40,6 +41,7 @@ import { RecentChangesBar } from '@/components/RecentChangesBar';
 import { DictationBar } from '@/components/DictationBar';
 import { useDictation } from '@/hooks/useDictation';
 import { RunConfigPanel } from '@/components/RunConfigPanel';
+import { ScriptRunnerPanel } from '@/components/ScriptRunnerPanel';
 import { RunFlowView } from '@/components/run-flow/RunFlowView';
 import { BrowserPreview } from '@/components/BrowserPreview';
 import { DockerPanel } from '@/components/DockerPanel';
@@ -336,6 +338,7 @@ export function SessionPage() {
   const terminalIdFromUrl = terminalIdFromRoute || searchParams.get('terminalId');
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(terminalIdFromUrl);
   const [viewMode, setViewMode] = useState<ViewMode>('terminal');
+  const [runnerOpen, setRunnerOpen] = useState(false);
 
   // Sync activeTerminalId when URL changes (e.g. clicking a service in the sidebar)
   useEffect(() => {
@@ -892,6 +895,26 @@ export function SessionPage() {
         >
           <Plus className="size-3" />
         </button>
+
+        {/* Runs — a floating panel over the terminal, not a view of its own */}
+        {activeProject && (
+          <>
+            <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
+            <button
+              onClick={() => setRunnerOpen((v) => !v)}
+              aria-label="Runs"
+              title="Runs"
+              className={cn(
+                'flex items-center justify-center size-6 rounded-full transition-colors shrink-0 electrobun-webkit-app-region-no-drag',
+                runnerOpen
+                  ? 'text-foreground bg-secondary'
+                  : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-secondary/60'
+              )}
+            >
+              <Play className="size-3" />
+            </button>
+          </>
+        )}
       </div>
 
       {/* Mobile terminal dropdown */}
@@ -979,7 +1002,21 @@ export function SessionPage() {
       </div>
 
       {/* ── Content Area — xterm stays unboxed on the base bg; panels get a box ── */}
-      <div className={cn('flex-1 min-h-0', viewMode !== 'terminal' && 'rounded-lg border border-border bg-card overflow-hidden')}>
+      <div className={cn('relative flex-1 min-h-0', viewMode !== 'terminal' && 'rounded-lg border border-border bg-card overflow-hidden')}>
+        <AnimatePresence>
+          {runnerOpen && activeProject && (
+            <ScriptRunnerPanel
+              projectId={activeProject.id}
+              sessionId={id!}
+              onOpenTerminal={(terminalId) => {
+                queryClient.invalidateQueries({ queryKey: ['terminals', id] });
+                selectTerminal(terminalId);
+                setViewMode('terminal');
+              }}
+              onClose={() => setRunnerOpen(false)}
+            />
+          )}
+        </AnimatePresence>
         {viewMode === 'terminal' ? (
           activeTerminal ? (
             <div className="h-full min-h-0 px-2">

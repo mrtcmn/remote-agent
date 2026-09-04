@@ -274,6 +274,9 @@ export const api = {
     request<TerminalInfo>(`/terminals/${id}`),
   createTerminal: (data: CreateTerminalInput) =>
     request<TerminalInfo>('/terminals', { method: 'POST', body: JSON.stringify(data) }),
+  // Plain-text tail of a terminal's output, for readers that don't want an xterm.
+  getTerminalOutput: (id: string, lines = 200) =>
+    request<{ output: string; truncated: boolean }>(`/terminals/${id}/output?lines=${lines}`),
   sendTerminalInput: (id: string, data: string) =>
     request<{ success: boolean }>(`/terminals/${id}/input`, { method: 'POST', body: JSON.stringify({ data }) }),
   resizeTerminal: (id: string, cols: number, rows: number) =>
@@ -1455,12 +1458,14 @@ export interface CreateMultiProjectInput {
 }
 
 export interface SessionService {
-  type: 'claude' | 'shell' | 'docker' | 'codeServer' | 'process';
+  type: 'claude' | 'opencode' | 'kimi' | 'shell' | 'docker' | 'codeServer' | 'process';
   id: string;
   label: string;
   status: 'running' | 'idle' | 'exited';
   count?: number;
   url?: string;
+  /** Docker rows carry the image they run, shown as the row's trailing meta. */
+  image?: string;
 }
 
 export interface SidebarSession {

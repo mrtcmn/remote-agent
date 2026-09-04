@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { flattenSidebarSessions, isActiveSession } from './sidebar-sessions';
+import { flattenSidebarSessions, isActiveSession, isVisibleSession, INACTIVE_TTL_MS } from './sidebar-sessions';
 import type { SidebarData, SidebarSession } from './api';
 
 function makeSession(over: Partial<SidebarSession> & { id: string }): SidebarSession {
@@ -133,5 +133,34 @@ describe('flattenSidebarSessions', () => {
 
     const { active } = flattenSidebarSessions(data);
     expect(active.map((s) => s.id)).toEqual(['aaa', 'bbb']);
+  });
+});
+
+describe('isVisibleSession', () => {
+  const NOW = Date.parse('2026-01-01T12:00:00.000Z');
+  const at = (msAgo: number) => new Date(NOW - msAgo).toISOString();
+  const term = [{ type: 'claude' as const, id: 't1', label: 'claude', status: 'running' as const }];
+
+  test('a branch with nothing attached never shows', () => {
+    expect(isVisibleSession(makeSession({ id: 'a', services: [] }), NOW)).toBe(false);
+  });
+
+  test('any attached thing keeps an active branch — terminal, run, or container', () => {
+    for (const type of ['claude', 'shell', 'process', 'docker'] as const) {
+      const s = makeSession({ id: type, services: [{ type, id: 'x', label: type, status: 'running' }] });
+      expect(isVisibleSession(s, NOW)).toBe(true);
+    }
+  });
+
+  test('an idle branch lingers, then drops out', () => {
+    const idle = (msAgo: number) =>
+      makeSession({ id: 'i', status: 'paused', liveStatus: 'paused', services: term, lastActiveAt: at(msAgo) });
+    expect(isVisibleSession(idle(INACTIVE_TTL_MS - 1000), NOW)).toBe(true);
+    expect(isVisibleSession(idle(INACTIVE_TTL_MS + 1000), NOW)).toBe(false);
+  });
+
+  test('an active branch stays however long it has been quiet', () => {
+    const s = makeSession({ id: 'a', services: term, lastActiveAt: at(INACTIVE_TTL_MS * 10) });
+    expect(isVisibleSession(s, NOW)).toBe(true);
   });
 });

@@ -57,3 +57,23 @@ export function flattenSidebarSessions(data: SidebarData | undefined): FlatSessi
 
   return { active, inactive };
 }
+
+/** An idle branch lingers this long in the sidebar before it drops out. */
+export const INACTIVE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * A branch earns a sidebar row while something is attached to it — a terminal,
+ * an agent, a container, a spawned run — and for `INACTIVE_TTL_MS` after it goes
+ * idle. A bare checkout with nothing running is noise, so it never appears.
+ */
+export function isVisibleSession(session: SidebarSession, now: number): boolean {
+  if ((session.services?.length ?? 0) === 0) return false;
+  if (isActiveSession(session)) return true;
+  return now - new Date(session.lastActiveAt).getTime() < INACTIVE_TTL_MS;
+}
+
+/** Newest first, with a stable tiebreak on id so rows don't jitter on refetch. */
+export function byRecency(a: SidebarSession, b: SidebarSession): number {
+  const dt = new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime();
+  return dt !== 0 ? dt : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}

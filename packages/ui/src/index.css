@@ -28,6 +28,26 @@
     --sidebar-foreground: 0 0% 90%;
     --sidebar-border: 0 0% 12%;
     --sidebar-accent: 0 0% 10%;
+    /* Selected-row wash + rail glow (ported from the design system) */
+    --glow-wash: linear-gradient(
+      90deg,
+      hsl(var(--foreground) / 0.16) 0%,
+      hsl(var(--foreground) / 0.06) 28%,
+      transparent 72%
+    );
+    --glow-rail:
+      0 0 8px 1px hsl(var(--foreground) / 0.7),
+      10px 0 22px 0 hsl(var(--foreground) / 0.22);
+    /* Green twin, for a row that is running. */
+    --glow-ok-wash: linear-gradient(
+      90deg,
+      rgb(94 207 138 / 0.22) 0%,
+      rgb(94 207 138 / 0.08) 36%,
+      transparent 78%
+    );
+    --glow-ok-rail:
+      0 0 8px 1px rgb(94 207 138 / 0.65),
+      10px 0 22px 0 rgb(94 207 138 / 0.24);
   }
 
   .light {
@@ -54,6 +74,24 @@
     --sidebar-foreground: 0 0% 10%;
     --sidebar-border: 0 0% 88%;
     --sidebar-accent: 0 0% 93%;
+    --glow-wash: linear-gradient(
+      90deg,
+      hsl(var(--foreground) / 0.05) 0%,
+      hsl(var(--foreground) / 0.015) 28%,
+      transparent 72%
+    );
+    --glow-rail:
+      0 0 6px 1px hsl(var(--foreground) / 0.18),
+      8px 0 14px 0 hsl(var(--foreground) / 0.05);
+    --glow-ok-wash: linear-gradient(
+      90deg,
+      rgb(94 207 138 / 0.07) 0%,
+      rgb(94 207 138 / 0.025) 36%,
+      transparent 78%
+    );
+    --glow-ok-rail:
+      0 0 6px 1px rgb(94 207 138 / 0.22),
+      8px 0 14px 0 rgb(94 207 138 / 0.07);
   }
 }
 

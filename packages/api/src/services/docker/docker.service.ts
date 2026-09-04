@@ -8,6 +8,22 @@ export interface DockerContainer {
   state: string;
   ports: string;
   createdAt: string;
+  /** Docker labels, already split out of the CLI's "k=v,k=v" string. */
+  labels: Record<string, string>;
+}
+
+/**
+ * `{{json .}}` hands labels back as one "k=v,k=v" string. A value may itself
+ * contain "=" (compose stores paths and digests), so only split on the first.
+ */
+export function parseLabels(raw: unknown): Record<string, string> {
+  if (typeof raw !== 'string' || raw === '') return {};
+  const out: Record<string, string> = {};
+  for (const pair of raw.split(',')) {
+    const eq = pair.indexOf('=');
+    if (eq > 0) out[pair.slice(0, eq)] = pair.slice(eq + 1);
+  }
+  return out;
 }
 
 export interface ContainerStats {
@@ -67,6 +83,7 @@ class DockerService {
           state: raw.State,
           ports: raw.Ports,
           createdAt: raw.CreatedAt,
+          labels: parseLabels(raw.Labels),
         };
       });
   }
@@ -106,11 +123,17 @@ class DockerService {
     name?: string;
     ports?: string[];
     env?: Record<string, string>;
+    labels?: Record<string, string>;
     detach?: boolean;
   }): Promise<string> {
     const args = ['run'];
     if (opts.detach !== false) args.push('-d');
     if (opts.name) args.push('--name', opts.name);
+    if (opts.labels) {
+      for (const [key, val] of Object.entries(opts.labels)) {
+        args.push('--label', `${key}=${val}`);
+      }
+    }
     if (opts.ports) {
       for (const port of opts.ports) {
         args.push('-p', port);
@@ -151,6 +174,7 @@ class DockerService {
           state: raw.State,
           ports: raw.Ports || raw.Publishers || '',
           createdAt: raw.CreatedAt || '',
+          labels: parseLabels(raw.Labels),
         };
       });
   }

@@ -1,17 +1,17 @@
-import { useCallback, useMemo, useState } from 'react';
+import * as React from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Layers,
   Plus,
   ChevronDown,
-  LayoutGrid,
   ListTodo,
   Settings,
   Sparkles,
   Plug,
   FolderGit2,
+  LayoutGrid,
   Loader2,
   X,
   GitBranch,
@@ -25,15 +25,18 @@ import {
   Search,
 } from 'lucide-react';
 import { SshHostsSection } from '@/components/ssh/SshHostsSection';
-import { AIModelIcon, detectAIModel } from '@/components/AIModelIcon';
+import { TerminalAIIcon } from '@/components/AIModelIcon';
 import { FormattedText } from '@/components/FormattedText';
 import { cn } from '@/lib/utils';
 import { FEATURE_SECTION_TASKS, FEATURE_SESSION_SSH } from '@/lib/flags';
 import { openCommandBar } from '@/components/CommandBar';
 import { Kbd } from '@/components/ui/kbd';
+import { CloudOrb } from '@/components/ui/cloud-orb';
+import { Ellipsis } from '@/components/ui/ellipsis';
 import {
   api,
   type SidebarSession,
+  type SidebarProject,
   type SessionService,
   type AggregatedSidebar,
   type MachineSidebar,
@@ -42,35 +45,57 @@ import {
   type NotificationOption,
   type NotificationAction,
 } from '@/lib/api';
-import { flattenSidebarSessions, type FlatSession } from '@/lib/sidebar-sessions';
-import { sessionPath, sessionIdFromPath } from '@/lib/session-route';
+import { isVisibleSession, byRecency } from '@/lib/sidebar-sessions';
+import { sessionPath, sessionIdFromPath, terminalIdFromPath } from '@/lib/session-route';
 import { useActiveMachine } from '@/lib/active-machine';
-
-const PALETTE = ['#3b82f6', '#f59e0b', '#10b981', '#a78bfa', '#f472b6', '#fb923c', '#34d399'];
-function projectColor(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return PALETTE[h % PALETTE.length];
-}
-
-// ─── Status colors ───────────────────────────────────────────────────────────
-
-const statusDotClass: Record<string, string> = {
-  active: 'bg-blue-500',
-  waiting_input: 'bg-orange-500 animate-pulse',
-  paused: 'bg-gray-500',
-  terminated: 'bg-red-500',
-};
 
 // ─── Service config ─────────────────────────────────────────────────────────
 
 const serviceConfig: Record<string, { dot: string; icon: typeof Bot }> = {
   claude: { dot: 'bg-blue-500', icon: Bot },
+  opencode: { dot: 'bg-blue-500', icon: Bot },
+  kimi: { dot: 'bg-blue-500', icon: Bot },
   shell: { dot: 'bg-emerald-500', icon: TerminalSquare },
   process: { dot: 'bg-purple-500', icon: Play },
   docker: { dot: 'bg-cyan-500', icon: Container },
   codeServer: { dot: 'bg-emerald-500', icon: Code },
 };
+
+// The design's three rails. A session is what you talk to (claude, opencode, a
+// shell), a run is a process it spawned, a service is a container it started.
+// A checkout has exactly one branch, so the branch belongs on the workspace
+// header — it never earns a rail of its own.
+const KIND_LABEL = {
+  session: 'session',
+  run: 'run',
+  service: 'service',
+} as const;
+
+type ItemKind = keyof typeof KIND_LABEL;
+
+const KINDS = ['session', 'run', 'service'] as const;
+
+/** The agent CLIs. Each one has its own brand mark. */
+const AGENT_CLIS = new Set(['claude', 'opencode', 'kimi']);
+/** Those plus a plain shell — the things you talk to. */
+const AGENT_TYPES = new Set([...AGENT_CLIS, 'shell']);
+
+function serviceKind(service: SessionService): ItemKind {
+  if (AGENT_TYPES.has(service.type)) return 'session';
+  if (service.type === 'process') return 'run';
+  return 'service'; // docker containers and code-server
+}
+
+/** "http://localhost:5173" → "5173". Anything unparseable drops out. */
+function servicePort(service: SessionService): string | null {
+  if (!service.url) return null;
+  try {
+    const port = new URL(service.url).port;
+    return port || null;
+  } catch {
+    return null;
+  }
+}
 
 // ─── Notification review ──────────────────────────────────────────────────────
 
@@ -151,7 +176,7 @@ function NotifReview({ notification, onRespond, onOpen }: { notification: Aggreg
   if (isMulti) {
     const allPicked = picks.every(Boolean);
     return (
-      <div className="pl-7 pr-2 pb-1.5 pt-0.5 space-y-2" onClick={(e) => e.stopPropagation()}>
+      <div className="pl-5 pr-2 pb-1.5 pt-0.5 space-y-2" onClick={(e) => e.stopPropagation()}>
         {body}
         {questions!.map((q, qi) => (
           <div key={qi} className="space-y-1">
@@ -184,7 +209,7 @@ function NotifReview({ notification, onRespond, onOpen }: { notification: Aggreg
   const choices = buildChoices(notification);
   const isDone = notification.type === 'task_complete';
   return (
-    <div className="pl-7 pr-2 pb-1.5 pt-0.5 space-y-2" onClick={(e) => e.stopPropagation()}>
+    <div className="pl-5 pr-2 pb-1.5 pt-0.5 space-y-2" onClick={(e) => e.stopPropagation()}>
       {body}
       {isDone && (choices || freeform) && (
         <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">What's next?</p>
@@ -223,41 +248,251 @@ function NotifReview({ notification, onRespond, onOpen }: { notification: Aggreg
   );
 }
 
-// ─── DiffStat ────────────────────────────────────────────────────────────────
+// ─── Kind rail (vertical label + gradient rail + selection glow) ──────────────
 
-function DiffStat({ additions, deletions }: { additions: number; deletions: number }) {
-  if (additions === 0 && deletions === 0) return null;
+function KindGroup({
+  kind,
+  selectedId,
+  children,
+}: {
+  kind: ItemKind;
+  selectedId?: string | null;
+  children: React.ReactNode;
+}) {
+  const railRef = useRef<HTMLSpanElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [glow, setGlow] = useState<{ top: number; height: number } | null>(null);
+
+  React.useLayoutEffect(() => {
+    const list = listRef.current;
+    const rail = railRef.current;
+    if (!list || !rail) return;
+
+    const measure = () => {
+      const selected = list.querySelector('[data-selected]') as HTMLElement | null;
+      if (!selected) {
+        setGlow(null);
+        return;
+      }
+      const railRect = rail.getBoundingClientRect();
+      const selRect = selected.getBoundingClientRect();
+      setGlow({ top: selRect.top - railRect.top, height: selRect.height });
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(list);
+    ro.observe(rail);
+    const selected = list.querySelector('[data-selected]') as HTMLElement | null;
+    if (selected) ro.observe(selected);
+    return () => ro.disconnect();
+  }, [selectedId, children]);
+
   return (
-    <span className="flex flex-col items-end gap-px font-mono text-[9px] leading-none shrink-0 tabular-nums">
-      {additions > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{additions}</span>}
-      {deletions > 0 && <span className="text-red-600 dark:text-red-400">-{deletions}</span>}
+    <div className="flex items-stretch min-w-0">
+      <span className="shrink-0 self-start pt-1.5 pl-0.5 text-[8px] font-semibold uppercase tracking-[0.14em] leading-none text-muted-foreground/40 select-none [writing-mode:vertical-rl] rotate-180">
+        {KIND_LABEL[kind]}
+      </span>
+      <span ref={railRef} className="relative w-px shrink-0 self-stretch mx-0.5 overflow-visible">
+        <span
+          className="absolute inset-0"
+          style={{ background: 'linear-gradient(to bottom, hsl(var(--foreground) / 0.32), transparent)' }}
+        />
+        <AnimatePresence>
+          {glow && (
+            <motion.span
+              key="kind-glow"
+              className="absolute left-1/2 z-10 w-0.5 -translate-x-1/2 pointer-events-none"
+              initial={{ opacity: 0, top: glow.top, height: glow.height }}
+              animate={{ opacity: 1, top: glow.top, height: glow.height }}
+              exit={{ opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 500, damping: 40 }}
+              style={{
+                background: 'hsl(var(--foreground))',
+                boxShadow: 'var(--glow-rail)',
+                maskImage: 'linear-gradient(to bottom, transparent, #000 16%, #000 84%, transparent)',
+                WebkitMaskImage: 'linear-gradient(to bottom, transparent, #000 16%, #000 84%, transparent)',
+              }}
+            />
+          )}
+        </AnimatePresence>
+      </span>
+      <div ref={listRef} className="flex-1 min-w-0 space-y-0.5">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─── Diff visuals ────────────────────────────────────────────────────────────
+
+function diffBoxKinds(added: number, removed: number): Array<'add' | 'del' | 'empty'> {
+  const total = added + removed;
+  if (total === 0) return Array.from({ length: 5 }, () => 'empty' as const);
+  if (removed === 0) return Array.from({ length: 5 }, () => 'add' as const);
+  if (added === 0) return Array.from({ length: 5 }, () => 'del' as const);
+  const addN = Math.min(4, Math.max(1, Math.round((added / total) * 5)));
+  return [
+    ...Array.from({ length: addN }, () => 'add' as const),
+    ...Array.from({ length: 5 - addN }, () => 'del' as const),
+  ];
+}
+
+function GitBoxes({ added, removed, className }: { added: number; removed: number; className?: string }) {
+  return (
+    <span className={cn('flex items-center gap-px', className)} aria-hidden>
+      {diffBoxKinds(added, removed).map((kind, i) => (
+        <motion.span
+          key={`${kind}-${i}`}
+          initial={{ opacity: 0, scale: 0.55 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.16, delay: i * 0.028, ease: [0.4, 0, 0.2, 1] }}
+          className={cn(
+            'size-2 rounded-[2px] shrink-0',
+            kind === 'add' && 'bg-emerald-500',
+            kind === 'empty' && 'bg-foreground/[0.12]',
+            kind === 'del' && 'bg-red-500/80'
+          )}
+          style={
+            kind === 'del'
+              ? {
+                  backgroundImage:
+                    'repeating-linear-gradient(-45deg, transparent 0 1.2px, rgba(255,255,255,0.42) 1.2px 2.2px)',
+                }
+              : undefined
+          }
+        />
+      ))}
     </span>
   );
 }
 
-// ─── ServiceRow ─────────────────────────────────────────────────────────────
+function DiffNums({ added, removed }: { added: number; removed: number }) {
+  if (added === 0 && removed === 0) return null;
+  return (
+    <span className="flex items-center gap-1 font-mono text-[9px] leading-none shrink-0 tabular-nums">
+      {added > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{added}</span>}
+      {removed > 0 && <span className="text-red-600 dark:text-red-400">-{removed}</span>}
+    </span>
+  );
+}
+
+/** Workspace header right side: branch + diff, collapsing to a session count. */
+function WorkspaceGit({
+  count,
+  added,
+  removed,
+  branch,
+  compact,
+}: {
+  count: number;
+  added: number;
+  removed: number;
+  branch?: string | null;
+  compact: boolean;
+}) {
+  return (
+    <div className="flex flex-col items-end gap-0.5 shrink-0 min-w-0 max-w-[58%]">
+      <AnimatePresence initial={false} mode="popLayout">
+        {!compact && branch && (
+          <motion.span
+            key="branch"
+            className="flex items-center gap-0.5 overflow-hidden max-w-full font-mono text-[10px] leading-none text-muted-foreground"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.16, ease: [0.4, 0, 0.2, 1] }}
+          >
+            <GitBranch className="size-2.5 shrink-0" />
+            <Ellipsis className="min-w-0">{branch}</Ellipsis>
+          </motion.span>
+        )}
+      </AnimatePresence>
+      <div className="flex items-center gap-1">
+        <AnimatePresence initial={false}>
+          {!compact && (
+            <motion.span
+              key="nums"
+              className="flex items-center overflow-hidden"
+              initial={{ opacity: 0, width: 0 }}
+              animate={{ opacity: 1, width: 'auto' }}
+              exit={{ opacity: 0, width: 0 }}
+              transition={{ duration: 0.16, ease: [0.4, 0, 0.2, 1] }}
+            >
+              <DiffNums added={added} removed={removed} />
+            </motion.span>
+          )}
+        </AnimatePresence>
+        <GitBoxes added={added} removed={removed} />
+        {compact && (
+          <motion.span
+            key="n"
+            className="font-mono text-[9px] tabular-nums text-muted-foreground/50 whitespace-nowrap"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.16 }}
+          >
+            {count} {count === 1 ? 'session' : 'sessions'}
+          </motion.span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Rows ────────────────────────────────────────────────────────────────────
+
+const rowClass = (isSelected: boolean, nested: boolean) =>
+  cn(
+    'group/session w-full flex items-center gap-2 pr-2 py-1.5 rounded-r-md text-left relative overflow-hidden isolate',
+    nested ? 'pl-2' : 'pl-3',
+    isSelected
+      ? 'rounded-l-none text-foreground'
+      : 'rounded-l-md text-muted-foreground hover:bg-secondary hover:text-foreground'
+  );
+
+function SelectionWash({ show }: { show: boolean }) {
+  return (
+    <AnimatePresence>
+      {show && (
+        <motion.span
+          key="glow"
+          className="absolute inset-0 pointer-events-none"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+          style={{ background: 'var(--glow-wash)' }}
+        />
+      )}
+    </AnimatePresence>
+  );
+}
 
 function ServiceRow({
   sessionId,
   machineId,
   service,
+  isSelected,
   notification,
+  onSelect,
   onRespond,
   onNavigate,
 }: {
   sessionId: string;
   machineId: string;
   service: SessionService;
+  isSelected: boolean;
   notification?: AggregatedNotification;
+  onSelect: () => void;
   onRespond: RespondFn;
   onNavigate: (path: string) => void;
 }) {
   const config = serviceConfig[service.type] || serviceConfig.shell;
   const Icon = config.icon;
-  // Claude terminals use the brand AI icon resolved from the terminal title —
-  // same `detectAIModel(name)` mechanism the top tab bar uses, so a Codex /
-  // Gemini / OpenAI session shows the right brand instead of a generic bot.
-  const isAi = service.type === 'claude';
+  // Agent terminals use the brand icon the top tab bar uses, so a Kimi,
+  // OpenCode, Codex or Gemini session shows its own mark, not a generic bot.
+  const isAgent = AGENT_CLIS.has(service.type);
   const kind = notification ? notifKind(notification) : null;
   // A row takes over (shows review) when it needs the user (needs-you / error) OR
   // when it's a completed task with an optional follow-up ("what's next?"). A plain
@@ -265,8 +500,10 @@ function ServiceRow({
   const followup = notification ? hasFollowup(notification) : false;
   const showReview = kind !== null || followup;
   const [expanded, setExpanded] = useState(true);
+  const port = servicePort(service);
 
   const navigate = () => {
+    onSelect();
     if (service.type === 'codeServer' && service.url) {
       window.open(service.url, '_blank');
     } else if (service.type === 'docker') {
@@ -276,276 +513,152 @@ function ServiceRow({
     }
   };
 
-  const dot =
-    kind === 'needs' ? 'bg-amber-500 animate-pulse' : kind === 'error' ? 'bg-red-500' : config.dot;
+  const dot = kind === 'needs' ? 'bg-amber-500 animate-pulse' : kind === 'error' ? 'bg-red-500' : config.dot;
 
   return (
     <div>
-      <button
+      <motion.button
+        layout
         onClick={() => (showReview ? setExpanded((v) => !v) : navigate())}
-        className={cn(
-          'w-full flex items-center gap-1.5 pl-7 pr-2 py-0.5 rounded text-left transition-colors',
-          showReview ? 'text-foreground hover:bg-secondary/50' : 'text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/50'
-        )}
+        whileTap={{ scale: 0.98 }}
+        transition={{ duration: 0.12 }}
+        className={rowClass(isSelected, true)}
+        data-selected={isSelected ? '' : undefined}
         title={service.label}
       >
-        <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', dot)} />
-        {isAi ? (
-          <AIModelIcon model={detectAIModel(service.label)} size={10} className="shrink-0" />
+        <SelectionWash show={isSelected} />
+        <span className={cn('relative z-10 w-1.5 h-1.5 rounded-full shrink-0', dot)} />
+        {isAgent ? (
+          <TerminalAIIcon
+            terminalType={service.type}
+            terminalName={service.label}
+            size={12}
+            className="relative z-10 shrink-0"
+          />
         ) : (
-          <Icon className="size-2.5 shrink-0" />
+          <Icon
+            className={cn(
+              'size-3 relative z-10 shrink-0 transition-colors',
+              isSelected ? 'text-foreground/60' : 'text-muted-foreground/40 group-hover/session:text-muted-foreground'
+            )}
+          />
         )}
-        <span className="text-[12px] font-semibold truncate">{service.label}</span>
-        {kind && (
-          <span className={cn('ml-auto shrink-0 text-[9px] font-semibold uppercase tracking-wide', kind === 'error' ? 'text-red-500' : 'text-amber-500')}>
-            {kind === 'error' ? 'error' : 'needs you'}
-          </span>
-        )}
-      </button>
+        <div className="flex-1 min-w-0 relative z-10 flex items-center gap-1.5">
+          <Ellipsis className="flex-1 text-xs font-medium leading-snug">{service.label}</Ellipsis>
+          {kind ? (
+            <span
+              className={cn(
+                'shrink-0 text-[9px] font-semibold uppercase tracking-wide',
+                kind === 'error' ? 'text-red-500' : 'text-amber-500'
+              )}
+            >
+              {kind === 'error' ? 'error' : 'needs you'}
+            </span>
+          ) : port ? (
+            <span className="font-mono text-[9px] text-muted-foreground/40 tabular-nums shrink-0">{port}</span>
+          ) : service.image ? (
+            <span className="font-mono text-[9px] text-muted-foreground/40 shrink-0 max-w-[45%] truncate">{service.image}</span>
+          ) : null}
+        </div>
+      </motion.button>
       {showReview && expanded && <NotifReview notification={notification!} onRespond={onRespond} onOpen={navigate} />}
     </div>
   );
 }
 
-// ─── SessionRow ──────────────────────────────────────────────────────────────
+// ─── Workspace (a project inside a machine) ──────────────────────────────────
 
-function SessionRow({
-  session,
-  isSelected,
-  onSelect,
-  projectName,
-  projectColor,
-  notifKind,
-}: {
-  session: SidebarSession;
-  isSelected: boolean;
-  onSelect: () => void;
-  projectName?: string | null;
-  projectColor?: string | null;
-  notifKind?: 'needs' | 'error' | null;
-}) {
-  const effectiveStatus = session.liveStatus || session.status;
-  // A pending notification on any of this session's terminals overrides the dot:
-  // amber pulse when it needs the user, red on error, else the live status.
-  const dotClass =
-    notifKind === 'needs'
-      ? 'bg-amber-500 animate-pulse'
-      : notifKind === 'error'
-      ? 'bg-red-500'
-      : statusDotClass[effectiveStatus] || 'bg-gray-500';
-  const Icon = session.sessionType === 'worktree' ? Layers : GitBranch;
-
-  return (
-    <motion.button
-      layout
-      onClick={onSelect}
-      whileTap={{ scale: 0.98 }}
-      transition={{ duration: 0.12 }}
-      className={cn(
-        'group/session w-full flex items-start gap-2 pl-3 pr-2 py-1.5 rounded-md text-left relative',
-        isSelected
-          ? 'bg-secondary text-foreground'
-          : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-      )}
-    >
-      <AnimatePresence>
-        {isSelected && (
-          <motion.span
-            layoutId="session-indicator"
-            className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-foreground/30"
-            initial={{ opacity: 0, scaleY: 0.5 }}
-            animate={{ opacity: 1, scaleY: 1 }}
-            exit={{ opacity: 0, scaleY: 0.5 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 40 }}
-          />
-        )}
-      </AnimatePresence>
-
-      <div className="relative mt-0.5 shrink-0">
-        <Icon
-          className={cn(
-            'transition-colors',
-            session.sessionType === 'worktree' ? 'size-2.5' : 'size-3',
-            isSelected ? 'text-foreground/60' : 'text-muted-foreground/40 group-hover/session:text-muted-foreground'
-          )}
-        />
-        <span className={cn('absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full', dotClass)} />
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-1.5">
-          <span className="flex items-center gap-1 min-w-0 text-xs font-medium leading-snug">
-            {projectName && projectColor && (
-              <>
-                <span
-                  className="size-3.5 rounded inline-flex items-center justify-center text-[8px] font-bold leading-none shrink-0"
-                  style={{ backgroundColor: projectColor + '33', border: `1px solid ${projectColor}44`, color: projectColor }}
-                  title={projectName}
-                >
-                  {projectName.charAt(0).toUpperCase()}
-                </span>
-                <span className="shrink-0 max-w-[64px] truncate text-muted-foreground/70">{projectName}</span>
-                <span className="text-muted-foreground/30 shrink-0">·</span>
-              </>
-            )}
-            <span className="truncate">
-              {session.worktreeName || session.branchName || session.id.slice(0, 8)}
-            </span>
-          </span>
-          {session.diffStats && (
-            <DiffStat additions={session.diffStats.additions} deletions={session.diffStats.deletions} />
-          )}
-        </div>
-      </div>
-    </motion.button>
-  );
+interface Workspace {
+  id: string;
+  name: string;
+  sessions: SidebarSession[];
 }
 
-// ─── SessionEntry (row + its service sub-rows) ────────────────────────────────
-
-function SessionEntry({
-  session,
-  machineId,
-  projectName,
-  projectColor,
-  isSelected,
-  onSelect,
-  onNavigate,
-  notifByKey,
-  sessionNotifs,
-  onRespond,
-}: {
-  session: SidebarSession;
-  machineId: string;
-  projectName?: string | null;
-  projectColor?: string | null;
-  isSelected: boolean;
-  onSelect: () => void;
-  onNavigate: (path: string) => void;
-  notifByKey: Map<string, AggregatedNotification>;
-  sessionNotifs: AggregatedNotification[];
-  onRespond: RespondFn;
-}) {
-  // Session-level notifications with no terminal row of their own (their terminal
-  // isn't among the rendered services) — surface them under the session row.
-  const serviceIds = new Set(session.services?.map((s) => s.id) ?? []);
-  const orphanNotifs = sessionNotifs.filter((n) => !n.terminalId || !serviceIds.has(n.terminalId));
-
-  // Aggregate dot: error wins, then needs-you, else fall through to live status.
-  const aggKind = sessionNotifs.some((n) => notifKind(n) === 'error')
-    ? 'error'
-    : sessionNotifs.some((n) => notifKind(n) === 'needs')
-    ? 'needs'
-    : null;
-
-  return (
-    <div>
-      <SessionRow
-        session={session}
-        projectName={projectName}
-        projectColor={projectColor}
-        isSelected={isSelected}
-        onSelect={onSelect}
-        notifKind={aggKind}
-      />
-      {orphanNotifs.filter((n) => notifKind(n) !== null || hasFollowup(n)).map((n) => (
-        <NotifReview
-          key={n.id}
-          notification={n}
-          onRespond={onRespond}
-          onOpen={() => onNavigate(sessionPath(machineId, session.id))}
-        />
-      ))}
-      {session.services?.length > 0 && (
-        <div className="space-y-px">
-          {session.services.map((service) => (
-            <ServiceRow
-              key={service.id}
-              sessionId={session.id}
-              machineId={machineId}
-              service={service}
-              notification={notifByKey.get(service.id)}
-              onRespond={onRespond}
-              onNavigate={onNavigate}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── MachineSection (one machine's sessions, collapsible) ─────────────────────
-
-function MachineSection({
+function WorkspaceGroup({
+  workspace,
   machine,
   activeSessionId,
-  onSelectSession,
+  activeTerminalId,
+  onActivateMachine,
   onNavigate,
   notifByKey,
   notifsBySession,
   onRespond,
 }: {
+  workspace: Workspace;
   machine: MachineSidebar;
   activeSessionId: string | null;
-  onSelectSession: (sessionId: string, machine: MachineSidebar) => void;
+  activeTerminalId: string | null;
+  onActivateMachine: (machine: MachineSidebar) => void;
   onNavigate: (path: string) => void;
   notifByKey: Map<string, AggregatedNotification>;
   notifsBySession: Map<string, AggregatedNotification[]>;
   onRespond: RespondFn;
 }) {
-  const isSelf = machine.machineId === 'self';
-  const [expanded, setExpanded] = useState(machine.online);
-  const [showInactive, setShowInactive] = useState(false);
-  const { active, inactive } = useMemo(() => flattenSidebarSessions(machine.data), [machine.data]);
+  const [expanded, setExpanded] = useState(true);
+  const sessions = workspace.sessions;
 
-  const renderEntry = (session: FlatSession) => (
-    <SessionEntry
-      key={session.id}
-      session={session}
-      machineId={machine.machineId}
-      projectName={session.projectName}
-      projectColor={session.projectId ? projectColor(session.projectId) : null}
-      isSelected={session.id === activeSessionId}
-      onSelect={() => onSelectSession(session.id, machine)}
-      onNavigate={onNavigate}
-      notifByKey={notifByKey}
-      sessionNotifs={notifsBySession.get(session.id) ?? []}
-      onRespond={onRespond}
-    />
-  );
+  const added = sessions.reduce((n, s) => n + (s.diffStats?.additions ?? 0), 0);
+  const removed = sessions.reduce((n, s) => n + (s.diffStats?.deletions ?? 0), 0);
+  const branch = sessions.find((s) => s.sessionType === 'git')?.branchName ?? sessions[0]?.branchName;
+
+  // Rows are the things you can open. A session's own branch already shows on
+  // the header above, so the sessions of a workspace contribute their terminals,
+  // runs and containers straight into the three rails.
+  const rows = useMemo(() => {
+    const out: Record<ItemKind, Array<{ session: SidebarSession; service: SessionService }>> = {
+      session: [],
+      run: [],
+      service: [],
+    };
+    for (const session of sessions) {
+      for (const service of session.services ?? []) out[serviceKind(service)].push({ session, service });
+    }
+    return out;
+  }, [sessions]);
+
+  // Opening a session with no terminal in the URL lands on its first terminal,
+  // so that row is the selected one.
+  const isSelected = (session: SidebarSession, service: SessionService) => {
+    if (session.id !== activeSessionId) return false;
+    if (activeTerminalId) return service.id === activeTerminalId;
+    return rows.session.find((r) => r.session.id === session.id)?.service.id === service.id;
+  };
+
+  // Notifications whose terminal has no row of its own still need somewhere to
+  // land, so they hang under the session rail.
+  const orphanNotifs = sessions.flatMap((session) => {
+    const ids = new Set(session.services?.map((s) => s.id) ?? []);
+    return (notifsBySession.get(session.id) ?? [])
+      .filter((n) => (!n.terminalId || !ids.has(n.terminalId)) && (notifKind(n) !== null || hasFollowup(n)))
+      .map((n) => (
+        <NotifReview
+          key={n.id}
+          notification={n}
+          onRespond={onRespond}
+          onOpen={() => onNavigate(sessionPath(machine.machineId, session.id))}
+        />
+      ));
+  });
 
   return (
-    <div className="px-1">
+    <div className="space-y-0.5">
       <div
         role="button"
         onClick={() => setExpanded((v) => !v)}
-        className="group/ms flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-secondary cursor-pointer select-none"
+        className="group/ws flex items-center gap-2 px-2 py-0.5 rounded-md hover:bg-secondary cursor-pointer select-none"
       >
-        {isSelf ? (
-          <Laptop className="size-3.5 text-muted-foreground shrink-0" />
-        ) : (
-          <Server className="size-3.5 text-muted-foreground shrink-0" />
-        )}
-        <span className="flex-1 text-xs font-medium text-muted-foreground group-hover/ms:text-foreground truncate transition-colors">
-          {machine.machineName}
-        </span>
-        <span
-          className={cn('w-1.5 h-1.5 rounded-full shrink-0', machine.online ? 'bg-emerald-500' : 'bg-muted-foreground/40')}
-          title={machine.online ? 'online' : machine.error || 'offline'}
+        <CloudOrb aria-hidden name={workspace.name} seed={workspace.id} size={28} />
+        <Ellipsis className="flex-1 text-xs font-medium text-muted-foreground group-hover/ws:text-foreground transition-colors">
+          {workspace.name}
+        </Ellipsis>
+        <WorkspaceGit
+          count={sessions.length}
+          added={added}
+          removed={removed}
+          branch={branch}
+          compact={!expanded}
         />
-        {machine.online && (
-          <span className="text-[12px] font-semibold text-muted-foreground/40 font-mono shrink-0">
-            ({active.length})
-          </span>
-        )}
-        <motion.span
-          animate={{ rotate: expanded ? 0 : -90 }}
-          transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
-          className="flex items-center shrink-0"
-        >
-          <ChevronDown className="size-2.5 text-muted-foreground/30" />
-        </motion.span>
       </div>
 
       <AnimatePresence initial={false}>
@@ -557,34 +670,136 @@ function MachineSection({
             transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
             style={{ overflow: 'hidden' }}
           >
+            <div className="space-y-1">
+              {KINDS.map((kind) => {
+                const items = rows[kind];
+                const extra = kind === 'session' ? orphanNotifs : [];
+                if (items.length === 0 && extra.length === 0) return null;
+                return (
+                  <KindGroup key={kind} kind={kind} selectedId={activeTerminalId ?? activeSessionId}>
+                    {items.map(({ session, service }) => (
+                      <ServiceRow
+                        key={service.id}
+                        sessionId={session.id}
+                        machineId={machine.machineId}
+                        service={service}
+                        isSelected={isSelected(session, service)}
+                        notification={notifByKey.get(service.id)}
+                        onSelect={() => onActivateMachine(machine)}
+                        onRespond={onRespond}
+                        onNavigate={onNavigate}
+                      />
+                    ))}
+                    {extra}
+                  </KindGroup>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── Machine fold ────────────────────────────────────────────────────────────
+
+const foldHeaderClass =
+  'w-full flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors';
+
+function MachineSection({
+  machine,
+  activeSessionId,
+  activeTerminalId,
+  onActivateMachine,
+  onNavigate,
+  notifByKey,
+  notifsBySession,
+  onRespond,
+}: {
+  machine: MachineSidebar;
+  activeSessionId: string | null;
+  activeTerminalId: string | null;
+  onActivateMachine: (machine: MachineSidebar) => void;
+  onNavigate: (path: string) => void;
+  notifByKey: Map<string, AggregatedNotification>;
+  notifsBySession: Map<string, AggregatedNotification[]>;
+  onRespond: RespondFn;
+}) {
+  const [open, setOpen] = useState(machine.online);
+  const Icon = machine.machineId === 'self' ? Laptop : Server;
+
+  // Unassigned sessions still need a home, so they get their own workspace card.
+  // A project whose branches all dropped out has nothing to show, so it goes too.
+  const workspaces: Workspace[] = useMemo(() => {
+    const now = Date.now();
+    // The branch you are looking at always stays, even once it goes quiet —
+    // otherwise the open session disappears out from under the selection.
+    const keep = (list: SidebarSession[]) =>
+      list.filter((s) => s.id === activeSessionId || isVisibleSession(s, now)).sort(byRecency);
+
+    const out: Workspace[] = [];
+    for (const p of (machine.data?.projects ?? []) as SidebarProject[]) {
+      const sessions = keep(p.sessions);
+      if (sessions.length > 0) out.push({ id: p.id, name: p.name, sessions });
+    }
+    const loose = keep(machine.data?.unassignedSessions ?? []);
+    if (loose.length > 0) out.push({ id: `${machine.machineId}-unassigned`, name: 'Unassigned', sessions: loose });
+    return out;
+  }, [machine, activeSessionId]);
+
+  return (
+    <div>
+      <button onClick={() => setOpen((v) => !v)} className={foldHeaderClass}>
+        <motion.span
+          animate={{ rotate: open ? 0 : -90 }}
+          transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+          className="flex items-center"
+        >
+          <ChevronDown className="size-3" />
+        </motion.span>
+        <Icon className="size-3" />
+        <span className="font-medium truncate">{machine.machineName}</span>
+        <span
+          className={cn('w-1.5 h-1.5 rounded-full shrink-0', machine.online ? 'bg-emerald-500' : 'bg-muted-foreground/40')}
+          title={machine.online ? 'online' : machine.error || 'offline'}
+        />
+        <span className="ml-auto font-mono text-[10px]">{workspaces.length}</span>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+            style={{ overflow: 'hidden' }}
+            className="px-2 pb-1"
+          >
             {!machine.online ? (
-              <p className="px-3 py-2 text-[11px] text-muted-foreground/50">
+              <p className="px-1 py-2 text-[11px] text-muted-foreground/50">
                 {machine.error ? `Unreachable — ${machine.error}` : 'Unreachable'}
               </p>
-            ) : active.length === 0 && inactive.length === 0 ? (
-              <p className="px-3 py-2 text-[11px] text-muted-foreground/40">No sessions</p>
+            ) : workspaces.length === 0 ? (
+              <p className="px-1 py-2 text-[11px] text-muted-foreground/40">No sessions</p>
             ) : (
-              <div className="space-y-0.5 pb-1">
-                {active.map(renderEntry)}
-                {inactive.length > 0 && (
-                  <>
-                    <button
-                      onClick={() => setShowInactive((v) => !v)}
-                      className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors"
-                    >
-                      <motion.span
-                        animate={{ rotate: showInactive ? 0 : -90 }}
-                        transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
-                        className="flex items-center shrink-0"
-                      >
-                        <ChevronDown className="size-3" />
-                      </motion.span>
-                      {showInactive ? 'Hide' : 'Show'} {inactive.length} inactive
-                    </button>
-                    {showInactive && inactive.map(renderEntry)}
-                  </>
-                )}
-              </div>
+              workspaces.map((ws, i) => (
+                <React.Fragment key={ws.id}>
+                  {i > 0 && <div className="h-px bg-border my-0.5" />}
+                  <WorkspaceGroup
+                    workspace={ws}
+                    machine={machine}
+                    activeSessionId={activeSessionId}
+                    activeTerminalId={activeTerminalId}
+                    onActivateMachine={onActivateMachine}
+                    onNavigate={onNavigate}
+                    notifByKey={notifByKey}
+                    notifsBySession={notifsBySession}
+                    onRespond={onRespond}
+                  />
+                </React.Fragment>
+              ))
             )}
           </motion.div>
         )}
@@ -645,6 +860,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
   // The sidebar renders outside the session route, so the route params aren't
   // available here — derive the active session id from the pathname instead.
   const activeSessionId = sessionIdFromPath(location.pathname);
+  const activeTerminalId = terminalIdFromPath(location.pathname);
   const activeTab = location.pathname === '/kanban' ? 'tasks' : 'workspaces';
   // Only worth a tab bar when there's more than one destination to switch between.
   const tabs = (['workspaces', 'tasks'] as const).filter((tab) => tab !== 'tasks' || FEATURE_SECTION_TASKS);
@@ -654,69 +870,101 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
     onClose?.();
   }, [navigate, onClose]);
 
-  // Opening a session targets its machine so every per-session action (terminals,
+  // Opening a row targets its machine so every per-session action (terminals,
   // git, files) proxies to the right machine via the existing X-Machine-Id path.
-  const handleSelectSession = useCallback((sessionId: string, machine: MachineSidebar) => {
+  // The row itself routes, so this only moves the pointer.
+  const handleActivateMachine = useCallback((machine: MachineSidebar) => {
     setActiveMachine({ machineId: machine.machineId, name: machine.machineName });
-    navigate(sessionPath(machine.machineId, sessionId));
-    onClose?.();
-  }, [navigate, onClose, setActiveMachine]);
+  }, [setActiveMachine]);
 
   const machines = data?.machines ?? [];
+
+  // Fade the list where it runs past its box, top and bottom, only when there is
+  // something scrolled out of view on that side.
+  const listRef = useRef<HTMLDivElement>(null);
+  const [edge, setEdge] = useState({ top: false, bottom: false });
+
+  useEffect(() => {
+    const vp = listRef.current;
+    if (!vp) return;
+    const check = () => {
+      setEdge({
+        top: vp.scrollTop > 6,
+        bottom: vp.scrollHeight - vp.scrollTop - vp.clientHeight > 6,
+      });
+    };
+    check();
+    vp.addEventListener('scroll', check, { passive: true });
+    const ro = new ResizeObserver(check);
+    ro.observe(vp);
+    const inner = vp.firstElementChild;
+    if (inner) ro.observe(inner);
+    return () => {
+      vp.removeEventListener('scroll', check);
+      ro.disconnect();
+    };
+  }, []);
+
+  const maskImage =
+    edge.top && edge.bottom
+      ? 'linear-gradient(to bottom, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent)'
+      : edge.bottom
+        ? 'linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent)'
+        : edge.top
+          ? 'linear-gradient(to bottom, transparent, #000 2.5rem)'
+          : undefined;
 
   return (
     <div className="flex flex-col h-full bg-card text-foreground">
       {/* Top nav tabs with sliding pill — right side is a drag handle.
-          Hidden entirely when there's nothing to show, so New Session sits
+          Hidden entirely when there's nothing to show, so Search sits
           vertically centered at the top instead of under an empty strip. */}
       {(tabs.length > 1 || onClose) && (
-      <div className="flex items-center gap-0.5 px-2 pt-3 pb-2 shrink-0 electrobun-webkit-app-region-drag">
-        {tabs.length > 1 && tabs.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => {
-              if (tab === 'tasks') {
-                navigate('/kanban');
-              } else {
-                navigate('/');
-              }
-              onClose?.();
-            }}
-            className={cn(
-              'relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium capitalize transition-colors duration-150 electrobun-webkit-app-region-no-drag',
-              activeTab === tab
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-            )}
-          >
-            {activeTab === tab && (
-              <motion.span
-                layoutId="sidebar-tab-pill"
-                className="absolute inset-0 rounded-md bg-secondary"
-                transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-              />
-            )}
-            <span className="relative z-10 flex items-center gap-1.5">
-              {tab === 'workspaces' ? <img src="/logo.png" alt="" className="size-3.5 rounded-sm" /> : <ListTodo className="size-3.5" />}
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </span>
-          </button>
-        ))}
+        <div className="flex items-center gap-0.5 px-2 pt-3 pb-2 shrink-0 electrobun-webkit-app-region-drag">
+          {tabs.length > 1 && tabs.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => {
+                navigate(tab === 'tasks' ? '/kanban' : '/');
+                onClose?.();
+              }}
+              className={cn(
+                'relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium capitalize transition-colors duration-150 electrobun-webkit-app-region-no-drag',
+                activeTab === tab
+                  ? 'text-accent-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+              )}
+            >
+              {activeTab === tab && (
+                <motion.span
+                  layoutId="sidebar-tab-pill"
+                  className="absolute inset-0 rounded-md bg-accent"
+                  transition={{ type: 'spring', stiffness: 400, damping: 35 }}
+                />
+              )}
+              <span className="relative z-10 flex items-center gap-1.5">
+                {tab === 'workspaces' ? <img src="/logo.png" alt="" className="size-3.5 rounded-sm" /> : <ListTodo className="size-3.5" />}
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </span>
+            </button>
+          ))}
 
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="ml-auto md:hidden p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary electrobun-webkit-app-region-no-drag"
-          >
-            <X className="size-4" />
-          </button>
-        )}
-      </div>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="ml-auto md:hidden p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary electrobun-webkit-app-region-no-drag"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
       )}
 
       {/* Command palette entry */}
       <div className="px-2 pt-2 shrink-0">
-        <button
+        <motion.button
+          whileTap={{ scale: 0.98 }}
+          transition={{ duration: 0.12 }}
           onClick={() => openCommandBar()}
           className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors electrobun-webkit-app-region-no-drag"
         >
@@ -725,7 +973,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
             Search…
           </span>
           <Kbd>⌘K</Kbd>
-        </button>
+        </motion.button>
       </div>
 
       {/* New Session button */}
@@ -740,53 +988,52 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
             <Plus className="size-3.5" />
             New Session
           </span>
+          <Kbd>⌘N</Kbd>
         </motion.button>
       </div>
 
       <div className="h-px bg-border mb-2 shrink-0" />
 
-      {/* Sessions header */}
-      <div className="flex items-center px-3 pb-1 shrink-0">
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground/40 font-semibold">
-          Sessions
-        </span>
-      </div>
-
-      {/* Machine-grouped session list */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 flex flex-col">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          </div>
-        ) : machines.length === 0 ? (
-          <div className="px-3 py-8 text-center">
-            <p className="text-xs text-muted-foreground">No sessions</p>
-          </div>
-        ) : (
-          <div className="py-1 space-y-1">
-            {machines.map((machine) => (
+      {/* Machine-grouped workspace list */}
+      <div
+        ref={listRef}
+        className="relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-hide"
+        style={{ maskImage, WebkitMaskImage: maskImage }}
+      >
+        <div className="pb-8 flex flex-col min-h-full">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : machines.length === 0 ? (
+            <div className="px-3 py-8 text-center">
+              <p className="text-xs text-muted-foreground">No sessions</p>
+            </div>
+          ) : (
+            machines.map((machine) => (
               <MachineSection
                 key={machine.machineId}
                 machine={machine}
                 activeSessionId={activeSessionId}
-                onSelectSession={handleSelectSession}
+                activeTerminalId={activeTerminalId}
+                onActivateMachine={handleActivateMachine}
                 onNavigate={handleNavigate}
                 notifByKey={notifByKey}
                 notifsBySession={notifsBySession}
                 onRespond={handleRespond}
               />
-            ))}
-          </div>
-        )}
+            ))
+          )}
 
-        {FEATURE_SESSION_SSH && (
-          <>
-            <div className="h-px bg-border my-2 shrink-0" />
-            <SshHostsSection onNavigate={handleNavigate} />
-          </>
-        )}
-        {/* Empty space below sessions is a window drag handle */}
-        <div className="flex-1 min-h-[48px] electrobun-webkit-app-region-drag" />
+          {FEATURE_SESSION_SSH && (
+            <>
+              <div className="h-px bg-border my-2 shrink-0" />
+              <SshHostsSection onNavigate={handleNavigate} />
+            </>
+          )}
+          {/* Empty space below sessions is a window drag handle */}
+          <div className="flex-1 min-h-[48px] electrobun-webkit-app-region-drag" />
+        </div>
       </div>
 
       {/* Bottom nav */}

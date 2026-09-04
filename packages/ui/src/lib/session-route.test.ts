@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { sessionPath, sessionIdFromPath } from './session-route';
+import { sessionPath, sessionIdFromPath, terminalIdFromPath } from './session-route';
 
 describe('sessionPath', () => {
   test('builds a machine-scoped session path', () => {
@@ -35,5 +35,17 @@ describe('sessionIdFromPath', () => {
     expect(sessionIdFromPath('/')).toBeNull();
     expect(sessionIdFromPath('/kanban')).toBeNull();
     expect(sessionIdFromPath('/sessions')).toBeNull();
+  });
+});
+
+describe('terminalIdFromPath', () => {
+  test('reads the terminal segment when the route names one', () => {
+    expect(terminalIdFromPath('/sessions/self/abc/term-1')).toBe('term-1');
+  });
+
+  test('is null without a terminal, on the legacy form, and off-route', () => {
+    expect(terminalIdFromPath('/sessions/self/abc')).toBeNull();
+    expect(terminalIdFromPath('/sessions/abc')).toBeNull();
+    expect(terminalIdFromPath('/kanban')).toBeNull();
   });
 });

@@ -19,6 +19,12 @@ enum AppSettings {
         set { defaults.set(newValue, forKey: "serverURL") }
     }
 
+    /// Where the panel sits: hanging from the notch, or beside the Dock.
+    static var anchor: NotchAnchor {
+        get { NotchAnchor(rawValue: defaults.string(forKey: "anchor") ?? "") ?? .dock }
+        set { defaults.set(newValue.rawValue, forKey: "anchor") }
+    }
+
     /// Don't pop the notch open while the Remote Agent desktop app is frontmost.
     static var suppressWhenDesktopActive: Bool {
         get { defaults.object(forKey: "suppressWhenDesktopActive") as? Bool ?? true }
@@ -62,4 +68,9 @@ enum AppSettings {
             }
         }
     }
+}
+
+extension Notification.Name {
+    /// Posted when the user changes `AppSettings.anchor`; the app rebuilds the window.
+    static let notchAnchorChanged = Notification.Name("notchAnchorChanged")
 }

@@ -40,35 +40,17 @@ final class NotchViewController: NSViewController {
         hostingView = PassThroughHostingView(rootView: NotchView(viewModel: viewModel, store: store))
 
         // Window coordinates: origin at bottom-left, Y increases upward.
-        // The window is pinned to the top of the screen, so the panel sits at
-        // the top of the window.
+        // NotchGeometry knows where the panel sits for the current anchor.
         hostingView.hitTestRect = { [weak self] in
             guard let self else { return .zero }
             let vm = self.viewModel
             let geometry = vm.geometry
-            let windowHeight = geometry.windowHeight
 
             switch vm.status {
             case .opened:
-                let panelSize = vm.openedSize
-                let panelWidth = panelSize.width + 52  // Account for corner radius padding
-                let panelHeight = panelSize.height
-                let screenWidth = geometry.screenRect.width
-                return CGRect(
-                    x: (screenWidth - panelWidth) / 2,
-                    y: windowHeight - panelHeight,
-                    width: panelWidth,
-                    height: panelHeight
-                )
+                return geometry.toWindow(geometry.openedHitScreenRect(for: vm.openedSize))
             case .closed, .popping:
-                let notchRect = geometry.deviceNotchRect
-                let screenWidth = geometry.screenRect.width
-                return CGRect(
-                    x: (screenWidth - notchRect.width) / 2 - 10,
-                    y: windowHeight - notchRect.height - 5,
-                    width: notchRect.width + 20,
-                    height: notchRect.height + 10
-                )
+                return geometry.toWindow(geometry.collapsedScreenRect).insetBy(dx: -10, dy: -5)
             }
         }
 

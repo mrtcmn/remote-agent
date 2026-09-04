@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = NotificationStore()
     private var windowManager: WindowManager?
     private var screenObserver: ScreenObserver?
+    private var anchorObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -30,6 +31,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         screenObserver = ScreenObserver { [weak self] in
             self?.windowManager?.setupNotchWindow()
+        }
+
+        anchorObserver = NotificationCenter.default.addObserver(
+            forName: .notchAnchorChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.windowManager?.setupNotchWindow(force: true) }
         }
 
         store.start()
@@ -46,21 +53,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 final class WindowManager {
     private(set) var controller: NotchWindowController?
-    private var currentScreenFrame: NSRect?
+    /// Screen frame plus visible frame: the visible frame moves when the Dock changes.
+    private var currentLayout: String?
     private let store: NotificationStore
 
     init(store: NotificationStore) {
         self.store = store
     }
 
-    func setupNotchWindow() {
+    func setupNotchWindow(force: Bool = false) {
         guard let screen = NSScreen.builtin ?? NSScreen.main else { return }
-        if controller != nil, currentScreenFrame == screen.frame { return }
+        let layout = "\(screen.frame)|\(screen.visibleFrame)"
+        if !force, controller != nil, currentLayout == layout { return }
 
         let isFirstLaunch = controller == nil
         controller?.close()
         controller = NotchWindowController(screen: screen, store: store, animateOnLaunch: isFirstLaunch)
         controller?.showWindow(nil)
-        currentScreenFrame = screen.frame
+        currentLayout = layout
     }
 }

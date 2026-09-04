@@ -29,6 +29,11 @@ final class NotificationStore: ObservableObject {
         return .done
     }
 
+    /// The session the collapsed pill speaks for: review > error > running > done.
+    var mostUrgent: NotificationRecord? {
+        notifications.min { $0.statusKind.rank < $1.statusKind.rank }
+    }
+
     /// Where a dictated transcript goes: the newest session waiting on free-form
     /// text, else any session that accepts it. nil → clipboard only.
     var replyTarget: NotificationRecord? {
@@ -42,6 +47,7 @@ final class NotificationStore: ObservableObject {
     func start() {
         guard !started else { return }
         started = true
+        if ProcessInfo.processInfo.environment["RA_NOTCH_DEMO"] != nil { seedDemo() }
 
         socket.onState = { [weak self] state in
             self?.connectionState = state
@@ -88,5 +94,28 @@ final class NotificationStore: ObservableObject {
 
     private func remove(_ id: String) {
         notifications.removeAll { $0.id == id }
+    }
+}
+
+// MARK: - Demo (RA_NOTCH_DEMO=1) — temporary, for design screenshots.
+extension NotificationStore {
+    func seedDemo() {
+        let json = """
+        [
+          {"id":"1","sessionId":"s1","terminalId":null,"type":"permission_request",
+           "title":"Edit mcp-server.ts","body":"Allow the edit?",
+           "metadata":{"projectName":"remote-agent","activity":"Editing mcp-server.ts","todosDone":3,"todosTotal":5},
+           "actions":[{"action":"approve","label":"Approve"},{"action":"deny","label":"Deny"}],
+           "priority":"high","status":"pending","createdAt":null,"machineId":null,"machineName":null},
+          {"id":"2","sessionId":"s2","terminalId":null,"type":"session_started",
+           "title":"Refactor tunnel client","body":"Working…",
+           "metadata":{"projectName":"remote-agent","activity":"Running bun test"},
+           "actions":[],"priority":"normal","status":"running","createdAt":null,"machineId":null,"machineName":null}
+        ]
+        """
+        if let data = json.data(using: .utf8),
+           let records = try? JSONDecoder().decode([NotificationRecord].self, from: data) {
+            notifications = records
+        }
     }
 }

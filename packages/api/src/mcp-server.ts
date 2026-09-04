@@ -5,7 +5,8 @@
  *
  *   claude mcp add remote-agent -- bun run <repo>/packages/api/src/mcp-server.ts
  *
- * Env: RA_URL (else the local API is probed for on its usual ports), RA_TOKEN (a
+ * Env: RA_URL (else REMOTE_AGENT_API, which every remote-agent session exports;
+ * else the local API is probed for on its usual ports), RA_TOKEN (a
  * machine token; without one it signs in as the seeded local user), RA_EMAIL /
  * RA_PASSWORD to override those credentials.
  *
@@ -27,10 +28,12 @@ const PROTOCOL = '2025-06-18';
 
 // ─── HTTP plumbing ────────────────────────────────────────────────────────────
 
-/** Local-mode default, then the docker/compose default. */
-const CANDIDATE_PORTS = [process.env.RA_PORT, process.env.PORT, '13590', '5100'].filter(Boolean);
+/** Installed app, then the dev port, then the docker/compose default.
+ *  Set RA_URL or RA_PORT to pin one when both the app and dev run. */
+const CANDIDATE_PORTS = [process.env.RA_PORT, process.env.PORT, '13590', '13690', '5100'].filter(Boolean);
 
-let baseUrl: string | null = process.env.RA_URL?.replace(/\/+$/, '') ?? null;
+let baseUrl: string | null =
+  (process.env.RA_URL ?? process.env.REMOTE_AGENT_API)?.replace(/\/+$/, '') ?? null;
 
 /** Where the API is. Probed once, because the port differs per install mode. */
 async function base(): Promise<string> {
