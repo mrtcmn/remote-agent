@@ -43,6 +43,10 @@ export function buildSessionPrompt(task: KanbanTask): string {
     '',
     'Report progress with the remote-agent MCP tools: `comment_task` to post a',
     'note, `update_task` to move the status, `get_task` to re-read the task.',
+    task.goal
+      ? `\nThe goal this task is judged against:\n\n${task.goal}\n\nWhen you stop, a referee agent runs commands of its own and decides whether the goal is met. Check it yourself first — its verdict comes back to you if it fails.`
+      : '',
+    `When you open a pull request, save its URL with \`update_task\` ({ taskId: "${task.id}", taskPatch: { prUrl: "..." } }).`,
     '',
     task.planDoc
       ? 'Start by confirming the plan still matches the code, then implement it.'

@@ -1,4 +1,5 @@
 import { kanbanRepository, type TaskFilters, type TaskListOptions } from './kanban.repository';
+import { autoFlowService } from '../auto-flow';
 
 const KANBAN_STATUSES = ['backlog', 'todo', 'in_progress', 'manual_testing', 'review_needed', 'completed'] as const;
 type KanbanStatus = typeof KANBAN_STATUSES[number];
@@ -56,6 +57,7 @@ class KanbanService {
     branch?: string;
     githubIssueNumber?: number;
     githubIssueUrl?: string;
+    goal?: string;
   }) {
     return kanbanRepository.createTask({
       ...data,
@@ -76,12 +78,31 @@ class KanbanService {
         data.checklist.map((i: { text: string; done?: boolean }) => ({ text: i.text, done: !!i.done })),
       );
     }
+    // An agent writes this field through update_task, so it is a trust
+    // boundary: a javascript: URL would run in the app when the chip is clicked.
+    if (data.prUrl !== undefined && data.prUrl !== null) {
+      const url = String(data.prUrl).trim();
+      if (!url) data.prUrl = null;
+      else if (!/^https?:\/\//i.test(url)) throw new Error('A pull request URL must start with http:// or https://');
+      else data.prUrl = url;
+    }
+    // A new goal starts a fresh loop.
+    if ('goal' in data) {
+      data.goal = data.goal?.trim() || null;
+      data.verifyStatus = 'none';
+      data.verifyAttempts = 0;
+    }
     // Moving a task points the agent at a different directory, so the target
     // project must be one this user owns.
     if (data.projectId && !(await kanbanRepository.userOwnsProject(data.projectId, userId))) {
       throw new Error('Unknown project');
     }
-    return kanbanRepository.updateTask(taskId, userId, data);
+    const before = data.status === 'completed' ? await kanbanRepository.findTaskById(taskId, userId) : null;
+    const task = await kanbanRepository.updateTask(taskId, userId, data);
+    // An agent finishes a task through update_task, not drag-and-drop, so this
+    // path must start dependents too.
+    if (before && before.status !== 'completed') this.startDependents(taskId, userId);
+    return task;
   }
 
   async moveTask(taskId: string, userId: string, newStatus: string, newPosition: number) {
@@ -98,13 +119,9 @@ class KanbanService {
       }
     }
 
+    const before = newStatus === 'completed' ? await kanbanRepository.findTaskById(taskId, userId) : null;
     const task = await kanbanRepository.moveTask(taskId, userId, newStatus, newPosition);
-
-    // If task completed and has auto-flow, trigger dependent tasks
-    if (newStatus === 'completed' && task?.autoFlow) {
-      await this.triggerDependents(taskId, userId);
-    }
-
+    if (before && before.status !== 'completed') this.startDependents(taskId, userId);
     return task;
   }
 
@@ -149,11 +166,18 @@ class KanbanService {
 
   // ─── Dependencies ──────────────────────────────────────────────────────
 
-  async addDependency(taskId: string, dependsOnTaskId: string) {
+  async addDependency(taskId: string, dependsOnTaskId: string, userId: string) {
     // Prevent self-dependency
     if (taskId === dependsOnTaskId) {
       throw new Error('A task cannot depend on itself');
     }
+    // A dependency starts an agent in the dependent task's directory, so both
+    // ends must belong to the caller.
+    const [task, blocker] = await Promise.all([
+      kanbanRepository.findTaskById(taskId, userId),
+      kanbanRepository.findTaskById(dependsOnTaskId, userId),
+    ]);
+    if (!task || !blocker) throw new Error('Unknown task');
     // Prevent circular dependencies (simple check)
     const reverseCheck = await kanbanRepository.getBlockingTasks(dependsOnTaskId);
     if (reverseCheck.some(d => d.dependsOnTaskId === taskId)) {
@@ -162,8 +186,8 @@ class KanbanService {
     return kanbanRepository.addDependency(taskId, dependsOnTaskId);
   }
 
-  async removeDependency(id: string) {
-    return kanbanRepository.removeDependency(id);
+  async removeDependency(id: string, userId: string) {
+    return kanbanRepository.removeDependency(id, userId);
   }
 
   // ─── Comments ──────────────────────────────────────────────────────────
@@ -172,8 +196,8 @@ class KanbanService {
     return kanbanRepository.findComments(taskId);
   }
 
-  async addComment(taskId: string, userId: string, content: string, parentCommentId?: string) {
-    return kanbanRepository.createComment({ taskId, userId, content, parentCommentId });
+  async addComment(taskId: string, userId: string, content: string, parentCommentId?: string, kind?: 'user' | 'result') {
+    return kanbanRepository.createComment({ taskId, userId, content, parentCommentId, kind });
   }
 
   async resolveComment(commentId: string, userId: string) {
@@ -249,14 +273,11 @@ class KanbanService {
 
   // ─── Auto-flow trigger ─────────────────────────────────────────────────
 
-  private async triggerDependents(completedTaskId: string, userId: string) {
-    // Find tasks that depend on the completed task
-    const deps = await kanbanRepository.getBlockingTasks(completedTaskId);
-    // This is actually "dependents" - tasks that THIS task blocks
-    // We need to query the reverse: tasks where dependsOnTaskId = completedTaskId
-    // The auto-flow engine handles the actual execution
-    // We just emit that this task is completed and dependents should check
-    console.log(`[kanban] Task ${completedTaskId} completed, checking dependents for auto-flow`);
+  /** Off the request path: dependents with auto-flow on start once all their blockers are done. */
+  private startDependents(completedTaskId: string, userId: string) {
+    autoFlowService.onTaskCompleted(completedTaskId, userId).catch(err => {
+      console.error('[kanban] Auto-flow trigger error:', err);
+    });
   }
 
   private getColumnTitle(status: string): string {

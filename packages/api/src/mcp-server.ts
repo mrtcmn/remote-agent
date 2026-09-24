@@ -489,7 +489,8 @@ const TOOLS: Tool[] = [
     name: 'comment_task',
     description: 'Post a progress note on the task. Use it when you finish a meaningful chunk, or when you find something that changes the plan.',
     fields: ['taskId!', 'body!', 'machine'],
-    run: (a) => call('POST', `/kanban/tasks/${a.taskId}/comments`, { content: a.body }, a.machine),
+    // kind 'result' marks it as the agent's note, so "send back" never returns it.
+    run: (a) => call('POST', `/kanban/tasks/${a.taskId}/comments`, { content: a.body, kind: 'result' }, a.machine),
   },
   {
     name: 'set_checklist',

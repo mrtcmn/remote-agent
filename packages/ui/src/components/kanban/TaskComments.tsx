@@ -177,7 +177,7 @@ function CommentItem({
       <div className="flex items-center gap-2 mb-1">
         {isResult ? <Bot className="h-3.5 w-3.5 text-primary" /> : statusIcons[comment.status]}
         <span className="text-xs font-medium">
-          {isResult ? 'Agent result' : comment.user?.name || 'Unknown'}
+          {isResult ? 'Agent' : comment.user?.name || 'Unknown'}
         </span>
         <span className="text-xs text-muted-foreground">
           {new Date(comment.createdAt).toLocaleDateString(undefined, {
@@ -191,7 +191,7 @@ function CommentItem({
           comment.status === 'resolved' && 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
           comment.status === 'rejected' && 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
         )}>
-          {isResult ? 'result' : comment.status}
+          {isResult ? 'agent' : comment.status}
         </span>
       </div>
 

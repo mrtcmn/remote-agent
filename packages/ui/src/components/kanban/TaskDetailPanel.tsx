@@ -3,7 +3,7 @@ import {
   X, Edit3, Save, Trash2, GitBranch, Link2, Plus, Upload,
   ArrowRight, AlertTriangle,
   Clock, Tag, Zap, ExternalLink,
-  ChevronDown, ChevronUp, TerminalSquare
+  ChevronDown, ChevronUp, TerminalSquare, GitPullRequest
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { TaskComments } from './TaskComments';
 import { PlanDocument } from './PlanDocument';
 import { TaskChecklist } from './TaskChecklist';
+import { TaskLoop } from './TaskLoop';
 import {
   api,
   type KanbanTask,
@@ -56,6 +57,9 @@ interface TaskDetailPanelProps {
   onStartSession: () => void;
   onToggleChecklistItem: (index: number, done: boolean) => void;
   onReplaceChecklist: (items: ChecklistItem[]) => void;
+  onVerify: (goal: string) => void;
+  onDraftGoal: () => void;
+  onSendBack: (note?: string) => void;
 }
 
 export function TaskDetailPanel({
@@ -78,6 +82,9 @@ export function TaskDetailPanel({
   onStartSession,
   onToggleChecklistItem,
   onReplaceChecklist,
+  onVerify,
+  onDraftGoal,
+  onSendBack,
 }: TaskDetailPanelProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
@@ -291,6 +298,15 @@ export function TaskDetailPanel({
             onReplace={onReplaceChecklist}
           />
 
+          {/* The goal the referee judges, and the review hand-back */}
+          <TaskLoop
+            task={task}
+            onUpdate={onUpdate}
+            onVerify={onVerify}
+            onDraftGoal={onDraftGoal}
+            onSendBack={onSendBack}
+          />
+
           {/* Collapsible Details */}
           <div>
             <button
@@ -325,6 +341,26 @@ export function TaskDetailPanel({
                   />
                   {task.githubIssueUrl && (
                     <a href={task.githubIssueUrl} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+                    </a>
+                  )}
+                </div>
+
+                {/* Pull request — the agent fills it in when it opens one */}
+                <div className="flex items-center gap-2">
+                  <GitPullRequest className="h-4 w-4 text-muted-foreground" />
+                  <Input
+                    key={task.prUrl || ''}
+                    defaultValue={task.prUrl || ''}
+                    onBlur={(e) => {
+                      const next = e.target.value.trim();
+                      if (next !== (task.prUrl || '')) onUpdate({ prUrl: next || null });
+                    }}
+                    placeholder="Pull request URL..."
+                    className="h-7 text-xs flex-1"
+                  />
+                  {task.prUrl && (
+                    <a href={task.prUrl} target="_blank" rel="noopener noreferrer">
                       <ExternalLink className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
                     </a>
                   )}

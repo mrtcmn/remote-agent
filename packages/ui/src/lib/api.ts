@@ -365,6 +365,14 @@ export const api = {
   executeKanbanTask: (id: string) =>
     request<KanbanTask>(`/kanban/tasks/${id}/execute`, { method: 'POST' }),
 
+  // Task loop — review comments back to the agent, and the verify gate
+  sendKanbanTaskBack: (id: string, note?: string) =>
+    request<KanbanTask>(`/kanban/tasks/${id}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
+  verifyKanbanTask: (id: string, goal?: string) =>
+    request<KanbanTask>(`/kanban/tasks/${id}/verify`, { method: 'POST', body: JSON.stringify({ goal }) }),
+  draftKanbanTaskGoal: (id: string) =>
+    request<{ drafting: boolean }>(`/kanban/tasks/${id}/draft-goal`, { method: 'POST' }),
+
   // Checklist
   setTaskChecklist: (id: string, items: ChecklistItem[]) =>
     request<KanbanTask>(`/kanban/tasks/${id}/checklist`, {
@@ -1095,6 +1103,7 @@ export interface ProceedResponse {
 
 export type KanbanStatus = 'backlog' | 'todo' | 'in_progress' | 'manual_testing' | 'review_needed' | 'completed';
 export type KanbanPriority = 'low' | 'medium' | 'high' | 'critical';
+export type VerifyStatus = 'none' | 'drafting' | 'running' | 'passed' | 'failed' | 'stuck';
 export type AssigneeType = 'user' | 'agent' | 'unassigned';
 export type TaskCommentStatus = 'open' | 'resolved' | 'rejected';
 export type TaskCommentKind = 'user' | 'result';
@@ -1141,6 +1150,11 @@ export interface KanbanTask {
   planDoc: string | null; // markdown + mermaid, written by the background agent
   planStatus: PlanStatus;
   checklist: string | null; // JSON ChecklistItem[]
+  goal: string | null; // judged by a referee agent before the task leaves In Progress
+  verifyStatus: VerifyStatus;
+  verifyAttempts: number;
+  verifyOutput: string | null; // the referee's last verdict
+  prUrl: string | null;
   createdAt: string;
   updatedAt: string;
   project?: Project;
@@ -1214,6 +1228,7 @@ export interface CreateTaskInput {
   branch?: string;
   githubIssueNumber?: number;
   githubIssueUrl?: string;
+  goal?: string;
 }
 
 export interface UpdateTaskInput {
@@ -1234,6 +1249,8 @@ export interface UpdateTaskInput {
   githubIssueNumber?: number;
   githubIssueUrl?: string;
   estimatedEffort?: string;
+  goal?: string | null;
+  prUrl?: string | null;
 }
 
 export interface TaskFiltersInput {

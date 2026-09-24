@@ -3,6 +3,7 @@ import { db, kanbanTasks, projects } from '../../db';
 import { cliAdapterRegistry } from '../cli-adapter';
 import { kanbanRepository } from './kanban.repository';
 import { kanbanService } from './kanban.service';
+import { taskLoopService } from './task-loop.service';
 
 export type PlanStatus = 'none' | 'planning' | 'ready' | 'executing' | 'done' | 'failed';
 
@@ -67,6 +68,12 @@ actually is. Write the heading as the question the diagram answers, for
 example "How a plan run reaches the database" or "Which states a task moves
 through". Put a sentence before each diagram saying what to look at.
 
+## Goal
+Three to six lines. What must be true for this task to count as done, written so
+a referee can check each line by running something. Name the real command or
+test. Put a number and a baseline on anything about speed, size or coverage —
+"30% faster than main on the bench command", not "faster". Say what must not break.
+
 ## Changes
 ### UI
 - \`path/to/file.tsx\` — what changes
@@ -92,6 +99,20 @@ export function extractText(raw: string): string {
     // Not JSON (gemini adapter, or a crash before the JSON envelope) — take it raw.
   }
   return raw.trim();
+}
+
+/** The lines under one `## Heading`, up to the next heading. Fenced code is kept. */
+export function extractSection(planDoc: string, heading: string): string {
+  const lines: string[] = [];
+  let inSection = false;
+  for (const line of planDoc.split('\n')) {
+    if (/^##\s+/.test(line)) {
+      inSection = new RegExp(`^##\\s+${heading}\\s*$`, 'i').test(line);
+      continue;
+    }
+    if (inSection) lines.push(line);
+  }
+  return lines.join('\n').trim();
 }
 
 /**
@@ -156,6 +177,9 @@ export function buildPlanPrompt(task: { title: string; description?: string | nu
     'large task earns a mindmap of the scope. A one-line copy fix earns one',
     'diagram and nothing more.',
     '',
+    'The Goal section is what a referee agent will later check to decide whether the',
+    'work is done, so write it as conditions that can be measured, not as intentions.',
+    '',
     'Reply with the markdown document only — no preamble, no closing remark.',
     'Follow this shape:',
     '',
@@ -190,6 +214,7 @@ export function buildTaskBriefing(task: {
   description?: string | null;
   checklist?: string | null;
   projectName?: string | null;
+  goal?: string | null;
 }): string {
   const items = parseChecklist(task.checklist);
 
@@ -230,7 +255,20 @@ export function buildTaskBriefing(task: {
     'someone to click through it, watch it in a browser, or exercise a device —',
     `move it to Manual Testing instead with \`update_task\` ({ taskId: "${task.id}",`,
     'taskPatch: { status: "manual_testing" } }), and say in your report what to try.',
+    '',
+    ...verifyLines(task),
   ].filter(Boolean).join('\n');
+}
+
+/** The loop rules an agent must know. The UI copy lives in ui/src/lib/task-prompt.ts. */
+function verifyLines(task: { id: string; goal?: string | null }): string[] {
+  return [
+    task.goal
+      ? ['The goal this task is judged against:', '', task.goal, '',
+         'When you stop, a referee agent runs commands of its own and decides whether the goal is met. Check it yourself first — its verdict comes back to you if it fails.'].join('\n')
+      : '',
+    `When you open a pull request, save its URL with \`update_task\` ({ taskId: "${task.id}", taskPatch: { prUrl: "..." } }).`,
+  ];
 }
 
 export function buildExecutePrompt(task: {
@@ -240,7 +278,8 @@ export function buildExecutePrompt(task: {
   description?: string | null;
   checklist?: string | null;
   projectName?: string | null;
-}): string {
+  goal?: string | null;
+}, feedback?: string): string {
   return [
     buildTaskBriefing(task),
     '',
@@ -252,9 +291,10 @@ export function buildExecutePrompt(task: {
     task.planDoc,
     '--- END PLAN ---',
     '',
+    feedback ? `A previous run already worked on this task. Continue from the current code.\n\n--- FEEDBACK ---\n${feedback}\n--- END FEEDBACK ---\n` : '',
     'When you finish, reply with a short markdown report only: what you changed,',
     'the files you touched as a list, and one command that verifies it.',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 async function loadTask(taskId: string, userId: string) {
@@ -326,6 +366,12 @@ class AgentPlanService {
       const planDoc = unwrapMarkdown(text);
       await setPlanStatus(taskId, 'ready', planDoc);
 
+      // Seed the goal from the plan, unless the task already carries one.
+      if (!task.goal) {
+        const goal = extractSection(planDoc, 'Goal');
+        if (goal) await kanbanService.updateTask(taskId, userId, { goal });
+      }
+
       // Seed the checklist from the plan's steps, but never overwrite one the
       // person (or a previous run) already curated.
       if (!parseChecklist(task.checklist).length) {
@@ -339,11 +385,18 @@ class AgentPlanService {
     return kanbanRepository.findTaskById(taskId, userId);
   }
 
-  /** Execute phase — the same agent, now handed its own plan. */
-  async execute(taskId: string, userId: string) {
+  /**
+   * Execute phase — the same agent, now handed its own plan. `feedback` is a
+   * follow-up round from the task loop: verify output or review comments.
+   */
+  async execute(taskId: string, userId: string, feedback?: string) {
     const { task, project } = await loadTask(taskId, userId);
     if (this.running.has(taskId)) throw new Error('An agent is already running on this task');
-    if (!task.planDoc) throw new Error('No plan yet — generate a plan first');
+    // A follow-up round can run on the description alone: the first run may
+    // have come from auto-flow, which never wrote a plan.
+    const planDoc = task.planDoc || (feedback ? task.description || task.title : null);
+    if (!planDoc) throw new Error('No plan yet — generate a plan first');
+    taskLoopService.markWorking(taskId);
 
     await setPlanStatus(taskId, 'executing');
     // The column follows the run: anything not already finished moves to
@@ -357,11 +410,12 @@ class AgentPlanService {
       prompt: buildExecutePrompt({
         id: task.id,
         title: task.title,
-        planDoc: task.planDoc,
+        planDoc,
         description: task.description,
         checklist: task.checklist,
         projectName: project.name,
-      }),
+        goal: task.goal,
+      }, feedback),
       allowedTools: EXECUTE_TOOLS,
     }, async (text, ok) => {
       await kanbanRepository.createComment({
@@ -371,9 +425,9 @@ class AgentPlanService {
         kind: 'result',
       });
       await setPlanStatus(taskId, ok ? 'done' : 'failed');
-      // Only move a task the agent left in progress. If it moved itself — to
-      // manual_testing, say — that decision stands.
-      await moveColumn(taskId, statusForRun(ok ? 'done' : 'failed'), ['in_progress']);
+      // A failed run stays put. A finished one goes through the task loop,
+      // which moves it only if it is still In Progress and passes verify.
+      if (ok) await taskLoopService.onAgentDone(taskId, userId);
     });
 
     return kanbanRepository.findTaskById(taskId, userId);
@@ -393,6 +447,10 @@ class AgentPlanService {
 
     this.running.add(taskId);
     (async () => {
+      // Once the slot is free, onDone may have started the next round on this
+      // task. Touch neither the slot nor the status after that: both belong to
+      // the new run.
+      let handedOver = false;
       try {
         const result = await adapter.startSession({
           projectPath: config.projectPath,
@@ -400,12 +458,14 @@ class AgentPlanService {
           prompt: config.prompt,
           allowedTools: config.allowedTools,
         });
+        this.running.delete(taskId);
+        handedOver = true;
         await onDone(extractText(result.output), result.success);
       } catch (error) {
         console.error(`[agent-plan] Task ${taskId} failed:`, error);
-        await setPlanStatus(taskId, 'failed').catch(() => {});
+        if (!handedOver) await setPlanStatus(taskId, 'failed').catch(() => {});
       } finally {
-        this.running.delete(taskId);
+        if (!handedOver) this.running.delete(taskId);
       }
     })();
   }

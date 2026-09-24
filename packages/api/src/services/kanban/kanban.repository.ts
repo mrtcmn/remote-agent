@@ -114,6 +114,14 @@ class KanbanRepository {
     return !!project;
   }
 
+  /** Open tasks linked to a session — the ones its status signals move. */
+  async findTasksBySession(sessionId: string) {
+    return db.query.kanbanTasks.findMany({
+      where: and(eq(kanbanTasks.sessionId, sessionId), ne(kanbanTasks.status, 'completed' as any)),
+      columns: { id: true, userId: true, status: true },
+    });
+  }
+
   async findTaskById(taskId: string, userId: string) {
     return db.query.kanbanTasks.findFirst({
       where: and(eq(kanbanTasks.id, taskId), eq(kanbanTasks.userId, userId)),
@@ -158,6 +166,7 @@ class KanbanRepository {
     branch?: string;
     githubIssueNumber?: number;
     githubIssueUrl?: string;
+    goal?: string;
   }) {
     const id = nanoid();
 
@@ -191,6 +200,7 @@ class KanbanRepository {
       branch: data.branch || null,
       githubIssueNumber: data.githubIssueNumber || null,
       githubIssueUrl: data.githubIssueUrl || null,
+      goal: data.goal?.trim() || null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -218,6 +228,10 @@ class KanbanRepository {
     githubIssueNumber: number;
     githubIssueUrl: string;
     estimatedEffort: string;
+    goal: string | null;
+    verifyStatus: string;
+    verifyAttempts: number;
+    prUrl: string | null;
   }>) {
     const updateData: Record<string, any> = { updatedAt: new Date() };
 
@@ -240,6 +254,10 @@ class KanbanRepository {
     if (data.githubIssueNumber !== undefined) updateData.githubIssueNumber = data.githubIssueNumber;
     if (data.githubIssueUrl !== undefined) updateData.githubIssueUrl = data.githubIssueUrl;
     if (data.estimatedEffort !== undefined) updateData.estimatedEffort = data.estimatedEffort;
+    if (data.goal !== undefined) updateData.goal = data.goal;
+    if (data.verifyStatus !== undefined) updateData.verifyStatus = data.verifyStatus;
+    if (data.verifyAttempts !== undefined) updateData.verifyAttempts = data.verifyAttempts;
+    if (data.prUrl !== undefined) updateData.prUrl = data.prUrl;
 
     await db.update(kanbanTasks)
       .set(updateData)
@@ -248,10 +266,48 @@ class KanbanRepository {
     return this.findTaskById(taskId, userId);
   }
 
-  async moveTask(taskId: string, userId: string, newStatus: string, newPosition: number) {
+  /**
+   * Moves a task to `index` inside its new column and renumbers that column, so
+   * a drop between two cards stays between them. Without the renumber every
+   * card in the column would fight for the same position number.
+   *
+   * ponytail: renumbers within the task's own project, the way createTask
+   * numbers. On an all-projects board two projects interleave by position;
+   * give the column one sequence per board if that ever reads wrong.
+   */
+  async moveTask(taskId: string, userId: string, newStatus: string, index: number) {
     await db.update(kanbanTasks)
-      .set({ status: newStatus as any, position: newPosition, updatedAt: new Date() })
+      .set({ status: newStatus as any, updatedAt: new Date() })
       .where(and(eq(kanbanTasks.id, taskId), eq(kanbanTasks.userId, userId)));
+
+    const moved = await db.query.kanbanTasks.findFirst({
+      where: and(eq(kanbanTasks.id, taskId), eq(kanbanTasks.userId, userId)),
+      columns: { id: true, projectId: true, parentTaskId: true },
+    });
+    if (!moved) return null;
+
+    const column = await db.select({ id: kanbanTasks.id })
+      .from(kanbanTasks)
+      .where(and(
+        eq(kanbanTasks.userId, userId),
+        eq(kanbanTasks.projectId, moved.projectId),
+        eq(kanbanTasks.status, newStatus as any),
+        // A subtask is renumbered among its siblings, never among the top-level
+        // cards — the two lists are drawn in different places.
+        moved.parentTaskId ? eq(kanbanTasks.parentTaskId, moved.parentTaskId) : isNull(kanbanTasks.parentTaskId),
+      ))
+      .orderBy(asc(kanbanTasks.position), desc(kanbanTasks.createdAt));
+
+    const ids = column.map((t: { id: string }) => t.id).filter((id: string) => id !== taskId);
+    ids.splice(Math.max(0, Math.min(index, ids.length)), 0, taskId);
+
+    // ponytail: one update per card in one column. Batch it only if a column
+    // ever holds enough cards for this to show up.
+    for (const [position, id] of ids.entries()) {
+      await db.update(kanbanTasks)
+        .set({ position })
+        .where(eq(kanbanTasks.id, id));
+    }
 
     return this.findTaskById(taskId, userId);
   }
@@ -275,7 +331,12 @@ class KanbanRepository {
     return { id, taskId, dependsOnTaskId };
   }
 
-  async removeDependency(id: string) {
+  async removeDependency(id: string, userId: string) {
+    const dep = await db.query.kanbanTaskDependencies.findFirst({
+      where: eq(kanbanTaskDependencies.id, id),
+      columns: { taskId: true },
+    });
+    if (!dep || !(await this.findTaskById(dep.taskId, userId))) throw new Error('Unknown dependency');
     await db.delete(kanbanTaskDependencies).where(eq(kanbanTaskDependencies.id, id));
     return { success: true };
   }

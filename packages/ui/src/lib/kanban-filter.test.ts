@@ -9,6 +9,7 @@ const task = (over: Partial<KanbanTask>): KanbanTask => ({
   githubIssueNumber: null, githubIssueUrl: null, branch: null,
   autoFlow: false, adapterType: null, adapterConfig: null,
   labels: null, estimatedEffort: null, planDoc: null, planStatus: 'none',
+  checklist: null, goal: null, verifyStatus: 'none', verifyAttempts: 0, verifyOutput: null, prUrl: null,
   createdAt: '', updatedAt: '',
   ...over,
 });

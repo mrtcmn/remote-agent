@@ -21,12 +21,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const isFullHeightPage = isSessionPage || location.pathname === '/kanban';
 
   return (
-    <div className="flex h-dvh flex-col p-2 bg-background">
+    <div className="flex h-dvh flex-col px-2 pb-2 bg-background">
       <CommandBar />
       {/* Full-width top bar: traffic lights → logo → per-page tools (portaled into #app-toolbar) */}
-      <div className="shrink-0 flex items-stretch h-9 rounded-t-lg overflow-hidden border border-border bg-card electrobun-webkit-app-region-drag">
+      <div className="shrink-0 flex items-stretch h-9 rounded-t-xl overflow-hidden border border-border border-t-0 bg-card electrobun-webkit-app-region-drag">
         {/* macOS traffic lights sit over this spacer in the desktop app */}
-        <div className="hidden electron-titlebar w-16 shrink-0" />
+        <div className="hidden electron-titlebar w-[72px] shrink-0" />
         <div className="flex items-center px-2 shrink-0">
           <img src="/logo.png" alt="Remote Agent" className="size-4 rounded" />
         </div>

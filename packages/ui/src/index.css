@@ -380,3 +380,14 @@
 .electron-app .electron-titlebar {
   display: block !important;
 }
+
+/* Desktop shell: the webview does not follow the window's rounded corner, so
+   the page rounds its own top corners. The window behind stays opaque — a
+   transparent window leaves ghost traffic lights behind when they move. */
+.electron-app,
+.electron-app body,
+.electron-app #root {
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  overflow: hidden;
+}

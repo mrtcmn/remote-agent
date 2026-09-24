@@ -10,6 +10,8 @@ import { CreateTaskModal } from '@/components/kanban/CreateTaskModal';
 import { useKanbanBoard, useKanbanTask, useKanbanMutations, useActiveProject } from '@/hooks/useKanban';
 import { filterBoard } from '@/lib/kanban-filter';
 import { StartSessionModal } from '@/components/kanban/StartSessionModal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import type { TaskMenuHandlers } from '@/components/kanban/TaskContextMenu';
 import { sessionPath } from '@/lib/session-route';
 import { getActiveMachineId } from '@/lib/active-machine';
 import { useNavigate } from 'react-router-dom';
@@ -29,6 +31,7 @@ export function KanbanPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createModalDefaultStatus, setCreateModalDefaultStatus] = useState<KanbanStatus | undefined>();
   const [showSessionModal, setShowSessionModal] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState<KanbanTask | null>(null);
   const [startingSession, setStartingSession] = useState(false);
   const navigate = useNavigate();
 
@@ -49,7 +52,17 @@ export function KanbanPage() {
     setSelectedTaskId(task.id);
   };
 
-  const handleMoveTask = (taskId: string, status: KanbanStatus, position: number) => {
+  /**
+   * The board draws a filtered column, so the index a drop gives is an index
+   * among the visible cards. Turn it back into one in the real column by
+   * looking up the card the drop landed under.
+   */
+  const handleMoveTask = (taskId: string, status: KanbanStatus, position: number, afterId?: string | null) => {
+    if (afterId !== undefined) {
+      const full = boardData?.columns.find(c => c.id === status)?.tasks.filter(t => t.id !== taskId) ?? [];
+      const after = afterId === null ? -1 : full.findIndex(t => t.id === afterId);
+      position = afterId === null ? 0 : after >= 0 ? after + 1 : position;
+    }
     mutations.moveTask.mutate(
       { id: taskId, status, position },
       {
@@ -130,6 +143,36 @@ export function KanbanPage() {
     }
   };
 
+  const deleteTask = (task: KanbanTask) => {
+    mutations.deleteTask.mutate(task.id, {
+      onSuccess: () => {
+        if (selectedTaskId === task.id) setSelectedTaskId(null);
+        setTaskToDelete(null);
+        toast({ title: 'Task deleted' });
+      },
+      onError: (error) => toast({ title: 'Error', description: (error as Error).message, variant: 'destructive' }),
+    });
+  };
+
+  // Right-click on a card. Every action here is one the panel also offers.
+  const menu: TaskMenuHandlers = {
+    onOpen: (task) => setSelectedTaskId(task.id),
+    // A card moved from the menu lands on top of its new column; the old
+    // position number means nothing there.
+    onMove: (task, status) => handleMoveTask(task.id, status, 0),
+    onPriority: (task, priority) => mutations.updateTask.mutate({ id: task.id, data: { priority } }),
+    onOpenSession: (task) => task.sessionId && navigate(sessionPath(getActiveMachineId(), task.sessionId)),
+    onJudge: (task) => mutations.verifyTask.mutate({ id: task.id }, {
+      onSuccess: () => toast({ title: 'The referee is judging…' }),
+      onError: (error) => toast({ title: 'Referee', description: (error as Error).message, variant: 'destructive' }),
+    }),
+    onSendBack: (task) => mutations.sendBack.mutate({ id: task.id }, {
+      onSuccess: () => toast({ title: 'Sent back to the agent' }),
+      onError: (error) => toast({ title: 'Send back', description: (error as Error).message, variant: 'destructive' }),
+    }),
+    onDelete: (task) => setTaskToDelete(task),
+  };
+
   // Filter the board data client-side for status/priority/assignee/search
   const filteredBoardData = boardData
     ? filterBoard(boardData, {
@@ -182,6 +225,7 @@ export function KanbanPage() {
             onTaskClick={handleTaskClick}
             onMoveTask={handleMoveTask}
             onQuickAdd={handleQuickAdd}
+            menu={menu}
           />
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
@@ -199,14 +243,7 @@ export function KanbanPage() {
           projects={projects}
           onClose={() => setSelectedTaskId(null)}
           onUpdate={(data) => mutations.updateTask.mutate({ id: selectedTask.id, data })}
-          onDelete={() => {
-            mutations.deleteTask.mutate(selectedTask.id, {
-              onSuccess: () => {
-                setSelectedTaskId(null);
-                toast({ title: 'Task deleted' });
-              },
-            });
-          }}
+          onDelete={() => setTaskToDelete(selectedTask)}
           onAddComment={(content, parentCommentId) =>
             mutations.addComment.mutate({ taskId: selectedTask.id, content, parentCommentId })
           }
@@ -235,6 +272,17 @@ export function KanbanPage() {
           onReplaceChecklist={(items) =>
             mutations.setChecklist.mutate({ id: selectedTask.id, items })
           }
+          onVerify={(goal) => mutations.verifyTask.mutate({ id: selectedTask.id, goal }, {
+            onError: (error) => toast({ title: 'Referee', description: (error as Error).message, variant: 'destructive' }),
+          })}
+          onDraftGoal={() => mutations.draftGoal.mutate(selectedTask.id, {
+            onSuccess: () => toast({ title: 'Writing the goal…' }),
+            onError: (error) => toast({ title: 'Goal', description: (error as Error).message, variant: 'destructive' }),
+          })}
+          onSendBack={(note) => mutations.sendBack.mutate({ id: selectedTask.id, note }, {
+            onSuccess: () => toast({ title: 'Sent back to the agent' }),
+            onError: (error) => toast({ title: 'Send back', description: (error as Error).message, variant: 'destructive' }),
+          })}
         />
       )}
 
@@ -256,6 +304,16 @@ export function KanbanPage() {
           defaultStatus={createModalDefaultStatus}
           onClose={() => { setShowCreateModal(false); setCreateModalDefaultStatus(undefined); }}
           onCreate={handleCreateTask}
+        />
+      )}
+
+      {/* Delete confirmation — a task takes its comments and plan with it */}
+      {taskToDelete && (
+        <ConfirmDialog
+          title={`Delete "${taskToDelete.title}"?`}
+          body="Its checklist, plan, comments and attachments go too. This cannot be undone."
+          onConfirm={() => deleteTask(taskToDelete)}
+          onCancel={() => setTaskToDelete(null)}
         />
       )}
     </div>

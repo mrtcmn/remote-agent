@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { requireAuth } from '../auth/middleware';
-import { kanbanService, agentPlanService } from '../services/kanban';
+import { kanbanService, agentPlanService, taskLoopService } from '../services/kanban';
 import { autoFlowService } from '../services/auto-flow';
 import { cliAdapterRegistry } from '../services/cli-adapter';
 import { nanoid } from 'nanoid';
@@ -106,6 +106,7 @@ export const kanbanRoutes = new Elysia({ prefix: '/kanban' })
       branch: t.Optional(t.String()),
       githubIssueNumber: t.Optional(t.Number()),
       githubIssueUrl: t.Optional(t.String()),
+      goal: t.Optional(t.String()),
     }),
   })
 
@@ -143,22 +144,15 @@ export const kanbanRoutes = new Elysia({ prefix: '/kanban' })
       githubIssueNumber: t.Optional(t.Number()),
       githubIssueUrl: t.Optional(t.String()),
       estimatedEffort: t.Optional(t.String()),
+      goal: t.Optional(t.Nullable(t.String())),
+      prUrl: t.Optional(t.Nullable(t.String())),
     }),
   })
 
   // Move task (change status and/or position - for drag and drop)
   .post('/tasks/:id/move', async ({ user, params, body, set }) => {
     try {
-      const task = await kanbanService.moveTask(params.id, user!.id, body.status, body.position);
-
-      // Trigger auto-flow if task completed
-      if (body.status === 'completed') {
-        autoFlowService.onTaskCompleted(params.id, user!.id).catch(err => {
-          console.error('[kanban] Auto-flow trigger error:', err);
-        });
-      }
-
-      return task;
+      return await kanbanService.moveTask(params.id, user!.id, body.status, body.position);
     } catch (error) {
       set.status = 400;
       return { error: (error as Error).message };
@@ -185,9 +179,9 @@ export const kanbanRoutes = new Elysia({ prefix: '/kanban' })
 
   // ─── Dependencies ──────────────────────────────────────────────────────
 
-  .post('/tasks/:id/dependencies', async ({ params, body, set }) => {
+  .post('/tasks/:id/dependencies', async ({ user, params, body, set }) => {
     try {
-      return await kanbanService.addDependency(params.id, body.dependsOnTaskId);
+      return await kanbanService.addDependency(params.id, body.dependsOnTaskId, user!.id);
     } catch (error) {
       set.status = 400;
       return { error: (error as Error).message };
@@ -197,8 +191,13 @@ export const kanbanRoutes = new Elysia({ prefix: '/kanban' })
     body: t.Object({ dependsOnTaskId: t.String() }),
   })
 
-  .delete('/dependencies/:id', async ({ params }) => {
-    return kanbanService.removeDependency(params.id);
+  .delete('/dependencies/:id', async ({ user, params, set }) => {
+    try {
+      return await kanbanService.removeDependency(params.id, user!.id);
+    } catch (error) {
+      set.status = 400;
+      return { error: (error as Error).message };
+    }
   }, {
     params: t.Object({ id: t.String() }),
   })
@@ -256,6 +255,48 @@ export const kanbanRoutes = new Elysia({ prefix: '/kanban' })
     params: t.Object({ id: t.String() }),
   })
 
+  // ─── Task loop ─────────────────────────────────────────────────────────
+
+  // Open review comments go back to the agent; the verify budget starts fresh.
+  .post('/tasks/:id/send-back', async ({ user, params, body, set }) => {
+    try {
+      return await taskLoopService.sendBack(params.id, user!.id, body.note);
+    } catch (error) {
+      set.status = 400;
+      return { error: (error as Error).message };
+    }
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({ note: t.Optional(t.String()) }),
+  })
+
+  // Judge the goal once, now. Records the verdict; sends no feedback. The body
+  // carries the goal the user can see, so an unsaved edit is judged, not the
+  // version before it.
+  .post('/tasks/:id/verify', async ({ user, params, body, set }) => {
+    try {
+      return await taskLoopService.verifyNow(params.id, user!.id, body?.goal);
+    } catch (error) {
+      set.status = 400;
+      return { error: (error as Error).message };
+    }
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Optional(t.Object({ goal: t.Optional(t.String()) })),
+  })
+
+  // Write the goal with a read-only agent.
+  .post('/tasks/:id/draft-goal', async ({ user, params, set }) => {
+    try {
+      return await taskLoopService.draftGoal(params.id, user!.id);
+    } catch (error) {
+      set.status = 400;
+      return { error: (error as Error).message };
+    }
+  }, {
+    params: t.Object({ id: t.String() }),
+  })
+
   // ─── Comments ──────────────────────────────────────────────────────────
 
   .get('/tasks/:id/comments', async ({ params }) => {
@@ -265,12 +306,14 @@ export const kanbanRoutes = new Elysia({ prefix: '/kanban' })
   })
 
   .post('/tasks/:id/comments', async ({ user, params, body }) => {
-    return kanbanService.addComment(params.id, user!.id, body.content, body.parentCommentId);
+    return kanbanService.addComment(params.id, user!.id, body.content, body.parentCommentId, body.kind);
   }, {
     params: t.Object({ id: t.String() }),
     body: t.Object({
       content: t.String(),
       parentCommentId: t.Optional(t.String()),
+      // 'result' marks an agent's note, so "send back" never returns it to the agent.
+      kind: t.Optional(t.Union([t.Literal('user'), t.Literal('result')])),
     }),
   })
 

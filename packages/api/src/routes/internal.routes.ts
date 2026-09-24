@@ -8,6 +8,15 @@ import { artifactService } from '../services/artifact';
 import { getProjectCredentialsById } from '../services/git';
 import type { NotificationClassification, ParsedOption, ClassificationResult } from '../services/notification/classifier';
 import { getTranscriptSummary, describeTool, type TranscriptInfo } from './hooks.helpers';
+import { taskLoopService } from '../services/kanban';
+import type { AgentSignal } from '../services/kanban/task-loop.service';
+
+/** Tells the board what the session's agent is doing. Off the hook's path. */
+function signalTasks(sessionId: string, signal: AgentSignal) {
+  taskLoopService.onSessionSignal(sessionId, signal).catch(err => {
+    console.error('[hooks] task loop signal failed:', err);
+  });
+}
 
 // Helper to get project name for a session
 async function getSessionWithProject(sessionId: string) {
@@ -240,6 +249,7 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
     const needsInput = notificationType === 'user_input_required'
       || notificationType === 'permission_request'
       || notificationType === 'error';
+    if (notificationType === 'task_complete') signalTasks(body.sessionId, 'done');
 
     // Real options → real buttons. A genuine permission with no parsed options → Approve/Deny
     // (a permission IS yes/no). Otherwise DO NOT fabricate choices — just an Open action so
@@ -362,6 +372,7 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
     await db.update(claudeSessions)
       .set({ status: sessionStatus })
       .where(eq(claudeSessions.id, body.sessionId));
+    if (notificationType === 'task_complete') signalTasks(body.sessionId, 'done');
 
     // Dismiss pending notifications if task is actually complete
     if (classification.classifications.includes('task_complete') && !classification.requiresUserAction) {
@@ -443,6 +454,7 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
     await db.update(claudeSessions)
       .set({ status: 'active' })
       .where(eq(claudeSessions.id, body.sessionId));
+    signalTasks(body.sessionId, 'working');
 
     // Live detail for the session card. currentTool is free (in the PreToolUse
     // payload); model/todos/context come from a last-20-line transcript parse.

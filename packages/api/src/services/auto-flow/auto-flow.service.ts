@@ -4,6 +4,7 @@ import { db, kanbanAutoFlows, kanbanFlowSteps, kanbanTasks, kanbanTaskDependenci
 import type { ExecutionStrategy, FlowExecutionContext } from './types';
 import { AutoCLIStrategy } from './strategies/auto-cli.strategy';
 import { ManualStrategy } from './strategies/manual.strategy';
+import { taskLoopService } from '../kanban/task-loop.service';
 
 class AutoFlowService {
   private strategies: ExecutionStrategy[] = [];
@@ -140,6 +141,9 @@ class AutoFlowService {
     for (const dep of dependents) {
       const task = dep.task as any;
       if (!task || !task.autoFlow) continue;
+      // A dependency row carries no owner. Starting an agent in another user's
+      // project because they depend on this task would be a real crossing.
+      if (task.userId !== userId) continue;
 
       // Check if ALL dependencies of this dependent task are completed
       const allDeps = await db.query.kanbanTaskDependencies.findMany({
@@ -198,15 +202,8 @@ class AutoFlowService {
       const result = await strategy.execute(context);
 
       if (result.success) {
-        // Move task to review_needed after successful execution
-        await db.update(kanbanTasks)
-          .set({
-            status: 'review_needed',
-            updatedAt: new Date(),
-          })
-          .where(eq(kanbanTasks.id, taskId));
-
-        console.log(`[auto-flow] Task ${taskId} completed successfully, moved to review_needed`);
+        // The task loop moves it to review, after verify passes when it has a command.
+        await taskLoopService.onAgentDone(taskId, userId);
       } else {
         // Keep in_progress but log the error
         console.error(`[auto-flow] Task ${taskId} execution failed:`, result.error);

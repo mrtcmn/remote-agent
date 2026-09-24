@@ -43,6 +43,13 @@
       "when": 1786804899628,
       "tag": "0005_shiny_wrecker",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790009807209,
+      "tag": "0006_talented_daredevil",
+      "breakpoints": true
     }
   ]
 }

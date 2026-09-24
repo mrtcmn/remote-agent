@@ -134,6 +134,13 @@
       "when": 1786804900033,
       "tag": "0018_fresh_the_liberteens",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790009812799,
+      "tag": "0019_lucky_patriot",
+      "breakpoints": true
     }
   ]
 }

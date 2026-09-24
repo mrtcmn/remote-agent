@@ -8,6 +8,7 @@ import { previewWebsocketRoutes } from './routes/preview-websocket';
 import { notificationWebsocketRoutes } from './routes/notifications-websocket';
 import { notificationService } from './services/notification';
 import { terminalService } from './services/terminal';
+import { taskLoopService } from './services/kanban';
 import { sshService } from './services/ssh/ssh.service';
 import { browserPreviewService } from './services/browser-preview';
 import { codeServerManager } from './services/code-server/code-server.service';
@@ -62,6 +63,7 @@ await sonioxSettings.initialize();
 await machineIdentity.initialize();
 await notificationService.initialize();
 await terminalService.initialize();
+await taskLoopService.initialize();
 await sshService.initialize();
 
 // Seed test user

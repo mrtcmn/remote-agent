@@ -1,5 +1,7 @@
+import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type KanbanStatus, type CreateTaskInput, type UpdateTaskInput, type TaskFiltersInput, type ChecklistItem } from '@/lib/api';
+import { sessionLiveMap, type SessionLive } from '@/lib/task-live';
 
 export function useKanbanBoard(projectId?: string) {
   return useQuery({
@@ -25,9 +27,28 @@ export function useKanbanTask(taskId: string | null) {
     // The agent runs off the request path — poll while it is working.
     refetchInterval: (query) => {
       const status = query.state.data?.planStatus;
-      return status === 'planning' || status === 'executing' ? 3000 : false;
+      const verifying = ['running', 'drafting'].includes(query.state.data?.verifyStatus ?? '');
+      return verifying || status === 'planning' || status === 'executing' ? 3000 : false;
     },
   });
+}
+
+/**
+ * What each linked session's agent is doing now, keyed by session id. Reuses
+ * the sidebar's own queries (same keys), so the board adds no requests.
+ */
+export function useSessionLive(): Map<string, SessionLive> {
+  const { data: sidebar } = useQuery({
+    queryKey: ['sidebar-aggregate'],
+    queryFn: api.getAggregatedSidebar,
+    refetchInterval: 5000,
+  });
+  const { data: notifs } = useQuery({
+    queryKey: ['notifications', 'sidebar'],
+    queryFn: () => api.getAggregatedNotifications({ status: 'pending,sent', limit: 50 }),
+    refetchInterval: 5000,
+  });
+  return useMemo(() => sessionLiveMap(sidebar, notifs?.notifications ?? []), [sidebar, notifs]);
 }
 
 export function useTaskComments(taskId: string | null) {
@@ -97,6 +118,21 @@ export function useKanbanMutations() {
 
   const executeTask = useMutation({
     mutationFn: (id: string) => api.executeKanbanTask(id),
+    onSuccess: invalidateBoard,
+  });
+
+  const sendBack = useMutation({
+    mutationFn: ({ id, note }: { id: string; note?: string }) => api.sendKanbanTaskBack(id, note),
+    onSuccess: invalidateBoard,
+  });
+
+  const verifyTask = useMutation({
+    mutationFn: ({ id, goal }: { id: string; goal?: string }) => api.verifyKanbanTask(id, goal),
+    onSuccess: invalidateBoard,
+  });
+
+  const draftGoal = useMutation({
+    mutationFn: (id: string) => api.draftKanbanTaskGoal(id),
     onSuccess: invalidateBoard,
   });
 
@@ -177,7 +213,7 @@ export function useKanbanMutations() {
 
   return {
     createTask, updateTask, moveTask, deleteTask,
-    planTask, executeTask,
+    planTask, executeTask, sendBack, verifyTask, draftGoal,
     toggleChecklistItem, setChecklist,
     addComment, resolveComment, rejectComment, reopenComment, deleteComment,
     addDependency, removeDependency,

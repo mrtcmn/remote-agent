@@ -315,6 +315,15 @@ export const kanbanTasks = sqliteTable('kanban_tasks', {
   planStatus: text('plan_status').notNull().default('none'), // none | planning | ready | executing | done | failed
   checklist: text('checklist'), // JSON [{ text, done }] — optional, the agent ticks it off
 
+  // Verify loop — the goal, in words, that a referee agent must judge met before
+  // the task leaves In Progress. "bun test passes" or "the bench is 30% faster
+  // than main" are both goals; the referee runs whatever proves it.
+  goal: text('goal'),
+  verifyStatus: text('verify_status').notNull().default('none'), // none | drafting | running | passed | failed | stuck
+  verifyAttempts: integer('verify_attempts').notNull().default(0),
+  verifyOutput: text('verify_output'), // the referee's last verdict
+  prUrl: text('pr_url'),
+
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
