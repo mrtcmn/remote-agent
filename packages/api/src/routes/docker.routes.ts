@@ -6,7 +6,7 @@ import { dockerService } from '../services/docker';
 import { SESSION_LABEL } from '../services/docker/session-containers';
 import { terminalService } from '../services/terminal';
 import { nanoid } from 'nanoid';
-import { db, projects, claudeSessions, projectLinks } from '../db';
+import { db, projects, claudeSessions, projectLinks, sessionContainers } from '../db';
 import { eq, and } from 'drizzle-orm';
 import { resolve } from 'path';
 import { realpath } from 'fs/promises';
@@ -24,7 +24,7 @@ async function resolveSessionFilePath(
       eq(claudeSessions.id, sessionId),
       eq(claudeSessions.userId, userId)
     ),
-    with: { project: true },
+    with: { project: true, worktree: true },
   });
 
   if (!session?.project) {
@@ -32,7 +32,8 @@ async function resolveSessionFilePath(
     return null;
   }
 
-  const projectRoot = resolve(session.project.localPath);
+  // A worktree session runs its own copy of the files, so its stack too.
+  const projectRoot = resolve(session.worktree?.path ?? session.project.localPath);
   const fullPath = resolve(projectRoot, relativePath);
 
   // Traversal check: resolved path must be within project root
@@ -75,6 +76,15 @@ async function resolveSessionFilePath(
     // Path doesn't exist yet but resolved path was within bounds
     return fullPath;
   }
+}
+
+/** True when the session exists and belongs to the user. */
+async function ownsSession(sessionId: string, userId: string): Promise<boolean> {
+  const session = await db.query.claudeSessions.findFirst({
+    where: and(eq(claudeSessions.id, sessionId), eq(claudeSessions.userId, userId)),
+    columns: { id: true },
+  });
+  return !!session;
 }
 
 export const dockerRoutes = new Elysia({ prefix: '/docker' })
@@ -145,19 +155,31 @@ export const dockerRoutes = new Elysia({ prefix: '/docker' })
   })
 
   // View container logs — creates a process terminal
-  .post('/containers/:id/logs', async ({ params, body, set }) => {
+  .post('/containers/:id/logs', async ({ user, params, body, set }) => {
     try {
+      if (!(await ownsSession(body.sessionId, user!.id))) {
+        set.status = 404;
+        return { error: 'Session not found' };
+      }
       const containers = await dockerService.listContainers();
       const container = containers.find(
         (c) => c.id === params.id || c.names === params.id
       );
+      const name = `logs: ${container?.names || params.id}`;
+
+      // A second click opens the same tab instead of stacking new ones.
+      const existing = terminalService
+        .getSessionTerminals(body.sessionId)
+        .find((t) => t.type === 'process' && t.status === 'running' && t.name === name);
+      if (existing) return { success: true, terminalId: existing.id };
+
       const terminalId = nanoid();
       const command = dockerService.getLogsCommand(params.id);
 
       await terminalService.createTerminal({
         terminalId,
         sessionId: body.sessionId,
-        name: `logs: ${container?.names || params.id}`,
+        name,
         type: 'process',
         command,
         cwd: '/tmp',
@@ -203,8 +225,12 @@ export const dockerRoutes = new Elysia({ prefix: '/docker' })
   })
 
   // Run a container from an image
-  .post('/run', async ({ body, set }) => {
+  .post('/run', async ({ user, body, set }) => {
     try {
+      if (body.sessionId && !(await ownsSession(body.sessionId, user!.id))) {
+        set.status = 404;
+        return { error: 'Session not found' };
+      }
       const containerId = await dockerService.runContainer({
         image: body.image,
         name: body.name,
@@ -239,6 +265,16 @@ export const dockerRoutes = new Elysia({ prefix: '/docker' })
         composePath = resolved;
       }
       const output = await dockerService.composeUp(composePath);
+      if (body.sessionId) {
+        // Record the stack by name so ownership does not hang on a path match.
+        const names = (await dockerService.composePs(composePath)).map((c) => c.names).filter(Boolean);
+        if (names.length > 0) {
+          await db
+            .insert(sessionContainers)
+            .values(names.map((containerName) => ({ sessionId: body.sessionId!, containerName })))
+            .onConflictDoNothing();
+        }
+      }
       return { success: true, output };
     } catch (error) {
       set.status = 500;
@@ -278,6 +314,51 @@ export const dockerRoutes = new Elysia({ prefix: '/docker' })
     }
   }, {
     query: t.Object({ composePath: t.String() }),
+  })
+
+  // Containers attached to a session by hand
+  .get('/attachments', async ({ user, query, set }) => {
+    if (!(await ownsSession(query.sessionId, user!.id))) {
+      set.status = 404;
+      return { error: 'Session not found' };
+    }
+    const rows: { containerName: string }[] = await db
+      .select({ containerName: sessionContainers.containerName })
+      .from(sessionContainers)
+      .where(eq(sessionContainers.sessionId, query.sessionId));
+    return { attachments: rows.map((r) => r.containerName) };
+  }, {
+    query: t.Object({ sessionId: t.String() }),
+  })
+
+  .post('/attachments', async ({ user, body, set }) => {
+    if (!(await ownsSession(body.sessionId, user!.id))) {
+      set.status = 404;
+      return { error: 'Session not found' };
+    }
+    await db
+      .insert(sessionContainers)
+      .values({ sessionId: body.sessionId, containerName: body.containerName })
+      .onConflictDoNothing();
+    return { success: true };
+  }, {
+    body: t.Object({ sessionId: t.String(), containerName: t.String() }),
+  })
+
+  .delete('/attachments', async ({ user, body, set }) => {
+    if (!(await ownsSession(body.sessionId, user!.id))) {
+      set.status = 404;
+      return { error: 'Session not found' };
+    }
+    await db
+      .delete(sessionContainers)
+      .where(and(
+        eq(sessionContainers.sessionId, body.sessionId),
+        eq(sessionContainers.containerName, body.containerName),
+      ));
+    return { success: true };
+  }, {
+    body: t.Object({ sessionId: t.String(), containerName: t.String() }),
   })
 
   // Detect Docker files in a project

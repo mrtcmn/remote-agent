@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, pgEnum, integer } from 'drizzle-orm/pg-core';
+import { pgTable, text, boolean, timestamp, pgEnum, integer, primaryKey } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Enums
@@ -444,6 +444,14 @@ export const kanbanFlowSteps = pgTable('kanban_flow_steps', {
 });
 
 // Review comments for code annotations
+// A container a user attached to a session by hand. Keyed by name, because
+// compose gives a container a new ID on every `up` but keeps its name.
+export const sessionContainers = pgTable('session_containers', {
+  sessionId: text('session_id').references(() => claudeSessions.id, { onDelete: 'cascade' }).notNull(),
+  containerName: text('container_name').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({ pk: primaryKey({ columns: [t.sessionId, t.containerName] }) }));
+
 export const reviewComments = pgTable('review_comments', {
   id: text('id').primaryKey(),
   sessionId: text('session_id').references(() => claudeSessions.id, { onDelete: 'cascade' }).notNull(),

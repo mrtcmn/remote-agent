@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
-export function useDocker(projectId?: string) {
+export function useDocker(projectId?: string, sessionId?: string) {
   const queryClient = useQueryClient();
 
   const invalidateContainers = () => {
@@ -19,6 +19,17 @@ export function useDocker(projectId?: string) {
     queryFn: () => api.detectDockerFiles(projectId!),
     enabled: !!projectId,
   });
+
+  const { data: attachmentsData } = useQuery({
+    queryKey: ['docker-attachments', sessionId],
+    queryFn: () => api.getDockerAttachments(sessionId!),
+    enabled: !!sessionId,
+  });
+
+  const invalidateAttachments = () => {
+    queryClient.invalidateQueries({ queryKey: ['docker-attachments', sessionId] });
+    queryClient.invalidateQueries({ queryKey: ['sidebar-aggregate'] });
+  };
 
   const { data: dockerStatus } = useQuery({
     queryKey: ['docker-status'],
@@ -57,29 +68,43 @@ export function useDocker(projectId?: string) {
 
   const runMutation = useMutation({
     mutationFn: (data: { image: string; name?: string; ports?: string[]; env?: Record<string, string> }) =>
-      api.dockerRun(data),
+      api.dockerRun({ ...data, sessionId }),
     onSuccess: invalidateContainers,
   });
 
   const buildMutation = useMutation({
     mutationFn: (data: { dockerfilePath: string; contextDir: string; tag?: string }) =>
-      api.dockerBuild(data.dockerfilePath, data.contextDir, data.tag),
+      api.dockerBuild(data.dockerfilePath, data.contextDir, data.tag, sessionId),
     onSuccess: invalidateContainers,
   });
 
   const composeUpMutation = useMutation({
-    mutationFn: (composePath: string) => api.dockerComposeUp(composePath),
-    onSuccess: invalidateContainers,
+    mutationFn: (composePath: string) => api.dockerComposeUp(composePath, sessionId),
+    onSuccess: () => {
+      invalidateContainers();
+      invalidateAttachments();
+    },
   });
 
   const composeDownMutation = useMutation({
-    mutationFn: (composePath: string) => api.dockerComposeDown(composePath),
+    mutationFn: (composePath: string) => api.dockerComposeDown(composePath, sessionId),
     onSuccess: invalidateContainers,
+  });
+
+  const attachMutation = useMutation({
+    mutationFn: (containerName: string) => api.attachDockerContainer(sessionId!, containerName),
+    onSuccess: invalidateAttachments,
+  });
+
+  const detachMutation = useMutation({
+    mutationFn: (containerName: string) => api.detachDockerContainer(sessionId!, containerName),
+    onSuccess: invalidateAttachments,
   });
 
   return {
     containers: containersData?.containers || [],
     dockerFiles: dockerFiles?.files || [],
+    attachments: attachmentsData?.attachments || [],
     isAvailable: dockerStatus?.available ?? false,
     isLoadingContainers,
     isLoadingFiles,
@@ -90,6 +115,8 @@ export function useDocker(projectId?: string) {
     viewLogs: logsMutation.mutateAsync,
     run: runMutation.mutateAsync,
     build: buildMutation.mutateAsync,
+    attach: attachMutation.mutateAsync,
+    detach: detachMutation.mutateAsync,
     composeUp: composeUpMutation.mutateAsync,
     composeDown: composeDownMutation.mutateAsync,
     isRunning: runMutation.isPending,

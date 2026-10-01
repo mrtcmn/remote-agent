@@ -28,6 +28,7 @@ import { SshHostsSection } from '@/components/ssh/SshHostsSection';
 import { TerminalAIIcon } from '@/components/AIModelIcon';
 import { FormattedText } from '@/components/FormattedText';
 import { cn } from '@/lib/utils';
+import { toast } from '@/components/ui/Toaster';
 import { FEATURE_SECTION_TASKS, FEATURE_SESSION_SSH } from '@/lib/flags';
 import { openCommandBar } from '@/components/CommandBar';
 import { Kbd } from '@/components/ui/kbd';
@@ -501,13 +502,24 @@ function ServiceRow({
   const showReview = kind !== null || followup;
   const [expanded, setExpanded] = useState(true);
   const port = servicePort(service);
+  const queryClient = useQueryClient();
 
   const navigate = () => {
     onSelect();
     if (service.type === 'codeServer' && service.url) {
       window.open(service.url, '_blank');
     } else if (service.type === 'docker') {
-      onNavigate(sessionPath(machineId, sessionId));
+      // Open (or reuse) the live `docker logs -f` tab for this container.
+      api
+        .viewContainerLogs(service.id.replace(/^docker:/, ''), sessionId, machineId)
+        .then(({ terminalId }) => {
+          queryClient.invalidateQueries({ queryKey: ['terminals', sessionId] });
+          onNavigate(sessionPath(machineId, sessionId, terminalId));
+        })
+        .catch((error) => {
+          toast({ title: 'Failed to open logs', description: (error as Error).message, variant: 'destructive' });
+          onNavigate(sessionPath(machineId, sessionId));
+        });
     } else {
       onNavigate(sessionPath(machineId, sessionId, service.id));
     }

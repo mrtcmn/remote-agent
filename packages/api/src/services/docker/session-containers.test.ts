@@ -71,6 +71,42 @@ describe('attributeContainers', () => {
     expect(attributeContainers([container('x', { [SESSION_LABEL]: 'gone' })], sessions).size).toBe(0);
   });
 
+  test('an attachment wins over our label and over a compose dir', () => {
+    const got = attributeContainers(
+      [container('pg', { [SESSION_LABEL]: 'tree', 'com.docker.compose.project.working_dir': '/repo/worktrees/auth' })],
+      sessions,
+      new Map([['pg', 'proj']])
+    );
+    expect(got.get('proj')?.map((c) => c.names)).toEqual(['pg']);
+    expect(got.has('tree')).toBe(false);
+  });
+
+  test('an attachment makes a hand-started container visible', () => {
+    const got = attributeContainers([container('hastam-postgres')], sessions, new Map([['hastam-postgres', 'tree']]));
+    expect(got.get('tree')?.map((c) => c.names)).toEqual(['hastam-postgres']);
+  });
+
+  test('an attachment to a session we do not have falls through to the labels', () => {
+    const got = attributeContainers([composeAt('pg', '/repo/infra')], sessions, new Map([['pg', 'gone']]));
+    expect(got.get('proj')?.map((c) => c.names)).toEqual(['pg']);
+  });
+
+  test('two sessions on the same checkout tie, and nobody owns the stack', () => {
+    const shared = [
+      { sessionId: 'a', path: '/repo' },
+      { sessionId: 'b', path: '/repo' },
+    ];
+    expect(attributeContainers([composeAt('pg', '/repo/infra')], shared).size).toBe(0);
+  });
+
+  test('a tie at a shallower level does not block a deeper match', () => {
+    const got = attributeContainers(
+      [composeAt('pg', '/repo/worktrees/auth')],
+      [...sessions, { sessionId: 'other', path: '/repo' }]
+    );
+    expect(got.get('tree')?.map((c) => c.names)).toEqual(['pg']);
+  });
+
   test('a sibling directory is not "inside" a checkout', () => {
     const got = attributeContainers([composeAt('c', '/repo-other/infra')], sessions);
     expect(got.size).toBe(0);

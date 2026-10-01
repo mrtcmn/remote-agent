@@ -1,5 +1,5 @@
 import { eq, sql, inArray } from 'drizzle-orm';
-import { db, claudeSessions, projects, projectLinks, reviewComments, worktrees } from '../../db';
+import { db, claudeSessions, projects, projectLinks, reviewComments, sessionContainers, worktrees } from '../../db';
 import { terminalService } from '../terminal';
 import { gitService } from '../git';
 import { dockerService } from '../docker';
@@ -103,7 +103,16 @@ export async function buildSidebarData(userId: string, opts: { activeOnly?: bool
     const path = wt?.path ?? project?.localPath;
     if (path) sessionPaths.push({ sessionId: session.id, path });
   }
-  const containersBySession = attributeContainers(dockerContainers, sessionPaths);
+  // Containers a user attached by hand, keyed by container name.
+  const attached = new Map<string, string>();
+  if (sessionIds.length > 0) {
+    const rows: { sessionId: string; containerName: string }[] = await db
+      .select({ sessionId: sessionContainers.sessionId, containerName: sessionContainers.containerName })
+      .from(sessionContainers)
+      .where(inArray(sessionContainers.sessionId, sessionIds));
+    for (const row of rows) attached.set(row.containerName, row.sessionId);
+  }
+  const containersBySession = attributeContainers(dockerContainers, sessionPaths, attached);
 
   // Build session data with live status and git stats
   const sessionDataMap = new Map<string, any>();

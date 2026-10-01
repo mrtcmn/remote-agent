@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core';
 import { sql, relations } from 'drizzle-orm';
 
 // SQLite has no enums — use text columns instead.
@@ -392,6 +392,12 @@ export const kanbanFlowSteps = sqliteTable('kanban_flow_steps', {
 });
 
 // Review comments — status: pending | running | resolved, lineSide: additions | deletions
+export const sessionContainers = sqliteTable('session_containers', {
+  sessionId: text('session_id').references(() => claudeSessions.id, { onDelete: 'cascade' }).notNull(),
+  containerName: text('container_name').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (t) => ({ pk: primaryKey({ columns: [t.sessionId, t.containerName] }) }));
+
 export const reviewComments = sqliteTable('review_comments', {
   id: text('id').primaryKey(),
   sessionId: text('session_id').references(() => claudeSessions.id, { onDelete: 'cascade' }).notNull(),

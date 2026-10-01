@@ -8,6 +8,16 @@ import { spawnAdapterRegistry } from '../spawn-adapter';
 import type { NewRunConfig } from '../../db/schema';
 import { resolveProjectEnv } from '../workspace/env.service';
 
+/** Newest instance start, so a caller can put the runs used last on top. */
+function lastRunAt(instances: Array<{ startedAt: Date | string | null }> | undefined): string | null {
+  let newest = 0;
+  for (const inst of instances || []) {
+    const t = inst.startedAt ? new Date(inst.startedAt).getTime() : 0;
+    if (t > newest) newest = t;
+  }
+  return newest > 0 ? new Date(newest).toISOString() : null;
+}
+
 export class RunConfigService extends EventEmitter {
   private autoRestartTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -76,6 +86,7 @@ export class RunConfigService extends EventEmitter {
         env: config.env ? JSON.parse(config.env) : null,
         isRunning: activeInstances.length > 0,
         activeTerminalId: activeInstances[0]?.terminalId || null,
+        lastRunAt: lastRunAt(config.instances),
       };
     });
   }
@@ -102,6 +113,7 @@ export class RunConfigService extends EventEmitter {
       env: config.env ? JSON.parse(config.env) : null,
       isRunning: activeInstances.length > 0,
       activeTerminalId: activeInstances[0]?.terminalId || null,
+      lastRunAt: lastRunAt(config.instances),
     };
   }
 

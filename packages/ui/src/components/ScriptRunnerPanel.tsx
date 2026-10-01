@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
 import { Play, Square, RotateCw, Loader2, X } from 'lucide-react';
@@ -268,7 +268,7 @@ function ScriptRow({
 // ─── Panel ───────────────────────────────────────────────────────────────────
 
 /**
- * The runs of a project, floating over the terminal area. Each row drives a real
+ * The runs of a project, a column beside the terminal. Each row drives a real
  * `process` terminal — the same spawn path the app uses for anything else it
  * starts — so "open run tab" just selects that terminal.
  */
@@ -286,6 +286,16 @@ export function ScriptRunnerPanel({
   const { runConfigs, isLoading, start, stop, restart } = useRunConfigs(projectId);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
+  // Most recently started first; never-run configs keep their configured order
+  // at the bottom. A running config has the newest start, so it floats up too.
+  const ordered = useMemo(
+    () =>
+      [...runConfigs].sort(
+        (a, b) => Date.parse(b.lastRunAt ?? '') - Date.parse(a.lastRunAt ?? '') || a.position - b.position
+      ),
+    [runConfigs]
+  );
+
   const act = async (id: string, run: () => Promise<unknown>, failed: string) => {
     setPendingId(id);
     try {
@@ -298,13 +308,9 @@ export function ScriptRunnerPanel({
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -6, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -6, scale: 0.98 }}
-      transition={SNAP}
+    <div
       onClick={(e) => e.stopPropagation()}
-      className="absolute top-2 right-4 z-30 w-72 max-h-[70%] flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl shadow-black/30"
+      className="w-72 shrink-0 self-start max-h-full flex flex-col overflow-hidden rounded-lg border border-border bg-card"
     >
       <div className="flex items-center gap-1 h-8 px-2.5 shrink-0 border-b border-border">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
@@ -329,7 +335,7 @@ export function ScriptRunnerPanel({
             No runs yet. Add them from the Run tab.
           </p>
         ) : (
-          runConfigs.map((config) => (
+          ordered.map((config) => (
             <ScriptRow
               key={config.id}
               config={config}
@@ -342,6 +348,6 @@ export function ScriptRunnerPanel({
           ))
         )}
       </div>
-    </motion.div>
+    </div>
   );
 }

@@ -159,3 +159,21 @@ test('initialize echoes the protocol version the client asked for', async () => 
   expect(res.result.capabilities.tools).toBeDefined();
   expect(res.result.serverInfo.name).toBe('remote-agent');
 });
+
+test('handoff_session is listed and posts to the source machine with the resolved target', async () => {
+  const res: any = await handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+  expect(res.result.tools.map((t: any) => t.name)).toContain('handoff_session');
+
+  responses['GET /sessions/sidebar/aggregate'] = {
+    machines: [
+      { machineId: 'self', machineName: 'This machine', online: true, data: { projects: [], unassignedSessions: [] } },
+      { machineId: 'm-42', machineName: 'Studio', online: true, data: { projects: [], unassignedSessions: [] } },
+    ],
+  };
+  responses['POST /sessions/s1/handoff'] = { sessionId: 's2', machineId: 'm-42' };
+  const out = payload(await callTool('handoff_session', { sessionId: 's1', to: 'studio', note: 'go' }));
+
+  const post = calls.find((c) => c.method === 'POST')!;
+  expect(post).toMatchObject({ path: '/sessions/s1/handoff', body: { to: 'm-42', note: 'go' }, machine: null });
+  expect(out.url).toBe('http://ra.test/sessions/m-42/s2');
+});

@@ -50,6 +50,13 @@
       "when": 1790009807209,
       "tag": "0006_talented_daredevil",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1790238482935,
+      "tag": "0007_bright_skreet",
+      "breakpoints": true
     }
   ]
 }

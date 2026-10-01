@@ -107,6 +107,10 @@ export class GitService {
     };
   }
 
+  authEnv(creds: { sshKeyPath?: string; token?: string } = {}): Record<string, string> {
+    return creds.token ? this.getTokenEnv(creds.token) : this.getEnv(creds.sshKeyPath);
+  }
+
   private getEnv(sshKeyPath?: string): Record<string, string> {
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,

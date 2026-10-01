@@ -12,12 +12,13 @@ import {
   ArrowUpFromLine,
   ArrowDownToLine,
   Hammer,
+  Link,
+  Unlink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useDocker } from '@/hooks/useDocker';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/Toaster';
-import { api } from '@/lib/api';
 import type { DockerContainer, DockerFile } from '@/lib/api';
 
 interface DockerPanelProps {
@@ -38,10 +39,14 @@ export function DockerPanel({ sessionId, projectId, onTerminalCreated }: DockerP
     remove,
     viewLogs,
     run,
+    build,
+    attach,
+    detach,
+    attachments,
     composeUp,
     composeDown,
     isRunning,
-  } = useDocker(projectId);
+  } = useDocker(projectId, sessionId);
 
   const [actionPending, setActionPending] = useState<string | null>(null);
   const [showRunForm, setShowRunForm] = useState(false);
@@ -196,6 +201,12 @@ export function DockerPanel({ sessionId, projectId, onTerminalCreated }: DockerP
                     onRestart={() => handleAction(container.id, () => restart(container.id), `Restarted ${container.names}`)}
                     onRemove={() => handleAction(container.id, () => remove({ id: container.id, force: true }), `Removed ${container.names}`)}
                     onViewLogs={() => handleViewLogs(container)}
+                    isAttached={attachments.includes(container.names)}
+                    onToggleAttach={() =>
+                      attachments.includes(container.names)
+                        ? handleAction(container.id, () => detach(container.names), `Detached ${container.names}`)
+                        : handleAction(container.id, () => attach(container.names), `Attached ${container.names}`)
+                    }
                   />
                 ))}
               </div>
@@ -225,7 +236,7 @@ export function DockerPanel({ sessionId, projectId, onTerminalCreated }: DockerP
                       variant="ghost"
                       size="sm"
                       className="h-7 px-2 text-xs gap-1"
-                      onClick={() => handleAction(file.path, () => api.dockerBuild(file.path, '.'), `Build: ${file.name}`)}
+                      onClick={() => handleAction(file.path, () => build({ dockerfilePath: file.path, contextDir: '.' }), `Build: ${file.name}`)}
                       disabled={actionPending === file.path}
                     >
                       <Hammer className="h-3 w-3" />
@@ -280,9 +291,11 @@ interface ContainerItemProps {
   onRestart: () => void;
   onRemove: () => void;
   onViewLogs: () => void;
+  isAttached: boolean;
+  onToggleAttach: () => void;
 }
 
-function ContainerItem({ container, isPending, onStart, onStop, onRestart, onRemove, onViewLogs }: ContainerItemProps) {
+function ContainerItem({ container, isPending, onStart, onStop, onRestart, onRemove, onViewLogs, isAttached, onToggleAttach }: ContainerItemProps) {
   const isRunning = container.state === 'running';
   const isPaused = container.state === 'paused';
 
@@ -300,6 +313,9 @@ function ContainerItem({ container, isPending, onStart, onStop, onRestart, onRem
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium truncate">{container.names}</span>
+          {isAttached && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0">attached</span>
+          )}
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono truncate max-w-32">
             {container.image}
           </span>
@@ -314,6 +330,17 @@ function ContainerItem({ container, isPending, onStart, onStop, onRestart, onRem
 
       {/* Actions */}
       <div className="flex items-center gap-0.5 shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          onClick={onToggleAttach}
+          disabled={isPending}
+          title={isAttached ? 'Detach from this session' : 'Attach to this session'}
+          aria-label={isAttached ? 'Detach from this session' : 'Attach to this session'}
+        >
+          {isAttached ? <Unlink className="h-3.5 w-3.5" /> : <Link className="h-3.5 w-3.5" />}
+        </Button>
         <Button
           variant="ghost"
           size="icon"

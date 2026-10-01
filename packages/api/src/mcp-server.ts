@@ -190,6 +190,9 @@ const FIELDS: Record<string, [string, string]> = {
   items: ['array', 'Checklist items: [{"text":"Add the column"}, ...]. Replaces the whole list.'],
   index: ['number', 'Zero-based checklist item position, as shown by get_task.'],
   done: ['boolean', 'true to tick the item, false to untick it.'],
+  to: ['string', 'Target machine id or name from list_machines; "self" for this machine.'],
+  note: ['string', 'Note for the agent that picks up the work.'],
+  closeSource: ['boolean', 'Kill the terminals of the source session after the handoff.'],
 };
 
 interface Tool {
@@ -299,6 +302,18 @@ const TOOLS: Tool[] = [
     description: 'Close a session: kills its terminals and deletes it.',
     fields: ['sessionId!', 'machine'],
     run: (a) => call('DELETE', `/sessions/${a.sessionId}`, undefined, a.machine),
+  },
+  {
+    name: 'handoff_session',
+    description: 'Move a session to another machine: push its branch and uncommitted work through git origin, then start a new agent there on a fresh worktree.',
+    fields: ['sessionId!', 'to!', 'machine', 'note', 'closeSource'],
+    run: async (a) => {
+      // The source machine resolves `to` itself; this machine's own id is "caller" when the source is remote.
+      const to = (await resolveMachineId(a.to)) ?? ((await resolveMachineId(a.machine)) ? 'caller' : 'self');
+      const out = await call('POST', `/sessions/${a.sessionId}/handoff`, { to, note: a.note, closeSource: a.closeSource }, a.machine);
+      const machineId = (await resolveMachineId(a.to)) ?? 'self';
+      return { ...out, url: `${await base()}/sessions/${machineId}/${out.sessionId}` };
+    },
   },
 
   // ── Environment ────────────────────────────────────────────────────────────

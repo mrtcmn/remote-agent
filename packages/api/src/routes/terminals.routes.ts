@@ -13,6 +13,7 @@ import { workspaceService } from '../services/workspace';
 import { resolveProjectEnv } from '../services/workspace/env.service';
 import { getProjectCredentials } from '../services/git';
 import { requireAuth } from '../auth/middleware';
+import type { Project, Worktree } from '../db/schema';
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN_PATH || 'claude';
 const OPENCODE_BIN = process.env.OPENCODE_BIN_PATH || 'opencode';
@@ -43,6 +44,120 @@ function getDefaultShell(): string {
 const SHARED_DEFAULT_ENV: Record<string, string> = {
   NODE_ENV: 'development',
 };
+
+export type StartTerminalBody = {
+  sessionId: string;
+  name?: string;
+  type?: 'shell' | 'claude' | 'opencode' | 'kimi' | 'process';
+  command?: string[];
+  cols?: number;
+  rows?: number;
+  persist?: boolean;
+  initialPrompt?: string;
+  cwd?: string;
+};
+
+/** Spawn a terminal in a session. Shared by POST /terminals and the handoff receive route. */
+export async function startTerminal(
+  userId: string,
+  session: typeof claudeSessions.$inferSelect & { project: Project | null; worktree: Worktree | null },
+  body: StartTerminalBody,
+) {
+  const terminalId = nanoid();
+  const userWorkspace = join(getWorkspacesRoot(), userId);
+  // Resolve CWD: explicit > worktree > project > workspace
+  let cwd = body.cwd;
+  if (!cwd && session.worktreeId && session.worktree) {
+    cwd = session.worktree.path;
+  } else if (!cwd && session.project) {
+    cwd = session.project.localPath;
+  }
+  if (!cwd) cwd = userWorkspace;
+  const type = body.type || 'shell';
+
+  // Resolve project-level env vars
+  const projectEnv = session.project
+    ? await resolveProjectEnv(session.project.id)
+    : {};
+
+  // Build command based on type
+  let command: string[];
+  let name: string;
+  let env: Record<string, string> = {
+    ...SHARED_DEFAULT_ENV,
+    HOME: getAgentHome(),
+    ...projectEnv,
+  };
+
+  // Set GH_TOKEN for GitHub App projects so `gh` CLI and shell git commands work
+  if (session.project?.githubAppInstallationId) {
+    try {
+      const creds = await getProjectCredentials(session.project, userId);
+      if (creds.token) {
+        env.GH_TOKEN = creds.token;
+        env.GITHUB_TOKEN = creds.token;
+      }
+    } catch {
+      // Non-fatal: credential helper will handle git auth as fallback
+    }
+  }
+
+  if (type === 'claude') {
+    // cwd is inherited from the outer scope (body.cwd || project.localPath || userWorkspace)
+    command = [CLAUDE_BIN, '--dangerously-skip-permissions'];
+    // Append initial prompt if provided (starts REPL with query)
+    if (body.initialPrompt) {
+      command.push(body.initialPrompt);
+    }
+    name = body.name || 'Claude';
+
+    // Ensure user workspace, .claude directory, templates, and hooks exist
+    await workspaceService.createUserWorkspace(userId);
+    await workspaceService.deployGlobalTemplates(userId);
+    await workspaceService.storeHooks(userId, body.sessionId, terminalId);
+
+    // Set session and terminal IDs for hook callbacks
+    env.REMOTE_AGENT_SESSION_ID = body.sessionId;
+    env.REMOTE_AGENT_TERMINAL_ID = terminalId;
+  } else if (type === 'opencode') {
+    command = [OPENCODE_BIN];
+    name = body.name || 'Opencode';
+    await workspaceService.createUserWorkspace(userId);
+  } else if (type === 'kimi') {
+    command = [KIMI_BIN];
+    name = body.name || 'Kimi';
+    await workspaceService.createUserWorkspace(userId);
+  } else {
+    command = body.command || [getDefaultShell(), '-l'];
+    name = body.name || 'Terminal';
+    await workspaceService.createUserWorkspace(userId);
+  }
+
+  const terminal = await terminalService.createTerminal({
+    terminalId,
+    sessionId: body.sessionId,
+    name,
+    type,
+    command,
+    cols: body.cols,
+    rows: body.rows,
+    persist: body.persist,
+    cwd,
+    env,
+  });
+
+  return {
+    id: terminal.id,
+    sessionId: terminal.sessionId,
+    name: terminal.name,
+    type: terminal.type,
+    command: terminal.command,
+    cols: terminal.cols,
+    rows: terminal.rows,
+    persist: terminal.persist,
+    status: terminal.status,
+  };
+}
 
 export const terminalRoutes = new Elysia({ prefix: '/terminals' })
   .use(requireAuth)
@@ -100,101 +215,8 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
       return { error: 'Session not found' };
     }
 
-    const terminalId = nanoid();
-    const userWorkspace = join(getWorkspacesRoot(), user!.id);
-    // Resolve CWD: explicit > worktree > project > workspace
-    let cwd = body.cwd;
-    if (!cwd && session.worktreeId && session.worktree) {
-      cwd = session.worktree.path;
-    } else if (!cwd && session.project) {
-      cwd = session.project.localPath;
-    }
-    if (!cwd) cwd = userWorkspace;
-    const type = body.type || 'shell';
-
-    // Resolve project-level env vars
-    const projectEnv = session.project
-      ? await resolveProjectEnv(session.project.id)
-      : {};
-
-    // Build command based on type
-    let command: string[];
-    let name: string;
-    let env: Record<string, string> = {
-      ...SHARED_DEFAULT_ENV,
-      HOME: getAgentHome(),
-      ...projectEnv,
-    };
-
-    // Set GH_TOKEN for GitHub App projects so `gh` CLI and shell git commands work
-    if (session.project?.githubAppInstallationId) {
-      try {
-        const creds = await getProjectCredentials(session.project, user!.id);
-        if (creds.token) {
-          env.GH_TOKEN = creds.token;
-          env.GITHUB_TOKEN = creds.token;
-        }
-      } catch {
-        // Non-fatal: credential helper will handle git auth as fallback
-      }
-    }
-
-    if (type === 'claude') {
-      // cwd is inherited from the outer scope (body.cwd || project.localPath || userWorkspace)
-      command = [CLAUDE_BIN, '--dangerously-skip-permissions'];
-      // Append initial prompt if provided (starts REPL with query)
-      if (body.initialPrompt) {
-        command.push(body.initialPrompt);
-      }
-      name = body.name || 'Claude';
-
-      // Ensure user workspace, .claude directory, templates, and hooks exist
-      await workspaceService.createUserWorkspace(user!.id);
-      await workspaceService.deployGlobalTemplates(user!.id);
-      await workspaceService.storeHooks(user!.id, body.sessionId, terminalId);
-
-      // Set session and terminal IDs for hook callbacks
-      env.REMOTE_AGENT_SESSION_ID = body.sessionId;
-      env.REMOTE_AGENT_TERMINAL_ID = terminalId;
-    } else if (type === 'opencode') {
-      command = [OPENCODE_BIN];
-      name = body.name || 'Opencode';
-      await workspaceService.createUserWorkspace(user!.id);
-    } else if (type === 'kimi') {
-      command = [KIMI_BIN];
-      name = body.name || 'Kimi';
-      await workspaceService.createUserWorkspace(user!.id);
-    } else {
-      command = body.command || [getDefaultShell(), '-l'];
-      name = body.name || 'Terminal';
-      await workspaceService.createUserWorkspace(user!.id);
-    }
-
     try {
-      const terminal = await terminalService.createTerminal({
-        terminalId,
-        sessionId: body.sessionId,
-        name,
-        type,
-        command,
-        cols: body.cols,
-        rows: body.rows,
-        persist: body.persist,
-        cwd,
-        env,
-      });
-
-      return {
-        id: terminal.id,
-        sessionId: terminal.sessionId,
-        name: terminal.name,
-        type: terminal.type,
-        command: terminal.command,
-        cols: terminal.cols,
-        rows: terminal.rows,
-        persist: terminal.persist,
-        status: terminal.status,
-      };
+      return await startTerminal(user!.id, session, body);
     } catch (error) {
       set.status = 500;
       return { error: (error as Error).message };

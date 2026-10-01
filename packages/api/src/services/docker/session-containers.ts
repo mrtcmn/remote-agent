@@ -4,8 +4,9 @@ import type { DockerContainer } from './docker.service';
 /**
  * Attributing a container to a session.
  *
- * Nothing about a container is stored on our side — Docker already keeps the
- * record, we just have to read it. Two labels answer "who started this?":
+ * One signal is stored on our side: the `session_containers` table, where a
+ * user attached a container to a session by name. It wins outright. After
+ * that, two Docker labels answer "who started this?":
  *
  *  - `com.remote-agent.session` — stamped by our own `docker run`, exact.
  *  - `com.docker.compose.project.working_dir` — stamped by compose on every
@@ -13,7 +14,9 @@ import type { DockerContainer } from './docker.service';
  *    session whose checkout contains it.
  *
  * A container started by hand outside the app carries neither and belongs to
- * no session, which is the honest answer.
+ * no session until someone attaches it. So does a compose stack whose
+ * directory two sessions share equally — guessing would pick whichever was
+ * active last.
  */
 
 export const SESSION_LABEL = 'com.remote-agent.session';
@@ -43,13 +46,14 @@ function isInside(parent: string, child: string): boolean {
 }
 
 /**
- * Map each container to the session that owns it. Our own label wins outright;
- * otherwise the deepest containing checkout does, so a worktree beats the
- * project it lives under.
+ * Map each container to the session that owns it. An attachment (container
+ * name → session id) wins, then our own label; otherwise the deepest
+ * containing checkout does, so a worktree beats the project it lives under.
  */
 export function attributeContainers(
   containers: DockerContainer[],
-  sessions: SessionPath[]
+  sessions: SessionPath[],
+  attached: Map<string, string> = new Map()
 ): Map<string, DockerContainer[]> {
   const out = new Map<string, DockerContainer[]>();
   const add = (sessionId: string, container: DockerContainer) => {
@@ -59,6 +63,12 @@ export function attributeContainers(
   };
 
   for (const container of containers) {
+    const pinned = attached.get(container.names);
+    if (pinned && sessions.some((s) => s.sessionId === pinned)) {
+      add(pinned, container);
+      continue;
+    }
+
     const stamped = container.labels[SESSION_LABEL];
     if (stamped) {
       if (sessions.some((s) => s.sessionId === stamped)) add(stamped, container);
@@ -69,11 +79,19 @@ export function attributeContainers(
     if (!dir) continue;
 
     let best: SessionPath | null = null;
+    let tied = false;
     for (const session of sessions) {
       if (!session.path || !isInside(session.path, dir)) continue;
-      if (!best || session.path.length > best.path.length) best = session;
+      const len = resolve(session.path).length;
+      const bestLen = best ? resolve(best.path).length : -1;
+      if (len > bestLen) {
+        best = session;
+        tied = false;
+      } else if (len === bestLen && session.sessionId !== best!.sessionId) {
+        tied = true;
+      }
     }
-    if (best) add(best.sessionId, container);
+    if (best && !tied) add(best.sessionId, container);
   }
 
   return out;

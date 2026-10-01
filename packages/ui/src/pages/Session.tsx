@@ -1,6 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { AnimatePresence } from 'motion/react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sessionPath } from '@/lib/session-route';
@@ -30,6 +29,8 @@ import {
   Cpu,
   MemoryStick,
   HardDrive,
+  Send,
+  Download,
 } from 'lucide-react';
 import { api, type TerminalType, type TerminalInfo } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -316,7 +317,7 @@ function loadColor(pct: number): string | undefined {
 export function SessionPage() {
   const { id, machineId, terminalId: terminalIdFromRoute } = useParams<{ id: string; machineId?: string; terminalId?: string }>();
   const ownerMachine = machineId ?? 'self';
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -338,6 +339,7 @@ export function SessionPage() {
   const terminalIdFromUrl = terminalIdFromRoute || searchParams.get('terminalId');
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(terminalIdFromUrl);
   const [viewMode, setViewMode] = useState<ViewMode>('terminal');
+  const [gitOpenFile, setGitOpenFile] = useState<{ path: string } | null>(null);
   const [runnerOpen, setRunnerOpen] = useState(false);
 
   // Sync activeTerminalId when URL changes (e.g. clicking a service in the sidebar)
@@ -459,6 +461,24 @@ export function SessionPage() {
       setViewMode('terminal');
       navigate(sessionPath(ownerMachine, id!, terminal.id), { replace: true });
     },
+  });
+
+  // Hand off: the owner machine pushes branch + uncommitted work, the target restores it and starts an agent.
+  // The UI's own machine is 'self' here but must be 'caller' to a remote owner.
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const handoffMutation = useMutation({
+    mutationFn: (opts: { machineId: string; note?: string }) =>
+      api.handoffSession(id!, {
+        to: opts.machineId === 'self' && ownerMachine !== 'self' ? 'caller' : opts.machineId,
+        note: opts.note,
+      }, ownerMachine),
+    onSuccess: (res, opts) => {
+      queryClient.invalidateQueries({ queryKey: ['sidebar-aggregate'] });
+      setHandoffOpen(false);
+      toast({ title: 'Handed off', description: `Branch ${res.branch} continues on the new session.` });
+      navigate(sessionPath(opts.machineId, res.sessionId));
+    },
+    onError: (err) => toast({ title: 'Handoff failed', description: (err as Error).message, variant: 'destructive' }),
   });
 
   const closeMutation = useMutation({
@@ -686,6 +706,14 @@ export function SessionPage() {
 
   return (
     <div className="flex flex-col h-full gap-2">
+      {handoffOpen && (
+        <HandoffDialog
+          ownerMachine={ownerMachine}
+          pending={handoffMutation.isPending}
+          onSubmit={(opts) => handoffMutation.mutate(opts)}
+          onCancel={() => setHandoffOpen(false)}
+        />
+      )}
       {/* ── Tools Menu Toolbar — portaled into the app-wide top bar ── */}
       {toolbarSlot && createPortal(
       <div className="relative flex-1 min-w-0 flex items-stretch overflow-hidden">
@@ -741,6 +769,22 @@ export function SessionPage() {
                       onClick={() => createMutation.mutate({ type: 'kimi' })}
                       disabled={createMutation.isPending}
                     />
+                    {session?.project?.repoUrl && (
+                      <ToolBtn
+                        icon={Send}
+                        label="Hand off"
+                        onClick={() => setHandoffOpen(true)}
+                        disabled={handoffMutation.isPending}
+                      />
+                    )}
+                    {session?.project?.repoUrl && ownerMachine !== 'self' && (
+                      <ToolBtn
+                        icon={Download}
+                        label="Continue here"
+                        onClick={() => handoffMutation.mutate({ machineId: 'self' })}
+                        disabled={handoffMutation.isPending}
+                      />
+                    )}
                   </div>
 
                   {/* Shell */}
@@ -1002,21 +1046,9 @@ export function SessionPage() {
       </div>
 
       {/* ── Content Area — xterm stays unboxed on the base bg; panels get a box ── */}
-      <div className={cn('relative flex-1 min-h-0', viewMode !== 'terminal' && 'rounded-lg border border-border bg-card overflow-hidden')}>
-        <AnimatePresence>
-          {runnerOpen && activeProject && (
-            <ScriptRunnerPanel
-              projectId={activeProject.id}
-              sessionId={id!}
-              onOpenTerminal={(terminalId) => {
-                queryClient.invalidateQueries({ queryKey: ['terminals', id] });
-                selectTerminal(terminalId);
-                setViewMode('terminal');
-              }}
-              onClose={() => setRunnerOpen(false)}
-            />
-          )}
-        </AnimatePresence>
+      {/* Runs sits in the flow beside the content, so opening it shrinks the terminal. */}
+      <div className="flex-1 min-h-0 flex gap-2">
+      <div className={cn('flex-1 min-w-0', viewMode !== 'terminal' && 'rounded-lg border border-border bg-card overflow-hidden')}>
         {viewMode === 'terminal' ? (
           activeTerminal ? (
             <div className="h-full min-h-0 px-2">
@@ -1037,6 +1069,7 @@ export function SessionPage() {
             sessionId={id!}
             project={activeProject ?? undefined}
             projectId={gitProjectId}
+            openFile={gitOpenFile}
             currentTargetLabel={reviewTargetTerminal?.name}
             onProceed={(message, target) => {
               if (target === 'current' && reviewTargetTerminal) {
@@ -1107,6 +1140,20 @@ export function SessionPage() {
         )}
       </div>
 
+      {runnerOpen && activeProject && (
+        <ScriptRunnerPanel
+          projectId={activeProject.id}
+          sessionId={id!}
+          onOpenTerminal={(terminalId) => {
+            queryClient.invalidateQueries({ queryKey: ['terminals', id] });
+            selectTerminal(terminalId);
+            setViewMode('terminal');
+          }}
+          onClose={() => setRunnerOpen(false)}
+        />
+      )}
+      </div>
+
       {/* ── Bottom box: recent files + status bar, attached rows sharing one radius ── */}
       <div className="shrink-0 rounded-lg border border-border bg-card">
       {viewMode === 'terminal' && activeTerminal && (
@@ -1117,8 +1164,8 @@ export function SessionPage() {
             sessionId={id!}
             projectId={gitProjectId}
             onOpenFile={(path) => {
-              setSearchParams((prev) => { prev.set('file', path); return prev; }, { replace: true });
-              setViewMode('files');
+              setGitOpenFile({ path });
+              setViewMode('git');
             }}
           />
         )
@@ -1139,7 +1186,7 @@ export function SessionPage() {
           {session?.project && (
             <>
               <button
-                onClick={() => setViewMode(viewMode === 'git' ? 'terminal' : 'git')}
+                onClick={() => { setGitOpenFile(null); setViewMode(viewMode === 'git' ? 'terminal' : 'git'); }}
                 disabled={!!session?.project?.isMultiProject && !activeProject}
                 className={cn(
                   'flex items-center gap-1.5 px-2 h-full text-[10.5px] font-medium leading-none tracking-tight',
@@ -1309,6 +1356,68 @@ function EmptyState({ isLoading, onCreateClaude }: { isLoading: boolean; onCreat
         <AIModelIcon model="claude" size={16} />
         Start Claude
       </Button>
+    </div>
+  );
+}
+
+function HandoffDialog({
+  ownerMachine,
+  pending,
+  onSubmit,
+  onCancel,
+}: {
+  ownerMachine: string;
+  pending: boolean;
+  onSubmit: (opts: { machineId: string; note?: string }) => void;
+  onCancel: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const machines = (queryClient.getQueryData<AggregatedSidebar>(['sidebar-aggregate'])?.machines ?? [])
+    .filter((m) => m.online && m.machineId !== ownerMachine);
+  const [machineId, setMachineId] = useState(machines[0]?.machineId ?? '');
+  const [note, setNote] = useState('');
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onCancel} />
+      <form
+        className="relative w-full max-w-sm rounded-xl border bg-background p-4 shadow-xl animate-in zoom-in-95 space-y-3"
+        onSubmit={(e) => { e.preventDefault(); if (machineId) onSubmit({ machineId, note: note.trim() || undefined }); }}
+      >
+        <h3 className="text-sm font-semibold">Hand off session</h3>
+        <p className="text-xs text-muted-foreground">
+          Pushes the branch and all uncommitted work through origin, then starts a new agent on the target.
+          Git-ignored files such as .env do not move.
+        </p>
+        {machines.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No other machine is online.</p>
+        ) : (
+          <select
+            className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+            value={machineId}
+            onChange={(e) => setMachineId(e.target.value)}
+          >
+            {machines.map((m) => <option key={m.machineId} value={m.machineId}>{m.machineName}</option>)}
+          </select>
+        )}
+        <textarea
+          className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+          rows={3}
+          placeholder="Note for the next agent (optional)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+        <div className="flex justify-end gap-2">
+          <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button type="submit" size="sm" disabled={!machineId || pending}>{pending ? 'Handing off…' : 'Hand off'}</Button>
+        </div>
+      </form>
     </div>
   );
 }

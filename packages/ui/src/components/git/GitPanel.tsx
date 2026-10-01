@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import type { Project, PresentationRequest } from '@/lib/api';
 import { GitToolbar } from './GitToolbar';
@@ -19,6 +19,8 @@ interface GitPanelProps {
   /** Name of the live agent terminal, used to label the "open session" send target. */
   currentTargetLabel?: string;
   onProceed?: (message: string, target: ReviewTarget) => void;
+  /** File to show on the Changes tab. A new object re-opens the same path. */
+  openFile?: { path: string } | null;
 }
 
 export function GitPanel({
@@ -28,8 +30,13 @@ export function GitPanel({
   className,
   currentTargetLabel,
   onProceed,
+  openFile,
 }: GitPanelProps) {
   const [activeTab, setActiveTab] = useState<GitTab>('changes');
+
+  useEffect(() => {
+    if (openFile) setActiveTab('changes');
+  }, [openFile]);
   const [presentationRequest, setPresentationRequest] = useState<PresentationRequest | null>(null);
 
   const tabs: { id: GitTab; label: string }[] = [
@@ -72,6 +79,7 @@ export function GitPanel({
               projectId={projectId}
               currentTargetLabel={currentTargetLabel}
               onProceed={onProceed}
+              openFile={openFile}
             />
           )}
           {activeTab === 'log' && <GitLogTab sessionId={sessionId} projectId={projectId} />}

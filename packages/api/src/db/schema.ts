@@ -43,6 +43,7 @@ export const kanbanTaskAttachments = _s.kanbanTaskAttachments;
 export const kanbanAutoFlows = _s.kanbanAutoFlows;
 export const kanbanFlowSteps = _s.kanbanFlowSteps;
 export const reviewComments = _s.reviewComments;
+export const sessionContainers = _s.sessionContainers;
 export const runConfigs = _s.runConfigs;
 export const runConfigInstances = _s.runConfigInstances;
 export const runFlows = _s.runFlows;

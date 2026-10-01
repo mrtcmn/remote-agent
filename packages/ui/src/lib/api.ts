@@ -64,6 +64,9 @@ export const api = {
   getSession: (id: string, machineId?: string) => request<Session>(`/sessions/${id}`, { machineId }),
   createSession: (projectId?: string, worktreeId?: string, machineId?: string) =>
     request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ projectId, worktreeId }), machineId }),
+  // Sent to the machine that owns the session. `to` is a machine id, 'self', or 'caller' (the machine serving this UI).
+  handoffSession: (sessionId: string, data: { to: string; note?: string; closeSource?: boolean }, machineId?: string) =>
+    request<{ sessionId: string; machineId: string; branch: string }>(`/sessions/${sessionId}/handoff`, { method: 'POST', body: JSON.stringify(data), machineId }),
   terminateSession: (id: string) => request(`/sessions/${id}`, { method: 'DELETE' }),
   getSessionGitStatus: (sessionId: string, projectId?: string, recent?: boolean) => {
     const params = new URLSearchParams();
@@ -601,17 +604,30 @@ export const api = {
     request<{ success: boolean }>(`/docker/containers/${id}/restart`, { method: 'POST' }),
   removeDockerContainer: (id: string, force = false) =>
     request<{ success: boolean }>(`/docker/containers/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' }),
-  viewContainerLogs: (containerId: string, sessionId: string) =>
+  viewContainerLogs: (containerId: string, sessionId: string, machineId?: string) =>
     request<{ success: boolean; terminalId: string }>(`/docker/containers/${containerId}/logs`, {
       method: 'POST',
       body: JSON.stringify({ sessionId }),
+      machineId,
+    }),
+  getDockerAttachments: (sessionId: string) =>
+    request<{ attachments: string[] }>(`/docker/attachments?sessionId=${encodeURIComponent(sessionId)}`),
+  attachDockerContainer: (sessionId: string, containerName: string) =>
+    request<{ success: boolean }>('/docker/attachments', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId, containerName }),
+    }),
+  detachDockerContainer: (sessionId: string, containerName: string) =>
+    request<{ success: boolean }>('/docker/attachments', {
+      method: 'DELETE',
+      body: JSON.stringify({ sessionId, containerName }),
     }),
   dockerBuild: (dockerfilePath: string, contextDir: string, tag?: string, sessionId?: string) =>
     request<{ success: boolean; output: string }>('/docker/build', {
       method: 'POST',
       body: JSON.stringify({ dockerfilePath, contextDir, tag, sessionId }),
     }),
-  dockerRun: (data: { image: string; name?: string; ports?: string[]; env?: Record<string, string> }) =>
+  dockerRun: (data: { image: string; name?: string; ports?: string[]; env?: Record<string, string>; sessionId?: string }) =>
     request<{ success: boolean; containerId: string }>('/docker/run', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -1343,6 +1359,8 @@ export interface RunConfig {
   position: number;
   isRunning: boolean;
   activeTerminalId: string | null;
+  /** Newest instance start; null until the run has been started once. */
+  lastRunAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -11,6 +11,11 @@ import { codeServerManager } from '../services/code-server/code-server.service';
 import { buildSidebarData } from '../services/sidebar/build-sidebar';
 import { fanOutToMachines } from '../services/aggregation/fan-out';
 import { assembleSidebar } from '../services/aggregation/merge';
+import { worktreeService } from '../services/git/worktree.service';
+import { snapshotAndPush, fetchAndRestore, deleteSnapshot, normalizeRepoUrl, snapshotRef, HandoffConflictError } from '../services/git/handoff';
+import { resolveMachine, machineFetch } from '../services/machines/resolve';
+import { startTerminal } from './terminals.routes';
+import { hostname } from 'node:os';
 
 /** Resolve target path for git operations, supporting worktrees and multi-project. */
 async function resolveTargetPath(
@@ -41,6 +46,62 @@ async function resolveTargetPath(
   return link && (link as any).childProject
     ? (link as any).childProject.localPath
     : null;
+}
+
+
+type HandoffPayload = {
+  repoUrl: string;
+  branch: string;
+  headSha: string;
+  fromSessionId: string;
+  fromMachineName: string;
+  note?: string;
+  lastMessage?: string | null;
+};
+
+class HandoffError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
+
+/** Target side of a handoff: land the branch + snapshot in a new worktree and start an agent on it. */
+async function receiveHandoff(userId: string, p: HandoffPayload) {
+  const key = normalizeRepoUrl(p.repoUrl);
+  const candidates = await db.query.projects.findMany({ where: eq(projects.userId, userId) });
+  const project = candidates.find((c: typeof projects.$inferSelect) => c.repoUrl && !c.isMultiProject && normalizeRepoUrl(c.repoUrl) === key);
+  if (!project) throw new HandoffError(404, `No project on this machine has origin ${p.repoUrl}. Clone it here first.`);
+
+  const creds = await getProjectCredentials(project, userId);
+  await gitService.fetch(project.localPath, creds.sshKeyPath, creds.token);
+  let worktree;
+  try {
+    worktree = await worktreeService.create({ projectId: project.id, userId, branch: p.branch, name: p.branch });
+  } catch (err) {
+    throw new HandoffError(409, (err as Error).message);
+  }
+  try {
+    await fetchAndRestore(worktree.path, p.branch, p.fromSessionId, p.headSha, creds);
+  } catch (err) {
+    await worktreeService.remove(worktree.id, userId).catch(() => {});
+    throw new HandoffError(err instanceof HandoffConflictError ? 409 : 500, (err as Error).message);
+  }
+
+  const sessionId = nanoid();
+  await db.insert(claudeSessions).values({
+    id: sessionId, userId, projectId: project.id, worktreeId: worktree.id,
+    status: 'active', createdAt: new Date(), lastActiveAt: new Date(),
+  });
+  const session = await db.query.claudeSessions.findFirst({
+    where: eq(claudeSessions.id, sessionId),
+    with: { project: true, worktree: true },
+  });
+  const prompt = [
+    `This work was handed off from machine "${p.fromMachineName}" on branch ${p.branch}.`,
+    'The uncommitted changes from that machine are restored as unstaged changes. Run `git status` and `git diff` to see them.',
+    p.lastMessage ? `The last agent message there was:\n${p.lastMessage}` : '',
+    p.note ? `Note from the user: ${p.note}` : 'Continue the work.',
+  ].filter(Boolean).join('\n\n');
+  await startTerminal(userId, session!, { sessionId, type: 'claude', initialPrompt: prompt, persist: true });
+  return { sessionId };
 }
 
 export const sessionRoutes = new Elysia({ prefix: '/sessions' })
@@ -539,6 +600,86 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
       '/sessions/sidebar?activeOnly=1',
     );
     return assembleSidebar([self, ...remotes]);
+  })
+
+  // Hand a session off to another machine: push branch + snapshot, have the target restore it.
+  // `to` is a machine id, 'self', or 'caller' (the machine that relayed this request — "Continue here").
+  .post('/:id/handoff', async ({ user, params, body, set, session: authSession }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
+      with: { project: true, worktree: true },
+    });
+    if (!session) { set.status = 404; return { error: 'Session not found' }; }
+    if (!session.project?.repoUrl) { set.status = 400; return { error: 'Session has no project with an origin' }; }
+    const cwd = await resolveTargetPath(session, undefined);
+    if (!cwd) { set.status = 400; return { error: 'Session has no working directory' }; }
+
+    const toId = body.to === 'caller' ? authSession?.machineId : body.to;
+    const target = toId && toId !== 'self' ? await resolveMachine(toId, user!.id) : null;
+    if (toId !== 'self' && !target) { set.status = 404; return { error: `Machine ${body.to} is not reachable` }; }
+
+    const creds = await getProjectCredentials(session.project, user!.id);
+    let pushed;
+    try {
+      pushed = await snapshotAndPush(cwd, session.id, creds);
+    } catch (err) {
+      set.status = 400;
+      return { error: (err as Error).message };
+    }
+
+    const payload: HandoffPayload = {
+      repoUrl: session.project.repoUrl, branch: pushed.branch, headSha: pushed.headSha,
+      fromSessionId: session.id, fromMachineName: hostname(), note: body.note, lastMessage: session.lastMessage,
+    };
+    let result: { sessionId: string };
+    try {
+      if (!target) {
+        result = await receiveHandoff(user!.id, payload);
+      } else {
+        const res = await machineFetch(target, '/api/sessions/handoff/receive', {
+          method: 'POST',
+          headers: new Headers({ 'content-type': 'application/json' }),
+          body: new TextEncoder().encode(JSON.stringify(payload)),
+        });
+        const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        if (!res.ok) throw new HandoffError(res.status, data.error ?? `HTTP ${res.status}`);
+        result = data;
+      }
+    } catch (err) {
+      set.status = err instanceof HandoffError ? err.status : 502;
+      return { error: `${(err as Error).message} (snapshot kept on origin as ${snapshotRef(session.id)})` };
+    }
+
+    await deleteSnapshot(cwd, session.id, creds).catch(() => {});
+    if (body.closeSource) await terminalService.closeSessionTerminals(session.id);
+    return { sessionId: result.sessionId, machineId: toId === 'self' ? 'self' : target!.machineId, branch: pushed.branch };
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({
+      to: t.String(),
+      note: t.Optional(t.String()),
+      closeSource: t.Optional(t.Boolean()),
+    }),
+  })
+
+  // Target side of a handoff, called machine-to-machine.
+  .post('/handoff/receive', async ({ user, body, set }) => {
+    try {
+      return await receiveHandoff(user!.id, body);
+    } catch (err) {
+      set.status = err instanceof HandoffError ? err.status : 500;
+      return { error: (err as Error).message };
+    }
+  }, {
+    body: t.Object({
+      repoUrl: t.String(),
+      branch: t.String(),
+      headSha: t.String(),
+      fromSessionId: t.String(),
+      fromMachineName: t.String(),
+      note: t.Optional(t.String()),
+      lastMessage: t.Optional(t.Nullable(t.String())),
+    }),
   })
 
   // Terminate session (close all terminals)
