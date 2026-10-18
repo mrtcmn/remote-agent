@@ -177,3 +177,9 @@ test('handoff_session is listed and posts to the source machine with the resolve
   expect(post).toMatchObject({ path: '/sessions/s1/handoff', body: { to: 'm-42', note: 'go' }, machine: null });
   expect(out.url).toBe('http://ra.test/sessions/m-42/s2');
 });
+
+test('send_prompt pastes the text, then submits with a separate Enter', async () => {
+  await callTool('send_prompt', { terminalId: 't1', prompt: 'hello\nworld' });
+  expect(calls.map((c) => c.body?.data)).toEqual(['\x1b[200~hello\nworld\x1b[201~', '\r']);
+  expect(calls.every((c) => c.path === '/terminals/t1/input')).toBe(true);
+});

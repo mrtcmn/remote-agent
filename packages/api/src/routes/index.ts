@@ -27,6 +27,7 @@ import { machineRoutes } from './machines.routes';
 import { pairedMastersRoutes } from './paired-masters.routes';
 import { sshRoutes } from './ssh.routes';
 import { dictationRoutes } from './dictation.routes';
+import { assistantRoutes } from './assistant.routes';
 
 export const api = new Elysia({ prefix: '/api' })
   .use(authRoutes)
@@ -55,6 +56,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(pairedMastersRoutes)
   .use(sshRoutes)
   .use(dictationRoutes)
+  .use(assistantRoutes)
   .use(versionRoutes);
 
 export { internalRoutes };

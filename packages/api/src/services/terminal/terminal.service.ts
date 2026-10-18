@@ -74,10 +74,14 @@ export class TerminalService extends EventEmitter {
     };
     this.instances.set(terminalId, instance);
 
+    // A server launched from inside a Claude Code session (dev beside the app)
+    // inherits its markers; passed on, every agent we spawn thinks it is a child
+    // session and turns transcript saving off.
+    const { CLAUDECODE, CLAUDE_CODE_CHILD_SESSION, CLAUDE_CODE_ENTRYPOINT, ...baseEnv } = process.env;
     const proc = spawn(command, {
       cwd,
       env: {
-        ...process.env,
+        ...baseEnv,
         ...env,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',

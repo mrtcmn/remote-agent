@@ -20,6 +20,7 @@
     "@elysiajs/bearer": "^1.1.0",
     "@elysiajs/cors": "^1.1.0",
     "@elysiajs/static": "^1.1.0",
+    "@xterm/headless": "^6.0.0",
     "better-auth": "^1.0.0",
     "drizzle-orm": "^0.33.0",
     "elysia": "^1.1.0",

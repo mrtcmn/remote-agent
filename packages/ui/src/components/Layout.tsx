@@ -1,5 +1,5 @@
 import { useLocation } from 'react-router-dom';
-import { Menu, X, LogOut } from 'lucide-react';
+import { Menu, X, LogOut, AudioLines } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/Avatar';
@@ -9,10 +9,13 @@ import { AppSidebar } from '@/components/AppSidebar';
 import { CommandBar } from '@/components/CommandBar';
 import { ResizeHandle } from '@/components/ResizeHandle';
 import { useSidebar } from '@/hooks/useSidebar';
+import { AssistantPanel } from '@/components/AssistantPanel';
+import { cn } from '@/lib/utils';
 
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [operatorOpen, setOperatorOpen] = useState(false);
   const location = useLocation();
   const { user, logout } = useAuth();
   const { width, resize, sidebarData, isLoading } = useSidebar();
@@ -31,6 +34,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <img src="/logo.png" alt="Remote Agent" className="size-4 rounded" />
         </div>
         <div id="app-toolbar" className="flex-1 min-w-0 flex items-stretch" />
+        <button
+          onClick={() => setOperatorOpen((o) => !o)}
+          title="Operator (hold ⌥Space to talk)"
+          className={cn(
+            'hidden md:flex shrink-0 items-center gap-1 px-2.5 border-l border-border text-[10.5px] font-medium electrobun-webkit-app-region-no-drag',
+            operatorOpen ? 'text-foreground bg-secondary' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+          )}
+        >
+          <AudioLines className="size-[11px]" />
+          Operator
+        </button>
       </div>
 
       <div className="flex flex-1 min-h-0 gap-2">
@@ -102,6 +116,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </main>
         )}
       </div>
+
+      {/* Right rail: the voice operator */}
+      <AssistantPanel open={operatorOpen} onOpenChange={setOperatorOpen} />
       </div>
     </div>
   );

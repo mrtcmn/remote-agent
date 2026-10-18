@@ -8,6 +8,7 @@ import { userInfo } from 'os';
 import { getWorkspacesRoot, getAgentHome } from '../config/paths';
 import { db, claudeSessions, terminals } from '../db';
 import { terminalService } from '../services/terminal';
+import { renderTerminal } from '../services/terminal/render';
 import { stripAnsi } from '../services/terminal/strip-ansi';
 import { workspaceService } from '../services/workspace';
 import { resolveProjectEnv } from '../services/workspace/env.service';
@@ -287,10 +288,13 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
       return { error: 'Forbidden' };
     }
 
-    // Live buffer if the terminal is still up, else what was persisted on close.
+    // Live buffer if the terminal is still up — rendered through a headless
+    // xterm, since agent TUIs redraw in place — else what was persisted on close.
     const raw = terminalService.getRawScrollback(params.id);
-    const text = raw ? new TextDecoder().decode(raw) : (terminal.scrollback ?? '');
-    const lines = stripAnsi(text).split('\n');
+    const text = raw
+      ? await renderTerminal(raw, parseInt(terminal.cols, 10) || 120, parseInt(terminal.rows, 10) || 40)
+      : stripAnsi(terminal.scrollback ?? '');
+    const lines = text.split('\n');
     const tail = Math.min(query.lines ? parseInt(query.lines, 10) || 200 : 200, 2000);
 
     return { output: lines.slice(-tail).join('\n'), truncated: lines.length > tail };

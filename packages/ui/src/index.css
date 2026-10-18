@@ -391,3 +391,18 @@
   border-top-right-radius: 12px;
   overflow: hidden;
 }
+
+/* Trace: shimmer the title of a running step. A @layer utility so Tailwind
+   variants (group-data-[status=running]:trace-shimmer) can target it. */
+@layer utilities {
+  .trace-shimmer {
+    background: linear-gradient(90deg, hsl(var(--muted-foreground)) 35%, hsl(var(--foreground)) 50%, hsl(var(--muted-foreground)) 65%);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: trace-shimmer 1.6s linear infinite;
+  }
+}
+@keyframes trace-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { .trace-shimmer { animation: none; color: inherit; background: none; } }

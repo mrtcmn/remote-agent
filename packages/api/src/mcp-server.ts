@@ -12,9 +12,10 @@
  *
  * It speaks to the HTTP API only — nothing is imported from the server — so it
  * runs beside the API or against a remote one. Cross-machine reach is the
- * `x-target-machine-id` header the UI already uses: the local API relays the
- * request over whichever transport that machine is on, so every tool below gets
- * "works on any paired machine" from one `machine` argument.
+ * `X-Machine-Id` header the UI already uses (`x-target-machine-id` with a
+ * machine token): the local API forwards the request over whichever transport
+ * that machine is on, so every tool below gets "works on any paired machine"
+ * from one `machine` argument.
  *
  * ponytail: hand-rolled JSON-RPC. The official SDK pulls express+hono+ajv (116
  * packages) to frame newline-delimited JSON on stdio; swap it in if we ever need
@@ -34,6 +35,11 @@ const CANDIDATE_PORTS = [process.env.RA_PORT, process.env.PORT, '13590', '13690'
 
 let baseUrl: string | null =
   (process.env.RA_URL ?? process.env.REMOTE_AGENT_API)?.replace(/\/+$/, '') ?? null;
+
+/** Pin the API address (the in-process HTTP transport points it at its own server). */
+export function setBaseUrl(url: string) {
+  baseUrl = url.replace(/\/+$/, '');
+}
 
 /** Where the API is. Probed once, because the port differs per install mode. */
 async function base(): Promise<string> {
@@ -84,7 +90,11 @@ export async function call(
   else headers.cookie = (cookie ??= await signIn());
 
   const machineId = await resolveMachineId(machine);
-  if (machineId) headers['x-target-machine-id'] = machineId;
+  // A cookie session goes through the machine proxy (X-Machine-Id), which
+  // reaches every transport: paired masters, tunnelled secondaries, relayed
+  // peers. The relay header only knows our own secondaries — a paired master
+  // 404s there — but it is the one a machine token may use.
+  if (machineId) headers[process.env.RA_TOKEN ? 'x-target-machine-id' : 'x-machine-id'] = machineId;
 
   const root = await base();
   const send = () =>
@@ -171,6 +181,7 @@ const FIELDS: Record<string, [string, string]> = {
   agent: ['string', 'Agent CLI to launch: claude (default), opencode, or kimi.'],
   lines: ['number', 'Trailing output lines to return per terminal (default 120).'],
   all: ['boolean', 'Include finished sessions, not just running ones.'],
+  limit: ['number', 'Max sessions per machine, newest first (default 20).'],
   env: ['object', 'Complete {NAME: value} map. This REPLACES the stored one — include every var you want to keep.'],
   name: ['string', 'Display name.'],
   runId: ['string', 'Run config id, from list_runs.'],
@@ -222,7 +233,7 @@ const TOOLS: Tool[] = [
   {
     name: 'list_sessions',
     description: 'Running agent sessions. Without `machine`, fans out to every reachable machine; with `machine`, lists that one (add all=true for finished sessions too).',
-    fields: ['machine', 'all'],
+    fields: ['machine', 'all', 'limit'],
     run: async (a) => {
       if (!a.machine) {
         const data = await call('GET', '/sessions/sidebar/aggregate');
@@ -231,11 +242,14 @@ const TOOLS: Tool[] = [
           machineId: m.machineId,
           online: m.online,
           ...(m.error ? { error: m.error } : {}),
-          sessions: flattenSessions(m.data),
+          // The aggregate has no activeOnly switch; filter here so "what's running"
+          // isn't buried under every terminated session on the machine.
+          sessions: flattenSessions(m.data).filter((x: any) => a.all || x.status !== 'terminated').slice(0, a.limit ?? 20),
         }));
       }
       const data = await call('GET', `/sessions/sidebar?activeOnly=${a.all ? '0' : '1'}`, undefined, a.machine);
-      return { machine: a.machine, sessions: flattenSessions(data) };
+      // A busy machine has hundreds of finished sessions — past the client's tool-output cap.
+      return { machine: a.machine, sessions: flattenSessions(data).slice(0, a.limit ?? 20) };
     },
   },
   {
@@ -281,7 +295,11 @@ const TOOLS: Tool[] = [
             name: t.name,
             type: t.type,
             status: t.liveStatus ?? t.status,
-            output: (await call('GET', `/terminals/${t.id}/output?lines=${lines}`, undefined, a.machine)).output,
+            // Per terminal: one unreadable terminal (or a machine on a build
+            // without this route) shouldn't hide the session's status.
+            ...(await call('GET', `/terminals/${t.id}/output?lines=${lines}`, undefined, a.machine)
+              .then((r) => ({ output: r.output }))
+              .catch((err: Error) => ({ output: null, outputError: err.message }))),
           })),
         ),
       };
@@ -292,8 +310,13 @@ const TOOLS: Tool[] = [
     description: 'Send a follow-up prompt to a running agent terminal (from show_session). Returns immediately — poll show_session for the reply.',
     fields: ['terminalId!', 'prompt!', 'machine'],
     run: async (a) => {
-      // Carriage return submits it, the same key the UI sends.
-      await call('POST', `/terminals/${a.terminalId}/input`, { data: `${a.prompt}\r` }, a.machine);
+      // Text and Enter in one write reads as a paste to the agent TUI: the \r
+      // lands as a newline and nothing is submitted. Same as the task loop:
+      // bracketed paste, a beat for the TUI to take it, then Enter alone.
+      const input = (data: string) => call('POST', `/terminals/${a.terminalId}/input`, { data }, a.machine);
+      await input(`\x1b[200~${a.prompt}\x1b[201~`);
+      await Bun.sleep(150);
+      await input('\r');
       return { sent: true };
     },
   },
@@ -535,7 +558,8 @@ function flattenSessions(data: any): unknown[] {
   for (const s of data?.unassignedSessions ?? []) {
     out.push({ id: s.id, status: s.liveStatus ?? s.status, project: null, branch: s.branchName, lastActiveAt: s.lastActiveAt });
   }
-  return out;
+  // Newest first: "the latest session" is then simply the first match.
+  return out.sort((x: any, y: any) => String(y.lastActiveAt ?? '').localeCompare(String(x.lastActiveAt ?? '')));
 }
 
 export function toolSchema(tool: Tool) {
