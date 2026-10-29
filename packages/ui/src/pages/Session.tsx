@@ -45,6 +45,8 @@ import { RunConfigPanel } from '@/components/RunConfigPanel';
 import { ScriptRunnerPanel } from '@/components/ScriptRunnerPanel';
 import { RunFlowView } from '@/components/run-flow/RunFlowView';
 import { BrowserPreview } from '@/components/BrowserPreview';
+import { NativeBrowser } from '@/components/NativeBrowser';
+import { isElectron } from '@/lib/electron';
 import { DockerPanel } from '@/components/DockerPanel';
 import { EnvEditor } from '@/components/EnvEditor';
 import {
@@ -64,7 +66,7 @@ import { ProjectSelector } from '@/components/ProjectSelector';
 import { ReviewDrawer } from '@/components/review/ReviewDrawer';
 import { OpenInEditorButton } from '@/components/OpenInEditorButton';
 
-type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'flow' | 'preview' | 'docker' | 'env';
+type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'flow' | 'docker' | 'env';
 
 // ─── Tools Menu Primitives ──────────────────────────────────────────────────
 
@@ -350,7 +352,53 @@ export function SessionPage() {
     }
   }, [terminalIdFromUrl]);
   const [showTerminalDropdown, setShowTerminalDropdown] = useState(false);
-  const [previewId, setPreviewId] = useState<string | null>(null);
+  // The agent opens the browser with the open_browser MCP tool, so the panel
+  // follows the server, not local state. The desktop app draws a real Chromium
+  // view the agent drives over CDP; a plain browser tab gets the screencast.
+  // ponytail: 3s poll, push it over the session socket if it ever feels slow.
+  const [desktop] = useState(isElectron);
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const { data: browsersData } = useQuery({
+    queryKey: ['browsers'],
+    queryFn: api.getOpenBrowsers,
+    // Faster while the panel is up: it also carries when the agent is browsing.
+    refetchInterval: browserOpen ? 1000 : 3000,
+    enabled: desktop,
+  });
+  const nativeBrowser = browsersData?.browsers.find((b) => b.sessionId === id);
+  const { data: previewData } = useQuery({
+    queryKey: ['previews'],
+    queryFn: api.getActivePreviews,
+    refetchInterval: 3000,
+    enabled: !desktop,
+  });
+  const previewId = previewData?.previews.find((p) => p.terminalId === id)?.id ?? null;
+  const hasBrowser = desktop ? !!nativeBrowser : !!previewId;
+  useEffect(() => {
+    if (nativeBrowser || previewId) setBrowserOpen(true);
+  }, [nativeBrowser?.at, previewId]);
+  const [resizingBrowser, setResizingBrowser] = useState(false);
+  const [browserWidth, setBrowserWidth] = useState(() => {
+    try { return Number(localStorage.getItem('browserPanelWidth')) || 560; } catch { return 560; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('browserPanelWidth', String(browserWidth)); } catch {}
+  }, [browserWidth]);
+  const startBrowserResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = browserWidth;
+    const move = (ev: PointerEvent) =>
+      setBrowserWidth(Math.round(Math.min(Math.max(startWidth + startX - ev.clientX, 320), window.innerWidth * 0.8)));
+    const up = () => {
+      setResizingBrowser(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    setResizingBrowser(true);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('http://localhost:3000');
   // The tools toolbar renders into the app-wide top bar (Layout's #app-toolbar).
@@ -494,10 +542,10 @@ export function SessionPage() {
   });
 
   const startPreviewMutation = useMutation({
-    mutationFn: (url: string) => api.startPreview(url, id!),
-    onSuccess: (data) => {
-      setPreviewId(data.previewId);
-      setViewMode('preview');
+    mutationFn: (url: string) => (desktop ? api.openBrowser(id!, url) : api.startPreview(url, id!)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [desktop ? 'browsers' : 'previews'] });
+      setBrowserOpen(true);
       setShowPreviewDialog(false);
     },
     onError: (error) => {
@@ -849,11 +897,10 @@ export function SessionPage() {
                     <ToolBtn
                       icon={Monitor}
                       label="Preview"
-                      isActive={viewMode === 'preview'}
+                      isActive={browserOpen && hasBrowser}
                       disabled={!!session?.project?.isMultiProject && !activeProject}
                       onClick={() => {
-                        if (viewMode === 'preview') setViewMode('terminal');
-                        else if (previewId) setViewMode('preview');
+                        if (hasBrowser) setBrowserOpen((v) => !v);
                         else setShowPreviewDialog(true);
                       }}
                     />
@@ -1125,16 +1172,6 @@ export function SessionPage() {
           <div className="p-4 overflow-y-auto h-full">
             <EnvEditor projectId={activeProject.id} />
           </div>
-        ) : viewMode === 'preview' && previewId ? (
-          <BrowserPreview
-            previewId={previewId}
-            onStop={async () => {
-              try { await api.stopPreview(previewId); } catch {}
-              setPreviewId(null);
-              setViewMode('terminal');
-            }}
-            className="h-full"
-          />
         ) : (
           <FileExplorer sessionId={id!} project={session?.project} selectedProjectId={selectedProjectId} openFile={searchParams.get('file') ?? undefined} className="h-full" />
         )}
@@ -1151,6 +1188,45 @@ export function SessionPage() {
           }}
           onClose={() => setRunnerOpen(false)}
         />
+      )}
+
+      {browserOpen && hasBrowser && (
+        <div
+          className="flex shrink-0 rounded-lg border border-border bg-card overflow-hidden"
+          style={{ width: browserWidth }}
+        >
+          {/* A strip beside the page, not over it: the native view sits above all HTML. */}
+          <div
+            onPointerDown={startBrowserResize}
+            className="w-1.5 shrink-0 cursor-col-resize hover:bg-primary/30 transition-colors"
+          />
+          <div className="min-w-0 flex-1">
+            {nativeBrowser ? (
+              <NativeBrowser
+                url={nativeBrowser.url}
+                openedAt={nativeBrowser.at}
+                agentUntil={nativeBrowser.agentUntil}
+                resizing={resizingBrowser}
+                onClose={async () => {
+                  try { await api.closeBrowser(id!); } catch {}
+                  setBrowserOpen(false);
+                  queryClient.invalidateQueries({ queryKey: ['browsers'] });
+                }}
+              />
+            ) : previewId ? (
+              <BrowserPreview
+                key={previewId}
+                previewId={previewId}
+                onStop={async () => {
+                  try { await api.stopPreview(previewId); } catch {}
+                  setBrowserOpen(false);
+                  queryClient.invalidateQueries({ queryKey: ['previews'] });
+                }}
+                className="h-full"
+              />
+            ) : null}
+          </div>
+        </div>
       )}
       </div>
 

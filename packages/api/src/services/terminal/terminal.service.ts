@@ -1,4 +1,5 @@
 import { spawn } from 'bun';
+import { getDefaultPort } from '../../config/paths';
 import { EventEmitter } from 'events';
 import { eq, and } from 'drizzle-orm';
 import { db, terminals, claudeSessions } from '../../db';
@@ -81,8 +82,14 @@ export class TerminalService extends EventEmitter {
     const proc = spawn(command, {
       cwd,
       env: {
+        // A server started by launchd has no locale, so pbcopy in the pty reads
+        // UTF-8 as Mac Roman and copies "❯" as "‚ùØ".
+        LANG: 'en_US.UTF-8',
         ...baseEnv,
         ...env,
+        // Tools in the terminal (the remote-agent MCP, hooks) must reach *this*
+        // API; an inherited value points at the installed app when dev runs beside it.
+        REMOTE_AGENT_API: `http://localhost:${getDefaultPort()}`,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
       },

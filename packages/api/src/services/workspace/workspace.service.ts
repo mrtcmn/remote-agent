@@ -199,7 +199,9 @@ export class WorkspaceService {
     // multiple Claude instances share the same settings.json.
     // Default to the port the API actually listens on (13590 local, 5100 remote),
     // not a hardcoded 5100 — otherwise dev hooks POST to a dead port and silently drop.
-    const baseUrl = `${process.env.RA_API_URL || process.env.REMOTE_AGENT_API || `http://localhost:${getDefaultPort()}`}/internal/hooks`;
+    // The shell resolves $REMOTE_AGENT_API per terminal: this settings.json is shared
+    // by the installed app and dev, so a baked-in URL sends one's hooks to the other.
+    const baseUrl = `${process.env.RA_API_URL || `\${REMOTE_AGENT_API:-http://localhost:${getDefaultPort()}}`}/internal/hooks`;
 
     // Guard: skip hooks when spawned by the classifier (prevents infinite loop)
     const guard = '[ "$REMOTE_AGENT_CLASSIFIER" = "1" ] && exit 0;';

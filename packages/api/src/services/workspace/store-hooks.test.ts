@@ -16,13 +16,13 @@ async function bakedHooks(env: Record<string, string | undefined>): Promise<stri
   return readFile(join(home, '.claude', 'settings.json'), 'utf-8');
 }
 
-test('local dev bakes RA_PORT into hook URLs, not 5100', async () => {
+test('hook URLs use the terminal\'s $REMOTE_AGENT_API, falling back to RA_PORT, not 5100', async () => {
   const settings = await bakedHooks({ RA_MODE: 'local', RA_PORT: '13590', RA_API_URL: undefined, REMOTE_AGENT_API: undefined });
-  expect(settings).toContain('http://localhost:13590/internal/hooks/attention');
+  expect(settings).toContain('${REMOTE_AGENT_API:-http://localhost:13590}/internal/hooks/attention');
   expect(settings).not.toContain('localhost:5100');
 });
 
 test('remote mode still defaults to 5100', async () => {
-  const settings = await bakedHooks({ RA_MODE: 'remote', RA_PORT: undefined, RA_API_URL: undefined, REMOTE_AGENT_API: undefined });
-  expect(settings).toContain('http://localhost:5100/internal/hooks/complete');
+  const settings = await bakedHooks({ RA_MODE: 'remote', RA_PORT: undefined, PORT: undefined, RA_API_URL: undefined, REMOTE_AGENT_API: undefined });
+  expect(settings).toContain('${REMOTE_AGENT_API:-http://localhost:5100}/internal/hooks/complete');
 });

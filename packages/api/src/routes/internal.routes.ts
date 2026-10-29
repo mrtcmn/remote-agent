@@ -10,6 +10,7 @@ import type { NotificationClassification, ParsedOption, ClassificationResult } f
 import { getTranscriptSummary, describeTool, type TranscriptInfo } from './hooks.helpers';
 import { taskLoopService } from '../services/kanban';
 import type { AgentSignal } from '../services/kanban/task-loop.service';
+import { markAgentBrowsing } from './preview.routes';
 
 /** Tells the board what the session's agent is doing. Off the hook's path. */
 function signalTasks(sessionId: string, signal: AgentSignal) {
@@ -449,6 +450,9 @@ export const internalRoutes = new Elysia({ prefix: '/internal' })
   .post('/hooks/active', async ({ body, set }) => {
     const session = await getSessionWithProject(body.sessionId);
     if (!session) { set.status = 404; return { error: 'Session not found' }; }
+    if (body.tool_name === 'Bash' && JSON.stringify(body.tool_input ?? '').includes('agent-browser')) {
+      markAgentBrowsing(body.sessionId);
+    }
     if (!body.terminalId) return { success: true, skipped: 'no terminal' };
 
     await db.update(claudeSessions)

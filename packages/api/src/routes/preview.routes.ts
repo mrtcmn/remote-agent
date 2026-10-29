@@ -2,6 +2,20 @@ import { Elysia, t } from 'elysia';
 import { browserPreviewService } from '../services/browser-preview';
 import type { ViewportPreset } from '../services/browser-preview';
 import { requireAuth } from '../auth/middleware';
+import { getDefaultPort } from '../config/paths';
+
+/** The desktop app's browser panel (a CEF webview) listens here for CDP; its
+ *  chromiumFlags in packages/desktop/electrobun.config.ts must match. */
+export const CDP_PORT = getDefaultPort() + 10;
+
+// ponytail: in memory — a restart forgets open panels, and the agent reopens one.
+const opened = new Map<string, { url: string; at: number; agentUntil?: number }>();
+
+/** The agent just ran agent-browser: draw its cursor in the panel for a while. */
+export function markAgentBrowsing(sessionId: string) {
+  const browser = opened.get(sessionId);
+  if (browser) browser.agentUntil = Date.now() + 15_000;
+}
 
 export const previewRoutes = new Elysia({ prefix: '/preview' })
   .use(requireAuth)
@@ -47,6 +61,18 @@ export const previewRoutes = new Elysia({ prefix: '/preview' })
       id: t.String(),
     }),
   })
+
+  // The agent's browser: the desktop app shows the URL in its right panel.
+  .post('/open', ({ body }) => {
+    opened.set(body.sessionId, { url: body.url, at: Date.now() });
+    return { url: body.url, cdpPort: CDP_PORT };
+  }, {
+    body: t.Object({ sessionId: t.String(), url: t.String() }),
+  })
+  .get('/open', () => ({
+    browsers: [...opened].map(([sessionId, b]) => ({ sessionId, ...b })),
+  }))
+  .delete('/open/:sessionId', ({ params }) => ({ closed: opened.delete(params.sessionId) }))
 
   // List active previews
   .get('/active', async () => {

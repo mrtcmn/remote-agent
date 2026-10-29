@@ -204,6 +204,8 @@ const FIELDS: Record<string, [string, string]> = {
   to: ['string', 'Target machine id or name from list_machines; "self" for this machine.'],
   note: ['string', 'Note for the agent that picks up the work.'],
   closeSource: ['boolean', 'Kill the terminals of the source session after the handoff.'],
+  url: ['string', 'Page to load, e.g. http://localhost:3000.'],
+  browserSessionId: ['string', 'Session whose panel shows the browser. Omit inside a remote-agent terminal: it defaults to $REMOTE_AGENT_SESSION_ID.'],
 };
 
 interface Tool {
@@ -337,6 +339,37 @@ const TOOLS: Tool[] = [
       const machineId = (await resolveMachineId(a.to)) ?? 'self';
       return { ...out, url: `${await base()}/sessions/${machineId}/${out.sessionId}` };
     },
+  },
+
+  // ── Browser ────────────────────────────────────────────────────────────────
+  // ponytail: no click/type tools of our own — agent-browser already does
+  // snapshots, refs, and input well; we only own the panel the user watches.
+  {
+    name: 'open_browser',
+    description: 'Open a URL in the real browser panel beside the session in the Remote Agent desktop app, where the user watches every step and sees your cursor. Then drive it with the agent-browser CLI, always passing the returned --cdp port: `agent-browser --cdp <port> snapshot -i`, `click @e1`, `fill @e2 "text"`, `open <url>`, `screenshot`. Calling it again navigates the same panel.',
+    fields: ['url!', 'browserSessionId'],
+    run: async (a) => {
+      const sessionId = a.browserSessionId ?? process.env.REMOTE_AGENT_SESSION_ID;
+      if (!sessionId) throw new Error('No session: pass browserSessionId (from list_sessions).');
+      const { cdpPort } = await call('POST', '/preview/open', { url: a.url, sessionId });
+      // The panel exists only once the desktop app has drawn it; agent-browser
+      // fails before that, so wait for its page to show up on the CDP port.
+      for (let i = 0; i < 30; i++) {
+        const pages = await fetch(`http://127.0.0.1:${cdpPort}/json/list`)
+          .then((r) => r.json() as Promise<{ type: string; url: string }[]>)
+          .catch(() => []);
+        const page = pages.find((p) => p.type === 'page' && !p.url.startsWith('devtools://'));
+        if (page) return { url: page.url, cdpPort, drive: `agent-browser --cdp ${cdpPort} snapshot -i` };
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      throw new Error(`No browser panel on CDP port ${cdpPort} after 15s. Ask the user to open this session in the Remote Agent desktop app.`);
+    },
+  },
+  {
+    name: 'close_browser',
+    description: 'Close the browser panel opened by open_browser.',
+    fields: ['browserSessionId'],
+    run: (a) => call('DELETE', `/preview/open/${a.browserSessionId ?? process.env.REMOTE_AGENT_SESSION_ID}`),
   },
 
   // ── Environment ────────────────────────────────────────────────────────────

@@ -543,7 +543,7 @@ export const api = {
   // ─── Browser Preview ────────────────────────────────────────────────────────
 
   startPreview: (url: string, sessionId: string, viewport?: ViewportPreset) =>
-    request<{ previewId: string; viewport: ViewportPreset; url: string; status: string }>(
+    request<{ previewId: string; viewport: ViewportPreset; url: string; status: string; cdpPort: number }>(
       '/preview/start',
       { method: 'POST', body: JSON.stringify({ url, sessionId, viewport }) },
     ),
@@ -551,6 +551,13 @@ export const api = {
     request<{ success: boolean }>(`/preview/${id}/stop`, { method: 'POST' }),
   getActivePreviews: () =>
     request<{ previews: BrowserPreview[] }>('/preview/active'),
+  // The agent's browser panel (desktop app): a URL per session, drawn as a CEF webview.
+  openBrowser: (sessionId: string, url: string) =>
+    request<{ url: string; cdpPort: number }>('/preview/open', { method: 'POST', body: JSON.stringify({ sessionId, url }) }),
+  getOpenBrowsers: () =>
+    request<{ browsers: { sessionId: string; url: string; at: number; agentUntil?: number }[] }>('/preview/open'),
+  closeBrowser: (sessionId: string) =>
+    request<{ closed: boolean }>(`/preview/open/${sessionId}`, { method: 'DELETE' }),
 
   // ─── Code Editor ──────────────────────────────────────────────────────────
 
@@ -1460,7 +1467,9 @@ export type ViewportPreset = 'mobile' | 'tablet' | 'desktop' | 'desktop_hd';
 
 export interface BrowserPreview {
   id: string;
-  url: string;
+  /** The session that owns it (the server field keeps its old name). */
+  terminalId: string;
+  targetUrl: string;
   viewport: ViewportPreset;
   status: 'starting' | 'running' | 'stopped' | 'error';
 }

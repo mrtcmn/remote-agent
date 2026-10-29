@@ -1,5 +1,9 @@
 import type { ElectrobunConfig } from "electrobun";
 
+// The browser panel is a CEF webview; agent-browser drives it over CDP here.
+// Must equal the API's CDP_PORT (API port + 10): dev API 13690, the app 13590.
+const CDP_PORT = process.env.ELECTROBUN_BUILD_ENV === "dev" ? "13700" : "13600";
+
 export default {
   app: {
     name: "Remote Agent",
@@ -35,8 +39,10 @@ export default {
       "assets/trayTemplate@2x.png": "views/assets/trayTemplate@2x.png",
     },
     mac: {
-      bundleCEF: false,
+      // CEF only for the browser panel; the app's own window stays native.
+      bundleCEF: true,
       defaultRenderer: "native",
+      chromiumFlags: { "remote-debugging-port": CDP_PORT },
       // WKWebView hides navigator.mediaDevices entirely unless the host app
       // declares a microphone usage string; electrobun derives the Info.plist
       // key (NSMicrophoneUsageDescription) from this entitlement.
