@@ -20,25 +20,28 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const { width, resize, sidebarData, isLoading } = useSidebar();
 
-  const isSessionPage = location.pathname.startsWith('/sessions/');
+  const isSessionPage = location.pathname.startsWith('/sessions/') || location.pathname.startsWith('/views/');
   const isFullHeightPage = isSessionPage || location.pathname === '/kanban';
 
   return (
-    <div className="flex h-dvh flex-col px-2 pb-2 bg-background">
+    <div className="flex h-dvh flex-col px-1.5 pb-1.5 bg-frame">
       <CommandBar />
       {/* Full-width top bar: traffic lights → logo → per-page tools (portaled into #app-toolbar) */}
-      <div className="shrink-0 flex items-stretch h-9 rounded-t-xl overflow-hidden border border-border border-t-0 bg-card electrobun-webkit-app-region-drag">
-        {/* macOS traffic lights sit over this spacer in the desktop app */}
-        <div className="hidden electron-titlebar w-[72px] shrink-0" />
-        <div className="flex items-center px-2 shrink-0">
-          <img src="/logo.png" alt="Remote Agent" className="size-4 rounded" />
+      <div className="shrink-0 flex items-stretch h-9 electrobun-webkit-app-region-drag">
+        {/* Left part spans the sidebar + gap, so page tabs start where the content island does */}
+        <div className="flex shrink-0 md:w-[var(--sidebar-span)]" style={{ '--sidebar-span': `${width + 6}px` } as React.CSSProperties}>
+          {/* macOS traffic lights sit over this spacer in the desktop app */}
+          <div className="hidden electron-titlebar w-[72px] shrink-0" />
+          <div className="flex items-center px-2 shrink-0">
+            <img src="/logo.png" alt="Remote Agent" className="size-4 rounded" />
+          </div>
         </div>
         <div id="app-toolbar" className="flex-1 min-w-0 flex items-stretch" />
         <button
           onClick={() => setOperatorOpen((o) => !o)}
           title="Operator (hold ⌥Space to talk)"
           className={cn(
-            'hidden md:flex shrink-0 items-center gap-1 px-2.5 border-l border-border text-[10.5px] font-medium electrobun-webkit-app-region-no-drag',
+            'hidden md:flex shrink-0 items-center gap-1 my-1.5 px-2.5 rounded-md text-[10.5px] font-medium electrobun-webkit-app-region-no-drag',
             operatorOpen ? 'text-foreground bg-secondary' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
           )}
         >
@@ -47,10 +50,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </button>
       </div>
 
-      <div className="flex flex-1 min-h-0 gap-2">
+      <div className="flex flex-1 min-h-0 gap-1.5">
       {/* Desktop Sidebar - grouped box on the base canvas */}
       <aside
-        className="hidden md:flex shrink-0 mt-2 rounded-lg border border-border overflow-hidden"
+        className="hidden md:flex shrink-0"
         style={{ width }}
       >
         <div className="flex-1 min-w-0">
@@ -66,14 +69,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
             className="md:hidden fixed inset-0 z-40 bg-black/50"
             onClick={() => setMobileMenuOpen(false)}
           />
-          <aside className="md:hidden fixed inset-y-0 left-0 z-50 w-[85vw] max-w-[320px] shadow-xl animate-slide-in-left">
+          <aside className="md:hidden fixed inset-y-0 left-0 z-50 w-[85vw] max-w-[320px] shadow-xl animate-slide-in-left bg-frame">
             <AppSidebar data={sidebarData} isLoading={isLoading} onClose={() => setMobileMenuOpen(false)} />
           </aside>
         </>
       )}
 
       {/* Center: content */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className={cn('flex-1 flex flex-col min-w-0', !isSessionPage && 'overflow-hidden')}>
         {/* Mobile-only header */}
         <header className="md:hidden sticky top-0 z-30 border-b bg-background/95 backdrop-blur safe-area-top">
           <div className="flex h-12 items-center px-3">
@@ -109,9 +112,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Main Content */}
         {isFullHeightPage ? (
-          <main className="flex-1 flex flex-col overflow-hidden min-h-0">{isSessionPage ? children : <div className="flex-1 min-h-0 mt-2 p-4 md:p-6 flex flex-col rounded-lg border border-border bg-card">{children}</div>}</main>
+          <main className={cn('flex-1 flex flex-col min-h-0', !isSessionPage && 'overflow-hidden')}>{isSessionPage ? children : <div className="flex-1 min-h-0 p-4 md:p-6 flex flex-col island">{children}</div>}</main>
         ) : (
-          <main className="flex-1 overflow-y-auto mt-2 p-4 md:p-6 safe-area-bottom rounded-lg border border-border bg-card">
+          <main className="flex-1 overflow-y-auto p-4 md:p-6 safe-area-bottom island">
             <div className="max-w-6xl mx-auto">{children}</div>
           </main>
         )}

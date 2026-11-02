@@ -310,7 +310,7 @@ export function ScriptRunnerPanel({
   return (
     <div
       onClick={(e) => e.stopPropagation()}
-      className="w-72 shrink-0 self-start max-h-full flex flex-col overflow-hidden rounded-lg border border-border bg-card"
+      className="w-72 shrink-0 self-start max-h-full flex flex-col island"
     >
       <div className="flex items-center gap-1 h-8 px-2.5 shrink-0 border-b border-border">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">

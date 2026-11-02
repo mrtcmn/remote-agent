@@ -1,6 +1,6 @@
 //
 //  DockPillView.swift
-//  The collapsed panel beside the Dock: one wide banner card for the session
+//  The collapsed panel on the Dock: one wide banner card for the session
 //  that needs attention most, with the rest counted on the icon.
 //
 
@@ -67,6 +67,8 @@ struct DockPillView: View {
         }
         .padding(.leading, 14)
         .padding(.trailing, 10)
+        // Keeps the content clear of the inward corner curves of the panel.
+        .padding(.horizontal, 6)
         .frame(width: size.width, height: size.height)
     }
 

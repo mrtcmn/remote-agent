@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { auth } from '../auth';
+import { localOwnerId, requestAddress } from '../auth/middleware';
 import { resolveMachine, machineFetch, type MachineTarget } from '../services/machines/resolve';
 import { machineTunnel } from '../services/machine-tunnel/server';
 import { machineRegistry } from '../services/machine-registry';
@@ -25,9 +26,13 @@ interface WsBridge {
  * Identify the caller by cookie session or machineToken bearer. The bearer case
  * is what lets a peer open a relayed WebSocket through its hub.
  */
-async function resolveCallerUserId(headers: Headers): Promise<string | null> {
+async function resolveCallerUserId(request: Request, address: string | undefined): Promise<string | null> {
+  const headers = request.headers;
   const session = await auth.api.getSession({ headers });
   if (session) return session.user.id;
+  // The desktop app on this machine has no login cookie (local mode).
+  const local = await localOwnerId(request, address);
+  if (local) return local;
 
   const authHeader = headers.get('authorization');
   if (authHeader?.startsWith('Bearer ')) {
@@ -92,20 +97,22 @@ function buildForwardHeaders(source: Headers): Headers {
  * daisy-chain through another master.
  */
 export const machineProxyPlugin = new Elysia({ name: 'machine-proxy' })
-  .onRequest(async ({ request }) => {
+  .onRequest(async ({ request, server }) => {
     const url = new URL(request.url);
     const machineId = pickMachineId(url, request.headers);
     if (!machineId) return;
 
+    // Cookie or the local owner; the machineToken bearer is for the WS relay only.
     const session = await auth.api.getSession({ headers: request.headers });
-    if (!session) {
+    const userId = session?.user.id ?? (await localOwnerId(request, requestAddress(server, request)));
+    if (!userId) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { 'content-type': 'application/json' },
       });
     }
 
-    const target = await resolveMachine(machineId, session.user.id);
+    const target = await resolveMachine(machineId, userId);
     if (!target) {
       return new Response(JSON.stringify({ error: 'Unknown or unreachable machineId' }), {
         status: 404,
@@ -168,8 +175,8 @@ export const machineProxyPlugin = new Elysia({ name: 'machine-proxy' })
     query: t.Object({
       path: t.String({ minLength: 1 }),
     }),
-    async beforeHandle({ request, params, query, set }) {
-      const userId = await resolveCallerUserId(request.headers);
+    async beforeHandle({ request, server, params, query, set }) {
+      const userId = await resolveCallerUserId(request, requestAddress(server, request));
       if (!userId) {
         set.status = 401;
         return 'Unauthorized';
@@ -189,7 +196,7 @@ export const machineProxyPlugin = new Elysia({ name: 'machine-proxy' })
       const { path } = ws.data.query;
 
       // Resolve again (cheap) — beforeHandle already validated ownership.
-      const userId = await resolveCallerUserId(ws.data.request.headers);
+      const userId = await resolveCallerUserId(ws.data.request, ws.remoteAddress);
       const target = userId ? await resolveMachine(machineId, userId) : null;
       if (!target) {
         ws.close(4401, 'Unauthorized');

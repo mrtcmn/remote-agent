@@ -140,7 +140,7 @@ export function KanbanBoard({ data, projectId, onTaskClick, onMoveTask, onQuickA
       onDragEnd={handleDragEnd}
       onDragCancel={() => { setDragging(null); setBoard(data); }}
     >
-      <div className="flex gap-4 overflow-x-auto overflow-y-hidden pb-4 h-full">
+      <div className="flex w-fit max-w-full h-full overflow-x-auto overflow-y-hidden rounded-xl border bg-card/40">
         {board.columns.map((column) => (
           <KanbanColumn
             key={column.id}

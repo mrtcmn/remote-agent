@@ -6,7 +6,7 @@ import { readdir, stat, readFile, realpath, unlink, rm, copyFile, cp, rename, mk
 import { join, resolve, basename, dirname } from 'path';
 
 /** Resolve a path and verify it stays within the project root (prevents traversal and symlink escape) */
-async function validatePath(
+export async function validatePath(
   projectPath: string,
   requestedPath: string,
   allowedRealPaths?: string[]
@@ -57,7 +57,7 @@ async function getSessionProject(
       eq(claudeSessions.id, sessionId),
       eq(claudeSessions.userId, userId)
     ),
-    with: { project: true },
+    with: { project: true, worktree: true },
   });
 
   if (!session) {
@@ -69,7 +69,8 @@ async function getSessionProject(
     return null;
   }
   return {
-    path: session.project.localPath,
+    // A worktree session browses its worktree, the same tree the git panel diffs.
+    path: session.worktree && !session.project.isMultiProject ? session.worktree.path : session.project.localPath,
     project: { id: session.project.id, isMultiProject: session.project.isMultiProject },
   };
 }
@@ -212,6 +213,39 @@ export const fileRoutes = new Elysia({ prefix: '/sessions/:id/files' })
   }, {
     params: t.Object({ id: t.String() }),
     query: t.Object({ path: t.String() }),
+  })
+
+  // Save file content (the editable file/diff viewer)
+  .put('/content', async ({ user, params, body, set }) => {
+    const result = await getSessionProject(params.id, user!.id, set);
+    if (!result) {
+      return { error: set.status === 404 ? 'Session not found' : 'Session has no project' };
+    }
+
+    const allowedPaths = await getMultiProjectAllowedPaths(result.project);
+    const validatedPath = await validatePath(result.path, body.path, allowedPaths);
+    if (!validatedPath) {
+      set.status = 403;
+      return { error: 'Path traversal not allowed' };
+    }
+
+    try {
+      // ponytail: overwrite only — the viewer only saves files it just read.
+      const fileStat = await stat(validatedPath);
+      if (!fileStat.isFile()) {
+        set.status = 400;
+        return { error: 'Not a regular file' };
+      }
+      await Bun.write(validatedPath, body.content);
+      return { success: true, size: Buffer.byteLength(body.content) };
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      set.status = err.code === 'ENOENT' ? 404 : 500;
+      return { error: err.code === 'ENOENT' ? 'File not found' : 'Failed to write file' };
+    }
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({ path: t.String(), content: t.String({ maxLength: 1024 * 1024 }) }),
   })
 
   // Upload files

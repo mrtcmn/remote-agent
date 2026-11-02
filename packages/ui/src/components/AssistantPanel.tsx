@@ -138,7 +138,7 @@ export function AssistantPanel({ open, onOpenChange }: { open: boolean; onOpenCh
 
   return (
     <aside
-      className={cn('hidden shrink-0 mt-2 w-[360px] flex-col rounded-lg border border-border bg-card overflow-hidden', open && 'md:flex')}
+      className={cn('hidden shrink-0 w-[360px] flex-col island', open && 'md:flex')}
       aria-label="Operator"
     >
       {/* Header */}

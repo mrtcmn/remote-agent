@@ -1,3 +1,4 @@
+import { sshService } from '../services/ssh/ssh.service';
 import { Elysia, t } from 'elysia';
 import { nanoid } from 'nanoid';
 import { eq, and } from 'drizzle-orm';
@@ -545,7 +546,9 @@ export const terminalRoutes = new Elysia({ prefix: '/terminals' })
       return { error: 'Forbidden' };
     }
 
-    await terminalService.closeTerminal(params.id);
+    // An SSH tab is not a pty; closing it must hang up the connection.
+    if (terminal.type === 'ssh') await sshService.close(params.id);
+    else await terminalService.closeTerminal(params.id);
 
     return { success: true };
   }, {

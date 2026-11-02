@@ -148,6 +148,13 @@
       "when": 1790238491963,
       "tag": "0020_amazing_tyrannus",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793549613457,
+      "tag": "0021_split_views",
+      "breakpoints": true
     }
   ]
 }

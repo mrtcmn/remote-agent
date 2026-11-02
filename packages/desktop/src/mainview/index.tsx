@@ -1,8 +1,10 @@
 import { installElectronApiShim } from "./bridge";
+import { installDragFix } from "./drag-fix";
 import "./index.css";
 
 // Mark the desktop shell immediately — unconditional, before anything that can throw.
 document.documentElement.classList.add('electron-app');
+installDragFix();
 
 // Install the window.electronAPI shim (Electroview RPC bridge).
 // Wrapped so a timing failure with window.__electrobun doesn't block mountApp.

@@ -5,6 +5,9 @@
   "workspaces": [
     "packages/*"
   ],
+  "overrides": {
+    "shiki": "^4.5.0"
+  },
   "scripts": {
     "dev": "bun run --cwd packages/api dev",
     "dev:ui": "bun run --cwd packages/ui dev",

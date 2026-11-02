@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
@@ -49,17 +50,20 @@ import {
 import { isVisibleSession, byRecency } from '@/lib/sidebar-sessions';
 import { sessionPath, sessionIdFromPath, terminalIdFromPath } from '@/lib/session-route';
 import { useActiveMachine } from '@/lib/active-machine';
+import { ViewsSection } from '@/components/views/ViewsSection';
+import { PANEL_DRAG_TYPE, type DragPanel } from '@/lib/views';
 
 // ─── Service config ─────────────────────────────────────────────────────────
 
-const serviceConfig: Record<string, { dot: string; icon: typeof Bot }> = {
-  claude: { dot: 'bg-blue-500', icon: Bot },
-  opencode: { dot: 'bg-blue-500', icon: Bot },
-  kimi: { dot: 'bg-blue-500', icon: Bot },
-  shell: { dot: 'bg-emerald-500', icon: TerminalSquare },
-  process: { dot: 'bg-purple-500', icon: Play },
-  docker: { dot: 'bg-cyan-500', icon: Container },
-  codeServer: { dot: 'bg-emerald-500', icon: Code },
+// The status circle carries the color now; the icon tells the kinds apart.
+const serviceConfig: Record<string, { icon: typeof Bot }> = {
+  claude: { icon: Bot },
+  opencode: { icon: Bot },
+  kimi: { icon: Bot },
+  shell: { icon: TerminalSquare },
+  process: { icon: Play },
+  docker: { icon: Container },
+  codeServer: { icon: Code },
 };
 
 // The design's three rails. A session is what you talk to (claude, opencode, a
@@ -110,6 +114,116 @@ function notifKind(n: NotificationRecord): 'needs' | 'error' | null {
   return null;
 }
 
+type RowState = 'needs' | 'error' | 'working' | 'done' | 'idle';
+
+/** The live state of a terminal row, from its latest notification. */
+function rowState(n: NotificationRecord | undefined): RowState {
+  if (!n) return 'idle';
+  const kind = notifKind(n);
+  if (kind) return kind;
+  if (n.type === 'session_started') return 'working';
+  if (n.type === 'task_complete') return 'done';
+  return 'idle';
+}
+
+/** Status circle: blue spins while working, green done, red error, amber needs you. */
+function StatusCircle({ state }: { state: RowState }) {
+  const base = 'relative z-10 size-2 rounded-full shrink-0';
+  if (state === 'working') {
+    return <span className={cn(base, 'border-[1.5px] border-blue-500 border-t-transparent animate-spin')} title="Working" />;
+  }
+  const fill = {
+    needs: 'bg-amber-500 animate-pulse',
+    error: 'bg-red-500',
+    done: 'bg-emerald-500',
+    idle: 'border border-muted-foreground/50',
+  }[state];
+  return <span className={cn(base, fill)} title={state === 'idle' ? undefined : state === 'needs' ? 'Needs you' : state === 'error' ? 'Error' : 'Done'} />;
+}
+
+/**
+ * Opens the notification review in a popup after the pointer rests on the row
+ * for a second. The popup stays while the pointer is on it, or while it has focus.
+ */
+function NotifHover({
+  notification,
+  onRespond,
+  onOpen,
+  children,
+}: {
+  notification?: AggregatedNotification;
+  onRespond: RespondFn;
+  onOpen: () => void;
+  children: React.ReactNode;
+}) {
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+
+  const cancel = () => clearTimeout(timer.current);
+  const openSoon = () => {
+    cancel();
+    timer.current = setTimeout(() => {
+      const r = anchorRef.current?.getBoundingClientRect();
+      if (r) setPos({ left: r.right + 8, top: Math.max(8, Math.min(r.top, window.innerHeight - POPUP_HEIGHT - 8)) });
+    }, 1000);
+  };
+  // A short grace period lets the pointer cross the gap from the row to the popup.
+  const closeSoon = () => {
+    cancel();
+    timer.current = setTimeout(() => {
+      if (!popupRef.current?.contains(document.activeElement)) setPos(null);
+    }, 200);
+  };
+
+  useEffect(() => cancel, []);
+  // With focus inside (a reply half typed), only a click outside closes it.
+  useEffect(() => {
+    if (!pos) return;
+    const onDown = (e: MouseEvent) => {
+      if (!popupRef.current?.contains(e.target as Node) && !anchorRef.current?.contains(e.target as Node)) setPos(null);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [pos]);
+
+  if (!notification) return <>{children}</>;
+
+  return (
+    <div ref={anchorRef} onMouseEnter={openSoon} onMouseLeave={closeSoon}>
+      {children}
+      {pos &&
+        createPortal(
+          <div
+            ref={popupRef}
+            onMouseEnter={cancel}
+            onMouseLeave={closeSoon}
+            className="fixed z-50 w-80 overflow-y-auto rounded-[var(--island-radius)] border border-border bg-popover text-popover-foreground shadow-xl"
+            style={{ left: pos.left, top: pos.top, maxHeight: POPUP_HEIGHT }}
+          >
+            <div className="px-3 pt-2.5 text-[11px] font-medium text-foreground/80 truncate">{notification.title}</div>
+            <NotifReview
+              notification={notification}
+              onRespond={(n, input) => {
+                setPos(null);
+                onRespond(n, input);
+              }}
+              onOpen={() => {
+                setPos(null);
+                onOpen();
+              }}
+            />
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+}
+
+// ponytail: one fixed cap; content scrolls past it.
+const POPUP_HEIGHT = 320;
+
 const DANGER_LABELS = /^(deny|cancel|no|reject|abort|stop|skip|ignore|decline|refuse|delete|remove|destroy|revoke|disallow|forbid|block)/i;
 const PRIMARY_LABELS = /^(approve|yes|allow|confirm|proceed|accept|ok|continue|grant|permit|enable)/i;
 
@@ -151,7 +265,7 @@ const choiceClass = (variant: 'primary' | 'secondary' | 'danger', selected: bool
       : 'border-foreground/20 text-muted-foreground hover:text-foreground hover:border-foreground/40 hover:bg-secondary/60'
   );
 
-/** Inline review shown under a session/terminal row for a pending notification. */
+/** Review of a pending notification, shown in the row's hover popup. */
 function NotifReview({ notification, onRespond, onOpen }: { notification: AggregatedNotification; onRespond: RespondFn; onOpen: () => void }) {
   const questions = notification.metadata?.questions;
   const isMulti = !!questions && questions.length > 1;
@@ -177,7 +291,7 @@ function NotifReview({ notification, onRespond, onOpen }: { notification: Aggreg
   if (isMulti) {
     const allPicked = picks.every(Boolean);
     return (
-      <div className="pl-5 pr-2 pb-1.5 pt-0.5 space-y-2" onClick={(e) => e.stopPropagation()}>
+      <div className="px-3 pb-2.5 pt-1.5 space-y-2" onClick={(e) => e.stopPropagation()}>
         {body}
         {questions!.map((q, qi) => (
           <div key={qi} className="space-y-1">
@@ -210,7 +324,7 @@ function NotifReview({ notification, onRespond, onOpen }: { notification: Aggreg
   const choices = buildChoices(notification);
   const isDone = notification.type === 'task_complete';
   return (
-    <div className="pl-5 pr-2 pb-1.5 pt-0.5 space-y-2" onClick={(e) => e.stopPropagation()}>
+    <div className="px-3 pb-2.5 pt-1.5 space-y-2" onClick={(e) => e.stopPropagation()}>
       {body}
       {isDone && (choices || freeform) && (
         <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">What's next?</p>
@@ -495,12 +609,11 @@ function ServiceRow({
   // OpenCode, Codex or Gemini session shows its own mark, not a generic bot.
   const isAgent = AGENT_CLIS.has(service.type);
   const kind = notification ? notifKind(notification) : null;
-  // A row takes over (shows review) when it needs the user (needs-you / error) OR
-  // when it's a completed task with an optional follow-up ("what's next?"). A plain
-  // working/done record just tints the dot — no hijack, no fabricated buttons.
+  // The hover popup offers a review when the row needs the user (needs-you / error)
+  // OR it's a completed task with an optional follow-up ("what's next?"). A plain
+  // working/done record only colors the circle — no popup, no fabricated buttons.
   const followup = notification ? hasFollowup(notification) : false;
   const showReview = kind !== null || followup;
-  const [expanded, setExpanded] = useState(true);
   const port = servicePort(service);
   const queryClient = useQueryClient();
 
@@ -525,13 +638,19 @@ function ServiceRow({
     }
   };
 
-  const dot = kind === 'needs' ? 'bg-amber-500 animate-pulse' : kind === 'error' ? 'bg-red-500' : config.dot;
+  const draggable = service.type !== 'docker' && service.type !== 'codeServer';
+  const onDragStart = (e: React.DragEvent) => {
+    const drag: DragPanel = { machineId, sessionId, terminalId: service.id };
+    e.dataTransfer.setData(PANEL_DRAG_TYPE, JSON.stringify(drag));
+    e.dataTransfer.effectAllowed = 'copy';
+  };
 
   return (
-    <div>
+    <NotifHover notification={showReview ? notification : undefined} onRespond={onRespond} onOpen={navigate}>
+      <div draggable={draggable} onDragStart={draggable ? onDragStart : undefined}>
       <motion.button
         layout
-        onClick={() => (showReview ? setExpanded((v) => !v) : navigate())}
+        onClick={navigate}
         whileTap={{ scale: 0.98 }}
         transition={{ duration: 0.12 }}
         className={rowClass(isSelected, true)}
@@ -539,7 +658,7 @@ function ServiceRow({
         title={service.label}
       >
         <SelectionWash show={isSelected} />
-        <span className={cn('relative z-10 w-1.5 h-1.5 rounded-full shrink-0', dot)} />
+        <StatusCircle state={rowState(notification)} />
         {isAgent ? (
           <TerminalAIIcon
             terminalType={service.type}
@@ -573,8 +692,8 @@ function ServiceRow({
           ) : null}
         </div>
       </motion.button>
-      {showReview && expanded && <NotifReview notification={notification!} onRespond={onRespond} onOpen={navigate} />}
-    </div>
+      </div>
+    </NotifHover>
   );
 }
 
@@ -643,14 +762,17 @@ function WorkspaceGroup({
     const ids = new Set(session.services?.map((s) => s.id) ?? []);
     return (notifsBySession.get(session.id) ?? [])
       .filter((n) => (!n.terminalId || !ids.has(n.terminalId)) && (notifKind(n) !== null || hasFollowup(n)))
-      .map((n) => (
-        <NotifReview
-          key={n.id}
-          notification={n}
-          onRespond={onRespond}
-          onOpen={() => onNavigate(sessionPath(machine.machineId, session.id))}
-        />
-      ));
+      .map((n) => {
+        const open = () => onNavigate(sessionPath(machine.machineId, session.id));
+        return (
+          <NotifHover key={n.id} notification={n} onRespond={onRespond} onOpen={open}>
+            <button onClick={open} className={rowClass(false, true)} title={n.title}>
+              <StatusCircle state={rowState(n)} />
+              <Ellipsis className="flex-1 text-xs leading-snug">{n.title}</Ellipsis>
+            </button>
+          </NotifHover>
+        );
+      });
   });
 
   return (
@@ -927,7 +1049,7 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
           : undefined;
 
   return (
-    <div className="flex flex-col h-full bg-card text-foreground">
+    <div className="flex flex-col h-full text-foreground">
       {/* Top nav tabs with sliding pill — right side is a drag handle.
           Hidden entirely when there's nothing to show, so Search sits
           vertically centered at the top instead of under an empty strip. */}
@@ -1013,6 +1135,8 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
         style={{ maskImage, WebkitMaskImage: maskImage }}
       >
         <div className="pb-8 flex flex-col min-h-full">
+          <ViewsSection onNavigate={handleNavigate} />
+          <div className="h-px bg-border mb-1 shrink-0" />
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />

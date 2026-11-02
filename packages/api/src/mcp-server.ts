@@ -206,7 +206,32 @@ const FIELDS: Record<string, [string, string]> = {
   closeSource: ['boolean', 'Kill the terminals of the source session after the handoff.'],
   url: ['string', 'Page to load, e.g. http://localhost:3000.'],
   browserSessionId: ['string', 'Session whose panel shows the browser. Omit inside a remote-agent terminal: it defaults to $REMOTE_AGENT_SESSION_ID.'],
+  host: ['string', 'SSH host: its label, user@host, or id, from ssh_hosts.'],
+  shellCommand: ['string', 'Shell command to run on the host, e.g. "df -h && uptime".'],
+  timeoutSec: ['number', 'Kill the command after this many seconds (default 60, max 1800).'],
+  sshTerminalId: ['string', 'SSH terminal id, from ssh_open or ssh_hosts.'],
+  tabSessionId: ['string', 'Session to open the SSH shell in, as a tab. Omit inside a remote-agent terminal: it defaults to $REMOTE_AGENT_SESSION_ID. "new" opens a session of its own.'],
+  input: ['string', 'Text to type into the shell. Enter is pressed after it, so a command runs, unless raw is true.'],
+  raw: ['boolean', 'Send input exactly as given, without pressing Enter: keys like "\\u0003" (Ctrl-C) or answers to a prompt.'],
+  waitSec: ['number', 'Wait up to this long for output to settle (default 5, max 120).'],
 };
+
+type SshHostRow = { id: string; label: string; host: string; port: number; username: string; authType: string };
+
+/** Accepts an id, a label, or user@host. */
+async function resolveSshHost(host: string, machine?: string): Promise<SshHostRow> {
+  const hosts: SshHostRow[] = await call('GET', '/ssh/hosts', undefined, machine);
+  const q = host.toLowerCase();
+  const hit =
+    hosts.find((h) => h.id === host) ??
+    hosts.find((h) => h.label.toLowerCase() === q) ??
+    hosts.find((h) => `${h.username}@${h.host}`.toLowerCase() === q) ??
+    hosts.find((h) => h.host.toLowerCase() === q);
+  if (!hit) {
+    throw new Error(`Unknown SSH host "${host}". Known: ${hosts.map((h) => `${h.label} (${h.username}@${h.host})`).join(', ') || 'none — add one in the app'}`);
+  }
+  return hit;
+}
 
 interface Tool {
   name: string;
@@ -358,7 +383,7 @@ const TOOLS: Tool[] = [
         const pages = await fetch(`http://127.0.0.1:${cdpPort}/json/list`)
           .then((r) => r.json() as Promise<{ type: string; url: string }[]>)
           .catch(() => []);
-        const page = pages.find((p) => p.type === 'page' && !p.url.startsWith('devtools://'));
+        const page = pages.find((p) => p.type === 'page' && !p.url.startsWith('devtools://') && !p.url.includes('/devtools/'));
         if (page) return { url: page.url, cdpPort, drive: `agent-browser --cdp ${cdpPort} snapshot -i` };
         await new Promise((r) => setTimeout(r, 500));
       }
@@ -370,6 +395,79 @@ const TOOLS: Tool[] = [
     description: 'Close the browser panel opened by open_browser.',
     fields: ['browserSessionId'],
     run: (a) => call('DELETE', `/preview/open/${a.browserSessionId ?? process.env.REMOTE_AGENT_SESSION_ID}`),
+  },
+
+  // ── SSH ────────────────────────────────────────────────────────────────────
+  // Hosts and their secrets live in the app's encrypted vault; these tools use
+  // them without ever handing a password or key to the agent.
+  {
+    name: 'ssh_hosts',
+    description: 'SSH hosts saved in Remote Agent, with the live SSH sessions on each. Any session can use them: ssh_exec for a one-off command, or ssh_open + ssh_send for a shell the user can watch.',
+    fields: ['machine'],
+    run: async (a) => {
+      const [hosts, live]: [SshHostRow[], { sessionId: string; terminalId: string; hostId: string; status: string }[]] = await Promise.all([
+        call('GET', '/ssh/hosts', undefined, a.machine),
+        call('GET', '/ssh/sessions', undefined, a.machine),
+      ]);
+      return hosts.map((h) => ({
+        id: h.id,
+        label: h.label,
+        target: `${h.username}@${h.host}${h.port === 22 ? '' : `:${h.port}`}`,
+        auth: h.authType,
+        shells: live.filter((s) => s.hostId === h.id).map((s) => ({ sshTerminalId: s.terminalId, sessionId: s.sessionId, status: s.status })),
+      }));
+    },
+  },
+  {
+    name: 'ssh_exec',
+    description: 'Run one shell command on a saved SSH host and return stdout, stderr, and the exit code. Uses a shared connection that stays open between calls, so it is fast to call often. Not for interactive programs (use ssh_open + ssh_send).',
+    fields: ['host!', 'shellCommand!', 'timeoutSec', 'machine'],
+    run: async (a) => {
+      const host = await resolveSshHost(a.host, a.machine);
+      const timeoutMs = Math.min(Math.max(Number(a.timeoutSec) || 60, 1), 1800) * 1000;
+      return call('POST', `/ssh/hosts/${host.id}/exec`, { command: a.shellCommand, timeoutMs }, a.machine);
+    },
+  },
+  {
+    name: 'ssh_open',
+    description: 'Open an interactive SSH shell on a saved host, as a tab in a session (yours by default), so the user watches what you type. Drive it with ssh_send and ssh_read; it reconnects on its own if the network drops.',
+    fields: ['host!', 'tabSessionId', 'machine'],
+    run: async (a) => {
+      const host = await resolveSshHost(a.host, a.machine);
+      const tab = a.tabSessionId ?? (a.machine ? undefined : process.env.REMOTE_AGENT_SESSION_ID);
+      const out = await call('POST', `/ssh/hosts/${host.id}/connect`, tab && tab !== 'new' ? { sessionId: tab } : {}, a.machine);
+      const machineId = (await resolveMachineId(a.machine)) ?? 'self';
+      const url = `${await base()}/sessions/${machineId}/${out.sessionId}/${out.terminalId}`;
+      // Give the handshake a moment so the first ssh_send does not race it.
+      for (let i = 0; i < 40; i++) {
+        const s = await call('GET', `/ssh/terminals/${out.terminalId}`, undefined, a.machine);
+        if (s.status !== 'connecting') return { sshTerminalId: out.terminalId, sessionId: out.sessionId, status: s.status, url };
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      return { sshTerminalId: out.terminalId, sessionId: out.sessionId, status: 'connecting', url };
+    },
+  },
+  {
+    name: 'ssh_send',
+    description: 'Type into an SSH shell from ssh_open (or one the user opened) and return the output it printed, as plain text.',
+    fields: ['sshTerminalId!', 'input!', 'raw', 'waitSec', 'machine'],
+    run: (a) => {
+      const input = a.raw ? a.input : `${a.input}\r`; // \r is what the Enter key sends
+      const waitMs = Math.min(Math.max(Number(a.waitSec) || 5, 0), 120) * 1000;
+      return call('POST', `/ssh/terminals/${a.sshTerminalId}/send`, { input, waitMs }, a.machine);
+    },
+  },
+  {
+    name: 'ssh_read',
+    description: 'The last lines an SSH shell printed, as plain text — e.g. to check on a long command.',
+    fields: ['sshTerminalId!', 'lines', 'machine'],
+    run: (a) => call('GET', `/ssh/terminals/${a.sshTerminalId}/output?lines=${Number(a.lines) || 120}`, undefined, a.machine),
+  },
+  {
+    name: 'ssh_close',
+    description: 'Close an SSH shell and its tab.',
+    fields: ['sshTerminalId!', 'machine'],
+    run: (a) => call('POST', `/ssh/terminals/${a.sshTerminalId}/stop`, {}, a.machine),
   },
 
   // ── Environment ────────────────────────────────────────────────────────────

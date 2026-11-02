@@ -54,6 +54,8 @@ export const appSettings = _s.appSettings;
 export const machines = _s.machines;
 export const pairingTokens = _s.pairingTokens;
 export const pairedMasters = _s.pairedMasters;
+export const views = _s.views;
+export const viewPanels = _s.viewPanels;
 
 // ─── Relations ──────────────────────────────────────────────────────────────
 export const userRelations = _s.userRelations;

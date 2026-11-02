@@ -1,10 +1,17 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, ChevronUp, Loader2, MessageSquare, Terminal, Sparkles, Check } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Send, ChevronUp, Loader2, MessageSquare, Terminal, Sparkles, Check, Bot } from 'lucide-react';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-export type ReviewTarget = 'current' | 'new';
+/** The open terminal, a fresh Claude session, or the agent of another session. */
+export type ReviewTarget = 'current' | 'new' | { sessionId: string; label: string };
+
+const targetId = (t: ReviewTarget) => (typeof t === 'string' ? t : t.sessionId);
 
 interface ReviewComposerProps {
+  /** This session, left out of the "other sessions" list. */
+  sessionId: string;
   pendingCount: number;
   /** Name of the live agent terminal, or undefined when none is running. */
   currentTargetLabel?: string;
@@ -17,6 +24,7 @@ interface ReviewComposerProps {
  * The split button chooses between the open terminal and a fresh Claude session.
  */
 export function ReviewComposer({
+  sessionId,
   pendingCount,
   currentTargetLabel,
   isPending,
@@ -29,7 +37,7 @@ export function ReviewComposer({
 
   // Fall back to a new session as soon as the open terminal goes away.
   useEffect(() => {
-    if (!currentTargetLabel) setTarget('new');
+    if (!currentTargetLabel) setTarget((t) => (t === 'current' ? 'new' : t));
   }, [currentTargetLabel]);
 
   useEffect(() => {
@@ -40,26 +48,45 @@ export function ReviewComposer({
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
 
+  const { data: sessions = [] } = useQuery({
+    queryKey: ['sessions'],
+    queryFn: api.getSessions,
+    enabled: menuOpen,
+  });
+
   if (pendingCount === 0) return null;
 
   const send = () => onSend(target, note.trim());
-  const targetName = target === 'current' ? currentTargetLabel ?? 'terminal' : 'new Claude session';
+  const targetName =
+    target === 'current' ? currentTargetLabel ?? 'terminal' : target === 'new' ? 'new Claude session' : target.label;
 
-  const options: { id: ReviewTarget; label: string; hint: string; icon: typeof Terminal; disabled: boolean }[] = [
+  const options: { target: ReviewTarget; label: string; hint: string; icon: typeof Terminal; disabled: boolean }[] = [
     {
-      id: 'current',
+      target: 'current',
       label: currentTargetLabel ? `Open session — ${currentTargetLabel}` : 'Open session',
       hint: currentTargetLabel ? 'Types the review into the running agent' : 'No agent terminal is running',
       icon: Terminal,
       disabled: !currentTargetLabel,
     },
     {
-      id: 'new',
+      target: 'new',
       label: 'New Claude session',
       hint: 'Starts a fresh terminal with the review as its prompt',
       icon: Sparkles,
       disabled: false,
     },
+    ...sessions
+      .filter((s) => s.id !== sessionId && s.status !== 'terminated')
+      .map((s) => {
+        const label = `${s.project?.name ?? 'Session'} · ${s.worktree?.branch ?? s.id.slice(0, 6)}`;
+        return {
+          target: { sessionId: s.id, label },
+          label,
+          hint: s.lastMessage?.slice(0, 80) || 'Submits the review to its running agent',
+          icon: Bot,
+          disabled: false,
+        };
+      }),
   ];
 
   return (
@@ -103,13 +130,13 @@ export function ReviewComposer({
           </button>
 
           {menuOpen && (
-            <div className="absolute bottom-full right-0 mb-1 w-72 rounded-lg border border-border bg-card shadow-xl overflow-hidden z-40">
+            <div className="absolute bottom-full right-0 mb-1 w-72 max-h-80 overflow-y-auto rounded-lg border border-border bg-card shadow-xl z-40">
               {options.map((option) => (
                 <button
-                  key={option.id}
+                  key={targetId(option.target)}
                   disabled={option.disabled}
                   onClick={() => {
-                    setTarget(option.id);
+                    setTarget(option.target);
                     setMenuOpen(false);
                   }}
                   className={cn(
@@ -122,7 +149,7 @@ export function ReviewComposer({
                     <div className="text-xs font-medium truncate">{option.label}</div>
                     <div className="text-[11px] text-muted-foreground">{option.hint}</div>
                   </div>
-                  {target === option.id && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                  {targetId(target) === targetId(option.target) && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
                 </button>
               ))}
             </div>

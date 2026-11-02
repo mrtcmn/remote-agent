@@ -1,3 +1,4 @@
+import { sshService } from '../services/ssh/ssh.service';
 import { Elysia, t } from 'elysia';
 import { nanoid } from 'nanoid';
 import { eq, and, sql, inArray } from 'drizzle-orm';
@@ -15,6 +16,8 @@ import { worktreeService } from '../services/git/worktree.service';
 import { snapshotAndPush, fetchAndRestore, deleteSnapshot, normalizeRepoUrl, snapshotRef, HandoffConflictError } from '../services/git/handoff';
 import { resolveMachine, machineFetch } from '../services/machines/resolve';
 import { startTerminal } from './terminals.routes';
+import { viewsService } from '../services/views';
+import { validatePath } from './files.routes';
 import { hostname } from 'node:os';
 
 /** Resolve target path for git operations, supporting worktrees and multi-project. */
@@ -399,6 +402,19 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
         }
       }
 
+      // The editable diff needs both whole files, not just the hunks.
+      if (query.contents) {
+        const old = await $`git show HEAD:./${filePath}`.cwd(targetPath).nothrow().quiet();
+        const fullPath = await validatePath(targetPath, filePath);
+        const file = fullPath ? Bun.file(fullPath) : null;
+        return {
+          diff,
+          file: filePath,
+          oldContent: old.exitCode === 0 ? old.stdout.toString() : '',
+          newContent: file && (await file.exists()) ? await file.text() : null,
+        };
+      }
+
       return { diff, file: filePath };
     } catch (error) {
       set.status = 500;
@@ -410,6 +426,34 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     }),
     query: t.Object({
       file: t.String(),
+      projectId: t.Optional(t.String()),
+      contents: t.Optional(t.String()),
+    }),
+  })
+
+  // Save a file edited in the diff viewer. Same path rules as the diff itself.
+  .put('/:id/git/file', async ({ user, params, body, set }) => {
+    const session = await db.query.claudeSessions.findFirst({
+      where: and(eq(claudeSessions.id, params.id), eq(claudeSessions.userId, user!.id)),
+      with: { project: true, worktree: true },
+    });
+    const targetPath = session && (await resolveTargetPath(session, body.projectId));
+    if (!targetPath) {
+      set.status = 404;
+      return { error: 'Session not found' };
+    }
+    const fullPath = await validatePath(targetPath, body.file);
+    if (!fullPath) {
+      set.status = 403;
+      return { error: 'Path traversal not allowed' };
+    }
+    await Bun.write(fullPath, body.content);
+    return { success: true };
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({
+      file: t.String(),
+      content: t.String({ maxLength: 1024 * 1024 }),
       projectId: t.Optional(t.String()),
     }),
   })
@@ -698,6 +742,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
 
     // Close all terminals for this session
     await terminalService.closeSessionTerminals(params.id);
+    await sshService.closeSession(params.id);
 
     // Dismiss pending notifications for this session
     await notificationService.dismissBySession(params.id);
@@ -705,6 +750,9 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     // Delete session (cascades to messages, terminals, review comments)
     await db.delete(claudeSessions)
       .where(eq(claudeSessions.id, params.id));
+
+    // Its panels in split views go too — no FK, a view may hold remote sessions
+    await viewsService.removeLocalSession(params.id);
 
     return { success: true };
   }, {

@@ -11,19 +11,20 @@ import {
   Check,
   AlertTriangle,
   Laptop,
+  Pencil,
 } from 'lucide-react';
 import { api, type MachineSummary, type PairedMasterSummary } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
+import { SettingsRow, SettingsSection } from '@/components/ui/SettingsSection';
 import { toast } from '@/components/ui/Toaster';
 
 export function MachinesSection() {
   return (
     <>
       <ThisMachineCard />
-      <PairedMastersCard />
       <PairingTokensCard />
+      <PairedMastersCard />
     </>
   );
 }
@@ -55,25 +56,24 @@ function ThisMachineCard() {
   const dirty = data != null && name.trim() !== '' && name.trim() !== data.name;
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Laptop className="h-5 w-5" />
-          <CardTitle>This machine</CardTitle>
-        </div>
-        <CardDescription>
-          The name other machines see for this one — sent when pairing with a master, so it stays
+    <SettingsSection
+        icon={Laptop}
+        title="This machine"
+        description={
+          <>
+            The name other machines see for this one — sent when pairing with a master, so it stays
           stable and unique regardless of what nickname you give a master below.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex items-center gap-2 max-w-md">
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="This machine" />
-        <Button onClick={() => saveMutation.mutate()} disabled={!dirty || saveMutation.isPending}>
-          {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
-          Save
-        </Button>
-      </CardContent>
-    </Card>
+          </>
+        }
+      >
+        <SettingsRow label="Machine name" description="Shown to the master and its other machines.">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="This machine" className="w-56" />
+          <Button onClick={() => saveMutation.mutate()} disabled={!dirty || saveMutation.isPending}>
+            {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+            Save
+          </Button>
+        </SettingsRow>
+      </SettingsSection>
   );
 }
 
@@ -114,18 +114,16 @@ function PairingTokensCard() {
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Server className="h-5 w-5" />
-          <CardTitle>Paired secondaries</CardTitle>
-        </div>
-        <CardDescription>
-          Machines that have paired with this one. Generate a token, then paste it on the
+    <SettingsSection
+        icon={Server}
+        title="Paired secondaries"
+        description={
+          <>
+            Machines that have paired with this one. Generate a token, then paste it on the
           other machine (Settings → Paired masters).
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+          </>
+        } className="space-y-4"
+      >
         <div className="flex items-center gap-2">
           <Button
             size="sm"
@@ -168,8 +166,7 @@ function PairingTokensCard() {
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </SettingsSection>
   );
 }
 
@@ -278,7 +275,12 @@ function MachineRow({
     <div className="flex items-center gap-3 p-2 rounded bg-secondary text-sm">
       <StatusDot online={machine.online} />
       <div className="flex-1 min-w-0">
-        <div className="font-medium truncate">{machine.name}</div>
+        <EditableName
+          name={machine.name}
+          rename={(name) => api.renameMachine(machine.id, name)}
+          invalidate={['machines']}
+          className="font-medium"
+        />
         <div className="text-xs text-muted-foreground truncate">
           {machine.online ? 'Online' : 'Offline'}
           {' · '}
@@ -345,18 +347,16 @@ function PairedMastersCard() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Monitor className="h-5 w-5" />
-          <CardTitle>Paired masters</CardTitle>
-        </div>
-        <CardDescription>
-          Remote machines this one is paired with. Paste the URL + pairing token from another
+    <SettingsSection
+        icon={Monitor}
+        title="Paired masters"
+        description={
+          <>
+            Remote machines this one is paired with. Paste the URL + pairing token from another
           machine&rsquo;s Settings → Paired secondaries.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+          </>
+        } className="space-y-4"
+      >
         {isLoading ? (
           <div className="text-sm text-muted-foreground flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading…
@@ -412,8 +412,7 @@ function PairedMastersCard() {
             Pair
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </SettingsSection>
   );
 }
 
@@ -428,12 +427,25 @@ function PairedMasterRow({
 }) {
   const lastSync = useRelativeTime(master.lastSyncAt);
   const healthy = !master.lastSyncError && master.lastSyncAt;
+  // The master's other machines — the hub reports them on every sync.
+  const { data: peersData } = useQuery({
+    queryKey: ['paired-master-peers', master.id],
+    queryFn: () => api.getPairedMasterPeers(master.id),
+    refetchInterval: 15_000,
+  });
+  const peers = peersData?.peers ?? [];
 
   return (
-    <div className="flex items-center gap-3 p-2 rounded bg-secondary text-sm">
+    <div className="rounded bg-secondary text-sm">
+    <div className="flex items-center gap-3 p-2">
       <StatusDot online={Boolean(healthy)} />
       <div className="flex-1 min-w-0">
-        <div className="font-medium truncate">{master.name}</div>
+        <EditableName
+          name={master.name}
+          rename={(name) => api.renamePairedMaster(master.id, name)}
+          invalidate={['paired-masters']}
+          className="font-medium"
+        />
         <div className="text-xs text-muted-foreground truncate font-mono">{master.url}</div>
         <div className="text-xs text-muted-foreground truncate flex items-center gap-1">
           {master.lastSyncError ? (
@@ -459,10 +471,91 @@ function PairedMasterRow({
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unplug className="h-3.5 w-3.5" />}
       </Button>
     </div>
+    {peers.length > 0 && (
+      <div className="border-t border-border/60 px-2 py-1.5 space-y-1">
+        <div className="pl-5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+          Other machines on this master
+        </div>
+        {peers.map((p) => (
+          <div key={p.id} className="flex items-center gap-3 py-1 pl-5">
+            <StatusDot online={p.online} />
+            <EditableName
+              name={p.name}
+              rename={(name) => api.renamePeer(master.id, p.id, name)}
+              invalidate={['paired-master-peers', master.id]}
+              className="flex-1 min-w-0"
+            />
+            <span className="text-xs text-muted-foreground shrink-0">
+              {p.sessionCount} {p.sessionCount === 1 ? 'session' : 'sessions'}
+              {p.version ? ` · v${p.version}` : ''}
+            </span>
+          </div>
+        ))}
+      </div>
+    )}
+    </div>
   );
 }
 
 // ─── shared helpers ────────────────────────────────────────────────────────
+
+/** A name you click to rename in place: Enter or blur saves, Escape cancels. */
+function EditableName({
+  name,
+  rename,
+  invalidate,
+  className,
+}: {
+  name: string;
+  rename: (name: string) => Promise<unknown>;
+  invalidate: unknown[];
+  className?: string;
+}) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState<string | null>(null);
+  const mutation = useMutation({
+    mutationFn: rename,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: invalidate });
+      queryClient.invalidateQueries({ queryKey: ['sidebar-aggregate'] });
+    },
+    onError: (err) =>
+      toast({ title: 'Rename failed', description: (err as Error).message, variant: 'destructive' }),
+  });
+  const save = () => {
+    const next = draft?.trim();
+    setDraft(null);
+    if (next && next !== name) mutation.mutate(next);
+  };
+
+  if (draft !== null) {
+    return (
+      <Input
+        autoFocus
+        value={draft}
+        maxLength={100}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') save();
+          if (e.key === 'Escape') setDraft(null);
+        }}
+        className={`h-6 text-sm px-1.5 ${className ?? ''}`}
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setDraft(name)}
+      title="Rename"
+      className={`group flex items-center gap-1.5 max-w-full text-left ${className ?? ''}`}
+    >
+      <span className="truncate">{mutation.isPending ? mutation.variables : name}</span>
+      <Pencil className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+    </button>
+  );
+}
 
 function StatusDot({ online }: { online: boolean }) {
   return (

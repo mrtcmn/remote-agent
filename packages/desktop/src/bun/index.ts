@@ -8,6 +8,7 @@ import {
   resolveLoadUrl,
 } from "./window";
 import { createTray } from "./tray";
+import { applyGlass, installGlass } from "./glass";
 import { startLocalApi, stopLocalApi } from "./local-api";
 import { startNotch, stopNotch } from "./notch";
 
@@ -35,6 +36,7 @@ function openWindow() {
     // views:// has no parseable origin; skip external-link interception.
   }
   persistBounds(win, store);
+  installGlass(win, () => store.get("glass"));
   win.on("close", () => {
     win = null;
   });
@@ -93,6 +95,13 @@ ApplicationMenu.setApplicationMenu([
     openWindow,
     () => win?.webview?.executeJavascript("location.reload()"),
     () => win?.webview?.openDevTools(),
+    {
+      get: () => store.get("glass"),
+      toggle: () => {
+        store.set("glass", !store.get("glass"));
+        if (win) applyGlass(win, store.get("glass"));
+      },
+    },
   );
   openWindow();
 })();

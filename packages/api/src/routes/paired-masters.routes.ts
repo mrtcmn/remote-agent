@@ -53,6 +53,34 @@ export const pairedMastersRoutes = new Elysia({ prefix: '/paired-masters' })
     return { ok: true };
   })
 
+  .patch('/:id', async ({ user, params, body, set }) => {
+    if (!(await pairedMastersService.rename(params.id, user!.id, body.name.trim()))) {
+      set.status = 404;
+      return { error: 'Master not found' };
+    }
+    return { ok: true };
+  }, {
+    body: t.Object({ name: t.String({ minLength: 1, maxLength: 100 }) }),
+  })
+
+  // Rename one of the master's other machines — the master owns the name.
+  .patch('/:id/peers/:peerId', async ({ user, params, body, set }) => {
+    const master = await pairedMastersService.get(params.id, user!.id);
+    if (!master) {
+      set.status = 404;
+      return { error: 'Master not found' };
+    }
+    try {
+      await masterSyncService.renameOnMaster(master, params.peerId, body.name.trim());
+    } catch (err) {
+      set.status = 502;
+      return { error: (err as Error).message };
+    }
+    return { ok: true };
+  }, {
+    body: t.Object({ name: t.String({ minLength: 1, maxLength: 100 }) }),
+  })
+
   .get('/:id/peers', async ({ user, params, set }) => {
     const master = await pairedMastersService.get(params.id, user!.id);
     if (!master) {

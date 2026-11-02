@@ -1,8 +1,8 @@
 import { spawn } from 'bun';
 import { getDefaultPort } from '../../config/paths';
 import { EventEmitter } from 'events';
-import { eq, and } from 'drizzle-orm';
-import { db, terminals, claudeSessions } from '../../db';
+import { eq, and, inArray } from 'drizzle-orm';
+import { db, terminals, claudeSessions, notifications } from '../../db';
 import { notificationService } from '../notification';
 import type {
   TerminalInstance,
@@ -38,6 +38,15 @@ export class TerminalService extends EventEmitter {
     await db.update(claudeSessions)
       .set({ status: 'paused' })
       .where(eq(claudeSessions.status, 'waiting_input'));
+
+    // No agent survives a restart, so no "working" card is true any more. Without
+    // this, a turn cut off by the restart shows blue forever (no Stop hook fires).
+    await db.update(notifications)
+      .set({ status: 'dismissed', updatedAt: new Date() })
+      .where(and(
+        eq(notifications.type, 'session_started'),
+        inArray(notifications.status, ['pending', 'sent'])
+      ));
 
     console.log('[TerminalService] Orphan reconciliation complete');
   }
@@ -182,6 +191,7 @@ export class TerminalService extends EventEmitter {
     await db.update(terminals)
       .set({ status: 'exited' })
       .where(eq(terminals.id, terminalId));
+    await notificationService.dismissByTerminal(terminalId);
   }
 
   async closeSessionTerminals(sessionId: string): Promise<void> {

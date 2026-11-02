@@ -56,22 +56,6 @@ struct StatusDot: View {
     }
 }
 
-/// Clips the panel: the notch cut-out on the menu bar, a rounded rect by the Dock.
-private struct PanelClip: ViewModifier {
-    let isDock: Bool
-    let topCornerRadius: CGFloat
-    let bottomCornerRadius: CGFloat
-    let dockCornerRadius: CGFloat
-
-    func body(content: Content) -> some View {
-        if isDock {
-            content.clipShape(RoundedRectangle(cornerRadius: dockCornerRadius, style: .continuous))
-        } else {
-            content.clipShape(NotchShape(topCornerRadius: topCornerRadius, bottomCornerRadius: bottomCornerRadius))
-        }
-    }
-}
-
 struct NotchView: View {
     @ObservedObject var viewModel: NotchViewModel
     @ObservedObject var store: NotificationStore
@@ -89,25 +73,9 @@ struct NotchView: View {
     private var hasActivity: Bool { pendingCount > 0 }
     private var needsReview: Bool { store.notifications.contains { $0.needsReview } }
 
-    /// One dot per session for the collapsed pill, most-urgent first and capped so
-    /// the cluster fits beside the camera. The right-side count carries the rest.
-    private var dotRecords: [NotificationRecord] {
-        Array(store.notifications
-            .sorted { $0.statusKind.rank < $1.statusKind.rank }
-            .prefix(3))
-    }
-
     // MARK: - Sizing
 
-    private var isDock: Bool { viewModel.anchor == .dock }
-
     private var closedNotchSize: CGSize { viewModel.pillSize }
-
-    /// Extra width for the collapsed pill while notifications are pending
-    private var expansionWidth: CGFloat {
-        guard hasActivity else { return 0 }
-        return 2 * max(0, closedNotchSize.height - 12) + 20 + (needsReview ? 18 : 0)
-    }
 
     private var notchSize: CGSize {
         switch viewModel.status {
@@ -126,56 +94,42 @@ struct NotchView: View {
         viewModel.status == .opened ? cornerRadiusInsets.opened.bottom : cornerRadiusInsets.closed.bottom
     }
 
-    private var dockCornerRadius: CGFloat {
-        viewModel.status == .opened ? 22 : 20
-    }
-
-    /// Padding between the pill edge and its content.
+    /// Padding between the panel edge and its content. The pill pads itself.
     private var horizontalPadding: CGFloat {
-        if viewModel.status == .opened { return cornerRadiusInsets.opened.top }
-        return isDock ? 0 : cornerRadiusInsets.closed.bottom
+        viewModel.status == .opened ? cornerRadiusInsets.opened.top : 0
     }
-
-    /// The notch hangs from the top edge; the Dock panel grows up from the bottom.
-    private var stackAlignment: Alignment { isDock ? .bottom : .top }
 
     // MARK: - Body
 
     var body: some View {
-        ZStack(alignment: stackAlignment) {
+        ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
                 notchLayout
                     .frame(
                         maxWidth: viewModel.status == .opened ? notchSize.width : nil,
-                        alignment: stackAlignment
+                        alignment: .bottom
                     )
                     .padding(.horizontal, horizontalPadding)
                     .padding([.horizontal, .bottom], viewModel.status == .opened ? 12 : 0)
                     .background(.black)
-                    .modifier(PanelClip(
-                        isDock: isDock,
-                        topCornerRadius: topCornerRadius,
-                        bottomCornerRadius: bottomCornerRadius,
-                        dockCornerRadius: dockCornerRadius
-                    ))
-                    .overlay(alignment: .top) {
-                        // Blends the panel into the top screen edge; the Dock panel floats free.
-                        if !isDock {
-                            Rectangle()
-                                .fill(.black)
-                                .frame(height: 1)
-                                .padding(.horizontal, topCornerRadius)
-                        }
+                    // The notch silhouette upside down: the flat edge rests on the Dock.
+                    .clipShape(NotchShape(topCornerRadius: topCornerRadius, bottomCornerRadius: bottomCornerRadius).scale(x: 1, y: -1))
+                    .overlay(alignment: .bottom) {
+                        // Blends the panel into the top edge of the Dock.
+                        Rectangle()
+                            .fill(.black)
+                            .frame(height: 1)
+                            .padding(.horizontal, topCornerRadius)
                     }
                     .shadow(
-                        color: (isDock || viewModel.status == .opened || isHovering) ? .black.opacity(0.7) : .clear,
-                        radius: isDock ? 12 : 6
+                        color: (viewModel.status == .opened || isHovering) ? .black.opacity(0.7) : .clear,
+                        radius: 6
                     )
-                    .scaleEffect(isDock && isBouncing ? 1.06 : 1)
+                    .scaleEffect(isBouncing ? 1.06 : 1, anchor: .bottom)
                     .frame(
                         maxWidth: viewModel.status == .opened ? notchSize.width : nil,
                         maxHeight: viewModel.status == .opened ? notchSize.height : nil,
-                        alignment: stackAlignment
+                        alignment: .bottom
                     )
                     .animation(viewModel.status == .opened ? openAnimation : closeAnimation, value: viewModel.status)
                     .animation(.smooth, value: hasActivity)
@@ -195,16 +149,11 @@ struct NotchView: View {
             }
         }
         .opacity(isVisible ? 1 : 0)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isDock ? .bottomTrailing : .top)
-        .padding(.trailing, isDock ? NotchGeometry.dockMargin : 0)
-        .padding(.bottom, isDock ? viewModel.geometry.dockBottomInset : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .padding(.bottom, viewModel.geometry.dockHeight)
         .preferredColorScheme(.dark)
-        .onAppear {
-            // With nothing to hide behind, keep a visible target to interact with
-            if !viewModel.hidesWhenIdle {
-                isVisible = true
-            }
-        }
+        // A rebuilt window (Dock moved or resized) must show pending sessions again.
+        .onAppear { refreshVisibility() }
         .onChange(of: viewModel.status) { _, newStatus in
             handleStatusChange(newStatus)
         }
@@ -221,7 +170,7 @@ struct NotchView: View {
     @ViewBuilder
     private var notchLayout: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if isDock && viewModel.status != .opened {
+            if viewModel.status != .opened {
                 DockPillView(store: store, size: closedNotchSize)
             } else {
                 headerRow
@@ -234,7 +183,7 @@ struct NotchView: View {
                     .frame(maxHeight: .infinity)
                     .transition(
                         .asymmetric(
-                            insertion: .scale(scale: 0.8, anchor: .top)
+                            insertion: .scale(scale: 0.8, anchor: .bottom)
                                 .combined(with: .opacity)
                                 .animation(.smooth(duration: 0.35)),
                             removal: .opacity.animation(.easeOut(duration: 0.15))
@@ -244,53 +193,13 @@ struct NotchView: View {
         }
     }
 
-    @ViewBuilder
     private var headerRow: some View {
-        HStack(spacing: 0) {
-            // Left side — one dot per session while collapsed (opened: single worst dot)
-            if hasActivity || viewModel.status == .opened {
-                HStack(spacing: 3) {
-                    if viewModel.status == .opened {
-                        StatusDot(color: (store.worstStatus ?? .running).color, pulse: needsReview)
-                    } else {
-                        ForEach(dotRecords) { record in
-                            StatusDot(color: record.statusKind.color,
-                                      pulse: record.statusKind == .review,
-                                      size: 6)
-                        }
-                    }
-                }
-                .frame(width: viewModel.status == .opened ? nil : sideWidth + (needsReview ? 18 : 0))
-                .padding(.leading, viewModel.status == .opened ? 8 : 0)
-            }
-
-            // Center
-            if viewModel.status == .opened {
-                openedHeaderContent
-            } else if !hasActivity {
-                Rectangle()
-                    .fill(.clear)
-                    .frame(width: closedNotchSize.width - 20)
-            } else {
-                Rectangle()
-                    .fill(.black)
-                    .frame(width: closedNotchSize.width - cornerRadiusInsets.closed.top + (isBouncing ? 16 : 0))
-            }
-
-            // Right side — active-session count while collapsed
-            if hasActivity && viewModel.status != .opened {
-                Text("\(pendingCount)")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundColor((store.worstStatus ?? .running).color)
-                    .frame(width: sideWidth)
-                    .padding(.trailing, 4)
-            }
+        HStack(spacing: 8) {
+            StatusDot(color: (store.worstStatus ?? .running).color, pulse: needsReview)
+                .padding(.leading, 8)
+            openedHeaderContent
         }
         .frame(height: closedNotchSize.height)
-    }
-
-    private var sideWidth: CGFloat {
-        max(0, closedNotchSize.height - 12) + 10
     }
 
     @ViewBuilder
@@ -374,13 +283,13 @@ struct NotchView: View {
     }
 
     private func refreshVisibility() {
-        if hasActivity || viewModel.status != .closed || !viewModel.hidesWhenIdle {
+        if hasActivity || viewModel.status != .closed {
             isVisible = true
             return
         }
         // Delay hiding until the close animation completes
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            if viewModel.status == .closed && store.notifications.isEmpty && viewModel.hidesWhenIdle {
+            if viewModel.status == .closed && store.notifications.isEmpty {
                 isVisible = false
             }
         }

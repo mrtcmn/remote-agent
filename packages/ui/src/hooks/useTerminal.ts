@@ -53,6 +53,8 @@ function encodeBase64(str: string): string {
 
 interface UseTerminalOptions {
   terminalId: string;
+  /** The machine that owns the terminal. Default: the globally active machine. */
+  machineId?: string;
   theme?: ITheme;
   fontFamily?: string;
   fontWeight?: number;
@@ -75,7 +77,7 @@ interface UseTerminalReturn {
 }
 
 export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
-  const { terminalId, theme: externalTheme, fontFamily: externalFontFamily, fontWeight: externalFontWeight, fontSize: externalFontSize, onConnect, onDisconnect, onExit, onTitleChanged } = options;
+  const { terminalId, machineId, theme: externalTheme, fontFamily: externalFontFamily, fontWeight: externalFontWeight, fontSize: externalFontSize, onConnect, onDisconnect, onExit, onTitleChanged } = options;
 
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
@@ -356,7 +358,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
           formData.append('image', blob);
 
           const headers: Record<string, string> = {};
-          const activeId = getActiveMachineId();
+          const activeId = machineId ?? getActiveMachineId();
           if (activeId && activeId !== 'self') headers['X-Machine-Id'] = activeId;
 
           const response = await fetch(`${getApiBase()}/api/terminals/${terminalId}/paste-image`, {
@@ -407,7 +409,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
         // instead of round-tripping through a temp upload. WebKit (the desktop
         // shell) exposes file:// URLs via text/uri-list; Chromium doesn't and
         // falls through to the upload path below.
-        const activeId = getActiveMachineId();
+        const activeId = machineId ?? getActiveMachineId();
         const sameMachine =
           (!activeId || activeId === 'self') &&
           (isElectron() || ['localhost', '127.0.0.1'].includes(location.hostname));
@@ -546,7 +548,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
 
       // Connect WebSocket
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}${resolveWsPath(`/ws/terminal/${terminalId}`)}`;
+      const wsUrl = `${protocol}//${window.location.host}${resolveWsPath(`/ws/terminal/${terminalId}`, machineId)}`;
       ws = new WebSocket(wsUrl);
 
       const currentXterm = xterm;

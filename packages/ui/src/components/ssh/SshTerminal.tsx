@@ -1,16 +1,22 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { RefreshCw, Unplug } from 'lucide-react';
 import { useSshTerminal, type SshStatus } from '@/hooks/useSshTerminal';
 import { useTerminalTheme } from '@/hooks/useTerminalTheme';
+import { api } from '@/lib/api';
+import { Button } from '@/components/ui/Button';
+import { toast } from '@/components/ui/Toaster';
 import { cn } from '@/lib/utils';
 
-export function SshTerminal({ sessionId, className, onStatusChange }: {
-  sessionId: string;
+/** An SSH tab: same look as a local terminal, plus reconnect when it ends. */
+export function SshTerminal({ terminalId, className, onStatusChange }: {
+  terminalId: string;
   className?: string;
   onStatusChange?: (status: SshStatus) => void;
 }) {
   const { activeTheme, activeFont, activeWeight, activeFontSize } = useTerminalTheme();
-  const { containerRef, status, attempt, fit } = useSshTerminal(sessionId, {
+  const [resuming, setResuming] = useState(false);
+  const { containerRef, status, attempt, fit } = useSshTerminal(terminalId, {
     theme: activeTheme.theme,
     fontFamily: activeFont.family,
     fontWeight: activeWeight,
@@ -48,6 +54,34 @@ export function SshTerminal({ sessionId, className, onStatusChange }: {
         className={cn('h-full w-full pl-3', activeTheme.type === 'light' && 'xterm-light-theme')}
         style={{ backgroundColor: bgColor }}
       />
+
+      {status === 'closed' && (
+        <div className="absolute inset-0 grid place-items-center bg-background/70 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3">
+            <Unplug className="size-8 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">SSH connection ended</p>
+            <Button
+              size="sm"
+              className="gap-1.5"
+              disabled={resuming}
+              onClick={async () => {
+                setResuming(true);
+                try {
+                  // Same terminal, same scrollback; the socket picks it up.
+                  await api.reconnectSshTerminal(terminalId);
+                } catch (err) {
+                  toast({ title: 'Reconnect failed', description: (err as Error).message, variant: 'destructive' });
+                } finally {
+                  setResuming(false);
+                }
+              }}
+            >
+              <RefreshCw className={cn('size-3.5', resuming && 'animate-spin')} />
+              Reconnect
+            </Button>
+          </div>
+        </div>
+      )}
 
       <AnimatePresence>
         {status === 'reconnecting' && (

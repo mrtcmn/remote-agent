@@ -6,16 +6,16 @@ import { NotificationListener } from './components/NotificationListener';
 import { LoginPage } from './pages/Login';
 import { DashboardPage } from './pages/Dashboard';
 import { SessionPage } from './pages/Session';
+import { ViewPage } from './pages/View';
 import { ProjectsPage } from './pages/Projects';
 import { SettingsPage } from './pages/Settings';
 import { KanbanPage } from './pages/Kanban';
 import { SkillsPage } from './pages/Skills';
 import { McpServersPage } from './pages/McpServers';
-import { SshSessionPage } from './pages/Ssh';
 import { Toaster } from './components/ui/Toaster';
 import { useAppTheme } from './hooks/useAppTheme';
 import { isElectron } from './lib/electron';
-import { FEATURE_SECTION_TASKS, FEATURE_SESSION_SSH } from './lib/flags';
+import { FEATURE_SECTION_TASKS } from './lib/flags';
 import { useApiConfig } from './lib/api-config';
 import { SetupScreen } from './components/SetupScreen';
 
@@ -76,6 +76,7 @@ export default function App() {
               <Layout>
                 <Routes>
                   <Route path="/" element={<DashboardPage />} />
+                  <Route path="/views/:id" element={<ViewPage />} />
                   <Route path="/sessions/:machineId/:id" element={<SessionPage />} />
                   <Route path="/sessions/:machineId/:id/:terminalId" element={<SessionPage />} />
                   {/* Legacy bare session URLs → default to the local machine */}
@@ -84,7 +85,6 @@ export default function App() {
                   {FEATURE_SECTION_TASKS && <Route path="/kanban" element={<KanbanPage />} />}
                   <Route path="/skills" element={<SkillsPage />} />
                   <Route path="/mcp-servers" element={<McpServersPage />} />
-                  {FEATURE_SESSION_SSH && <Route path="/ssh/:sessionId" element={<SshSessionPage />} />}
                   <Route path="/settings" element={<SettingsPage />} />
                 </Routes>
               </Layout>

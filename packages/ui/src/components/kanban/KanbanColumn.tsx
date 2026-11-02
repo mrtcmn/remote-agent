@@ -10,14 +10,14 @@ import type { KanbanTask, KanbanColumn as KanbanColumnType, KanbanStatus } from 
 import type { SessionLive } from '@/lib/task-live';
 import type { TaskMenuHandlers } from './TaskContextMenu';
 
-// Linear-style: a neutral column, one coloured dot to name the state.
-const statusDots: Record<string, string> = {
-  backlog: 'bg-zinc-500',
-  todo: 'bg-blue-400',
-  in_progress: 'bg-yellow-400',
-  manual_testing: 'bg-orange-400',
-  review_needed: 'bg-purple-400',
-  completed: 'bg-green-400',
+// Each state owns a tint: a stronger strip with the vertical label, a faint wash behind the cards.
+const statusTones: Record<string, { strip: string; area: string; text: string }> = {
+  backlog: { strip: 'bg-zinc-500/15', area: 'bg-zinc-500/[0.03]', text: 'text-zinc-400' },
+  todo: { strip: 'bg-blue-400/15', area: 'bg-blue-400/[0.03]', text: 'text-blue-400' },
+  in_progress: { strip: 'bg-yellow-400/15', area: 'bg-yellow-400/[0.03]', text: 'text-yellow-400' },
+  manual_testing: { strip: 'bg-orange-400/15', area: 'bg-orange-400/[0.03]', text: 'text-orange-400' },
+  review_needed: { strip: 'bg-purple-400/15', area: 'bg-purple-400/[0.03]', text: 'text-purple-400' },
+  completed: { strip: 'bg-green-400/15', area: 'bg-green-400/[0.03]', text: 'text-green-400' },
 };
 
 interface KanbanColumnProps {
@@ -45,6 +45,8 @@ export function KanbanColumn({
   // The column is a drop target of its own, so an empty one still takes a card.
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const isTarget = draggingId !== null && (isOver || column.tasks.some(t => t.id === draggingId));
+  const tone = statusTones[column.id] ?? statusTones.backlog;
+  const active = column.tasks.filter(t => t.sessionId && live.get(t.sessionId)?.agent === 'working').length;
 
   const handleAddTask = () => {
     if (newTaskTitle.trim()) {
@@ -66,35 +68,39 @@ export function KanbanColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        'flex flex-col min-w-[300px] max-w-[340px] w-[320px] rounded-xl border bg-card/40',
-        isTarget && 'ring-2 ring-primary/30 border-primary/50',
-        'transition-all duration-150',
+        'flex w-[320px] shrink-0 border-r last:border-r-0 transition-colors duration-150',
+        tone.area,
+        isTarget && 'bg-primary/5',
       )}
     >
-      {/* Column Header */}
-      <div className="flex items-center justify-between px-2.5 py-2">
-        <div className="flex items-center gap-2">
-          <span className={cn('h-2 w-2 rounded-full', statusDots[column.id])} />
-          <h3 className="font-semibold text-sm">{column.title}</h3>
-          <span className="flex items-center justify-center h-5 min-w-[20px] px-1.5 text-[11px] font-medium rounded-full bg-muted text-muted-foreground">
-            {column.count}
-          </span>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
+      {/* Vertical status strip: name, count, active, add */}
+      <div className={cn('flex flex-col items-center gap-2 w-8 shrink-0 py-2', tone.strip, tone.text)}>
+        <button
+          type="button"
+          title="Add task"
+          className="flex items-center justify-center size-6 rounded-md hover:bg-foreground/10"
           onClick={() => {
             setIsAddingTask(true);
             setTimeout(() => inputRef.current?.focus(), 50);
           }}
         >
-          <Plus className="h-4 w-4" />
-        </Button>
+          <Plus className="size-3.5" />
+        </button>
+        <span className="text-[11px] font-semibold tabular-nums">{column.count}</span>
+        {active > 0 && (
+          <span title={`${active} active`} className="flex items-center gap-1 text-[10px] font-medium tabular-nums">
+            <span className="size-1.5 rounded-full bg-current animate-pulse" />
+            {active}
+          </span>
+        )}
+        <h3 className="[writing-mode:vertical-rl] rotate-180 text-[11px] font-semibold uppercase tracking-[0.15em] whitespace-nowrap">
+          {column.title}
+        </h3>
       </div>
 
+      <div className="flex-1 min-w-0 flex flex-col">
       {/* Cards */}
-      <div className="flex-1 flex flex-col gap-1.5 overflow-y-auto overflow-x-hidden px-2 pb-2 min-h-[100px]">
+      <div className="flex-1 flex flex-col gap-1.5 overflow-y-auto overflow-x-hidden p-2 min-h-[100px]">
         <SortableContext items={column.tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
           {column.tasks.map((task) => (
             <SortableCard
@@ -150,6 +156,7 @@ export function KanbanColumn({
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

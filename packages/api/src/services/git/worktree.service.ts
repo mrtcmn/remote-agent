@@ -16,6 +16,24 @@ export class WorktreeService {
     return join(parentDir, '.worktrees', projectDirName, worktreeId);
   }
 
+  /**
+   * Seed the worktree with the main checkout's node_modules as a copy-on-write
+   * clone, like a Docker layer: no extra disk until a file changes.
+   * ponytail: APFS clonefile / Linux reflink only; on other filesystems it is
+   * skipped and the worktree needs its own install.
+   */
+  private async cloneNodeModules(src: string, dest: string): Promise<void> {
+    const found = await $`find . -maxdepth 3 -type d -name node_modules -prune`.cwd(src).nothrow().quiet();
+    const cow = process.platform === 'darwin' ? '-c' : '--reflink=always';
+    await Promise.all(
+      found.stdout.toString().split('\n').filter(Boolean).map(async (rel) => {
+        const to = join(dest, rel);
+        const r = await $`cp -R ${cow} ${join(src, rel)} ${to}`.nothrow().quiet();
+        if (r.exitCode !== 0) await $`rm -rf ${to}`.nothrow().quiet();
+      })
+    );
+  }
+
   async create(opts: {
     projectId: string;
     userId: string;
@@ -48,6 +66,8 @@ export class WorktreeService {
         throw new Error(`Failed to create worktree: ${result.stderr.toString()}`);
       }
     }
+
+    await this.cloneNodeModules(project.localPath, wtPath);
 
     // Insert DB record — clean up filesystem worktree if DB insert fails
     try {

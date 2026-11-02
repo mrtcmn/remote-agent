@@ -5,7 +5,7 @@
  * icon, lobehub brand set (Cursor, Antigravity), Simple Icons (Zed).
  * Regenerate via the gen.ts script kept alongside the downloaded SVGs.
  *
- * Used by `OpenInEditorButton` in local mode.
+ * Used by the session "Open in editor" menu in local mode.
  */
 
 import * as React from 'react';
@@ -101,4 +101,29 @@ export const EDITORS: EditorDef[] = [
 export function getEditorById(id: EditorId | null | undefined): EditorDef | undefined {
   if (!id) return undefined;
   return EDITORS.find((e) => e.id === id);
+}
+
+const DEFAULT_EDITOR_KEY = 'localMode.openInEditor.default';
+
+/** The remembered editor (first in the catalog until one is picked). */
+export function defaultEditorId(): EditorId {
+  try {
+    const v = localStorage.getItem(DEFAULT_EDITOR_KEY);
+    if (v && EDITORS.some((e) => e.id === v)) return v as EditorId;
+  } catch {
+    /* localStorage may throw in private mode */
+  }
+  return EDITORS[0].id;
+}
+
+/** Opens `folder` in editor `id` via its deep link and remembers it as the default. */
+export function openInEditor(id: EditorId, folder: string) {
+  try {
+    localStorage.setItem(DEFAULT_EDITOR_KEY, id);
+  } catch {
+    /* ignore */
+  }
+  const editor = getEditorById(id);
+  // The desktop shell routes non-app URLs (vscode://, cursor://, …) to the OS handler.
+  if (editor) window.open(editor.deepLink(folder), '_blank');
 }

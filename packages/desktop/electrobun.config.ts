@@ -34,6 +34,8 @@ export default {
       "../api/drizzle-sqlite": "server/drizzle-sqlite",
       // The notch companion (built by `build:notch`) so the app ships as one thing.
       "../notch/.build/release/RemoteAgentNotch": "notch/RemoteAgentNotch",
+      // Window vibrancy helper (built by `build:glass`), loaded with bun:ffi.
+      "native/build/libglass.dylib": "native/libglass.dylib",
       // Tray icon.
       "assets/trayTemplate.png": "views/assets/trayTemplate.png",
       "assets/trayTemplate@2x.png": "views/assets/trayTemplate@2x.png",
@@ -42,6 +44,8 @@ export default {
       // CEF only for the browser panel; the app's own window stays native.
       bundleCEF: true,
       defaultRenderer: "native",
+      // Electrobun's own toggleDevTools still looks for 9222-9232, so the UI's
+      // Inspector button opens the frontend on this port itself.
       chromiumFlags: { "remote-debugging-port": CDP_PORT },
       // WKWebView hides navigator.mediaDevices entirely unless the host app
       // declares a microphone usage string; electrobun derives the Info.plist
@@ -56,6 +60,9 @@ export default {
     win: { bundleCEF: false, defaultRenderer: "native" },
     // Linux: GTK/WebKitGTK can't do Electrobun's webview layering — bundle CEF.
     linux: { bundleCEF: true, defaultRenderer: "cef" },
+  },
+  scripts: {
+    postBuild: "scripts/hide-cef-helpers.ts",
   },
   runtime: {
     // Tray keeps the app alive after the window closes (current macOS behavior).

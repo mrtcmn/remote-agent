@@ -26,11 +26,10 @@ function formatClaudeMessage(comments: typeof reviewComments.$inferSelect[]): st
 		message += `## ${filePath}\n\n`;
 
 		for (const comment of fileComments) {
-			const sideLabel = comment.lineSide === 'additions' ? 'addition' : 'deletion';
-			message += `**Line ${comment.lineNumber} (${sideLabel}):**\n`;
-			message += '```\n';
-			message += `${comment.lineContent}\n`;
-			message += '```\n';
+			// `@path#L12` is the mention form the agent CLIs resolve to the file and line.
+			const side = comment.lineSide === 'deletions' ? ' (removed line)' : '';
+			message += `@${filePath}#L${comment.lineNumber}${side}\n`;
+			if (comment.lineContent) message += '```\n' + `${comment.lineContent}\n` + '```\n';
 			message += `> ${comment.comment}\n\n`;
 		}
 	}

@@ -4,6 +4,8 @@ import { llmSettings } from '../services/llm-engine';
 import { sonioxSettings } from '../services/soniox';
 import { originsService } from '../services/origins';
 import { machineIdentity } from '../services/machine-identity';
+import { pairedMastersService } from '../services/paired-masters';
+import { masterSyncService } from '../services/master-sync';
 
 /** Config without the secret — the API key is write-only. */
 const publicLLM = () => {
@@ -85,6 +87,11 @@ export const settingsRoutes = new Elysia({ prefix: '/settings' })
   // PUT /settings/machine-name - rename this machine
   .put('/machine-name', async ({ body }) => {
     const name = await machineIdentity.set(body.name.trim());
+    // Tell each master too, so the new name reaches every machine — best effort.
+    for (const master of await pairedMastersService.listAll()) {
+      await masterSyncService.renameOnMaster(master, master.id, name).catch((err) =>
+        console.warn(`[machine-name] rename on ${master.url} failed:`, (err as Error).message));
+    }
     return { name };
   }, {
     body: t.Object({ name: t.String({ minLength: 1, maxLength: 100 }) }),

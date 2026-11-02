@@ -21,7 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = NotificationStore()
     private var windowManager: WindowManager?
     private var screenObserver: ScreenObserver?
-    private var anchorObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -31,12 +30,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         screenObserver = ScreenObserver { [weak self] in
             self?.windowManager?.setupNotchWindow()
-        }
-
-        anchorObserver = NotificationCenter.default.addObserver(
-            forName: .notchAnchorChanged, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.windowManager?.setupNotchWindow(force: true) }
         }
 
         store.start()
@@ -61,10 +54,10 @@ final class WindowManager {
         self.store = store
     }
 
-    func setupNotchWindow(force: Bool = false) {
+    func setupNotchWindow() {
         guard let screen = NSScreen.builtin ?? NSScreen.main else { return }
         let layout = "\(screen.frame)|\(screen.visibleFrame)"
-        if !force, controller != nil, currentLayout == layout { return }
+        if controller != nil, currentLayout == layout { return }
 
         let isFirstLaunch = controller == nil
         controller?.close()

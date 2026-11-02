@@ -62,6 +62,8 @@ export function getActiveMachineId(): string {
 const LOCAL_ONLY_PREFIXES = [
   '/auth',
   '/paired-masters',
+  // Split views live on the machine the UI runs on; their panels name their own machines.
+  '/views',
   // Aggregate endpoints run on THIS machine and fan out to the others, so they
   // must never themselves be proxied to a single machine.
   '/sessions/sidebar/aggregate',
@@ -78,8 +80,8 @@ export function shouldProxyEndpoint(endpoint: string): boolean {
  * routes through the local API's /ws/proxy/:machineId?path=... bridge so the master's
  * machineToken stays server-side. When viewing self, returns the path unchanged.
  */
-export function resolveWsPath(wsPath: string): string {
-  const activeId = getActiveMachineId();
+export function resolveWsPath(wsPath: string, machineId?: string): string {
+  const activeId = machineId ?? getActiveMachineId();
   if (!activeId || activeId === 'self') return wsPath;
   const encoded = encodeURIComponent(wsPath);
   return `/ws/proxy/${activeId}?path=${encoded}`;

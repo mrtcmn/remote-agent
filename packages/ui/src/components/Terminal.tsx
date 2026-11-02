@@ -15,6 +15,8 @@ function hexToRgba(hex: string, alpha: number): string {
 
 interface TerminalProps {
   terminalId: string;
+  /** The machine that owns the terminal. Default: the globally active machine. */
+  machineId?: string;
   className?: string;
   onExit?: (exitCode: number) => void;
   onTitleChanged?: (name: string) => void;
@@ -26,12 +28,13 @@ export interface TerminalHandle {
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(
-  { terminalId, className, onExit, onTitleChanged },
+  { terminalId, machineId, className, onExit, onTitleChanged },
   ref
 ) {
   const { activeTheme, activeFont, activeWeight, activeFontSize } = useTerminalTheme();
   const { terminalRef, status, fit, refresh, reconnect, sendText } = useTerminal({
     terminalId,
+    machineId,
     theme: activeTheme.theme,
     fontFamily: activeFont.family,
     fontWeight: activeWeight,
@@ -46,7 +49,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   // Auto-reconnect when user returns from idle or tab-hidden
   const handleResume = useCallback(() => {
     reconnect();
-    api.sendHeartbeat(terminalId).catch(() => {});
+    api.sendHeartbeat(terminalId, machineId).catch(() => {});
   }, [reconnect, terminalId]);
 
   useConnectionRecovery({ onResume: handleResume });
@@ -103,13 +106,13 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
   return (
     <div
-      className={cn('relative h-full w-full', className)}
+      className={cn('terminal-bg relative h-full w-full', className)}
       style={{ backgroundColor: termBg }}
     >
       {/* Terminal container – left padding only so scrollbar sits flush right */}
       <div
         ref={terminalRef}
-        className={cn('h-full w-full rounded-lg overflow-hidden pl-3', activeTheme.type === 'light' && 'xterm-light-theme')}
+        className={cn('terminal-bg h-full w-full rounded-lg overflow-hidden pl-3', activeTheme.type === 'light' && 'xterm-light-theme')}
         style={{ backgroundColor: termBg }}
       />
     </div>

@@ -6,19 +6,16 @@ import { sessionPath } from '@/lib/session-route';
 import { useActiveMachine, getActiveMachineId } from '@/lib/active-machine';
 import type { AggregatedSidebar } from '@/lib/api';
 import {
-  ArrowLeft,
   TerminalSquare,
   Plus,
   Minus,
   GitBranch,
-  X,
   RefreshCw,
   ChevronDown,
   FolderOpen,
   Play,
   Monitor,
   Code2,
-  ExternalLink,
   KeyRound,
   Container,
   AlertTriangle,
@@ -31,11 +28,24 @@ import {
   HardDrive,
   Send,
   Download,
+  Server,
+  MoreHorizontal,
+  PanelRight,
 } from 'lucide-react';
-import { api, type TerminalType, type TerminalInfo } from '@/lib/api';
+import { SshTerminal } from '@/components/ssh/SshTerminal';
+import { FEATURE_SESSION_SSH } from '@/lib/flags';
+import { api, type TerminalType, type TerminalInfo, type ViewPanelInput } from '@/lib/api';
+import type { ReviewTarget } from '@/components/review/ReviewComposer';
+
+const isAgentTerminal = (t: TerminalInfo) => t.type === 'claude' || t.type === 'opencode' || t.type === 'kimi';
 import { Button } from '@/components/ui/Button';
 import { Terminal, type TerminalHandle } from '@/components/Terminal';
 import { AIModelIcon, detectAIModel } from '@/components/AIModelIcon';
+import { AGENTS } from '@/components/AgentLaunchButton';
+import { IconMenu, type MenuEntry } from '@/components/IconMenu';
+import { EDITORS, defaultEditorId, openInEditor } from '@/components/EditorIcons';
+import { PANEL_DRAG_TYPE, readDragPanel, zoneAt, ZONE_DIRECTION, type SplitZone } from '@/lib/views';
+import type { ViewLocationState } from '@/pages/View';
 import { GitPanel } from '@/components/git';
 import { FileExplorer } from '@/components/FileExplorer';
 import { RecentChangesBar } from '@/components/RecentChangesBar';
@@ -57,6 +67,7 @@ import {
   ToolbarStatus,
 } from '@/components/ui/Toolbar';
 import { cn } from '@/lib/utils';
+import { TabItem, type TabData } from '@/components/SessionTab';
 import { useDropUpload } from '@/lib/drop-upload';
 import { MarqueeText } from '@/components/ui/MarqueeText';
 import { toast } from '@/components/ui/Toaster';
@@ -64,229 +75,14 @@ import { useTerminalTheme } from '@/hooks/useTerminalTheme';
 import { ThemeSelector } from '@/components/ThemeSelector';
 import { ProjectSelector } from '@/components/ProjectSelector';
 import { ReviewDrawer } from '@/components/review/ReviewDrawer';
-import { OpenInEditorButton } from '@/components/OpenInEditorButton';
 
 type ViewMode = 'terminal' | 'git' | 'files' | 'run' | 'flow' | 'docker' | 'env';
-
-// ─── Tools Menu Primitives ──────────────────────────────────────────────────
-
-function Divider() {
-  return <div className="w-px self-stretch shrink-0 bg-border/70 mx-0.5" />;
-}
 
 function ToolBadge({ count }: { count: number }) {
   return (
     <span className="flex items-center justify-center min-w-[14px] h-3.5 rounded-full bg-orange-500 text-white text-[8px] font-bold leading-none px-1 shrink-0 tabular-nums">
       {count}
     </span>
-  );
-}
-
-function PulseDot({ active }: { active: boolean }) {
-  return (
-    <span className="relative flex size-1.5 shrink-0">
-      {active && (
-        <span className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-60" />
-      )}
-      <span
-        className="relative rounded-full h-full w-full"
-        style={{ backgroundColor: active ? '#10b981' : 'rgba(128,128,128,0.3)' }}
-      />
-    </span>
-  );
-}
-
-interface ToolBtnProps {
-  icon?: React.ElementType;
-  customIcon?: React.ReactNode;
-  label?: string;
-  badge?: number;
-  pill?: string;
-  isActive?: boolean;
-  isRunning?: boolean;
-  external?: boolean;
-  accentColor?: string;
-  iconColor?: string;
-  activeGlow?: boolean;
-  onClick?: () => void;
-  disabled?: boolean;
-  className?: string;
-}
-
-function ToolBtn({
-  icon: Icon,
-  customIcon,
-  label,
-  badge,
-  pill,
-  isActive,
-  isRunning,
-  external,
-  accentColor,
-  iconColor,
-  onClick,
-  disabled,
-  className,
-}: ToolBtnProps) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        'group relative flex items-center gap-1.5 px-2 my-[2px] self-stretch text-xs font-medium rounded-md transition-colors duration-100 shrink-0 select-none cursor-pointer active:scale-95',
-        isActive
-          ? 'bg-secondary/80 text-foreground'
-          : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60',
-        disabled && 'opacity-50 cursor-not-allowed',
-        className
-      )}
-    >
-      {isActive && accentColor && (
-        <span
-          className="absolute -top-px left-1/2 -translate-x-1/2 h-px w-4/5 rounded-full pointer-events-none"
-          style={{ backgroundColor: accentColor }}
-        />
-      )}
-
-      {isRunning !== undefined && <PulseDot active={isRunning} />}
-
-      {customIcon && customIcon}
-      {!customIcon && Icon && (
-        <Icon
-          className="size-3.5 shrink-0 transition-colors"
-          style={iconColor && isActive ? { color: iconColor } : undefined}
-        />
-      )}
-
-      {label && <span className="leading-none tracking-tight hidden sm:inline">{label}</span>}
-      {badge !== undefined && badge > 0 && <ToolBadge count={badge} />}
-      {pill && (
-        <span className="px-1.5 h-4 flex items-center rounded text-[10px] font-mono bg-muted/80 text-muted-foreground shrink-0 border border-border/60 leading-none hidden sm:flex">
-          {pill}
-        </span>
-      )}
-
-      {external && (
-        <ExternalLink className="size-2.5 opacity-20 group-hover:opacity-50 transition-opacity" />
-      )}
-    </button>
-  );
-}
-
-// ─── Tab Bar ─────────────────────────────────────────────────────────────────
-
-interface TabData {
-  id: string;
-  label: string;
-  type: string;
-  pinned?: boolean;
-  color?: string;
-}
-
-function StatusDot({ color = '#22c55e' }: { color?: string }) {
-  return (
-    <span
-      className="size-3 rounded-full shrink-0"
-      style={{
-        background: `radial-gradient(circle at 35% 30%, ${color}, ${color}88)`,
-        boxShadow: `0 0 5px ${color}66`,
-      }}
-    />
-  );
-}
-
-function getTabAccent(tab: TabData): string {
-  if (tab.type === 'process') return tab.color ?? '#22c55e';
-  if (tab.type === 'opencode') return '#38bdf8';
-  if (tab.type === 'kimi') return '#1783FF';
-  if (tab.type === 'project') return '#60a5fa';
-  if (tab.type === 'shell') return '#94a3b8';
-  if (tab.type === 'claude') {
-    const model = detectAIModel(tab.label);
-    if (model === 'gemini') return '#4285F4';
-    if (model === 'openai' || model === 'codex') return '#10a37f';
-    return '#D97757';
-  }
-  return '#94a3b8';
-}
-
-function TabItem({
-  tab,
-  isActive,
-  onActivate,
-  onClose,
-  compact,
-}: {
-  tab: TabData;
-  isActive: boolean;
-  onActivate: () => void;
-  onClose?: () => void;
-  compact?: boolean;
-}) {
-  const accent = getTabAccent(tab);
-
-  const typeIcon = tab.type === 'claude' ? (
-    <AIModelIcon model={detectAIModel(tab.label)} size={13} />
-  ) : tab.type === 'opencode' ? (
-    <AIModelIcon model="opencode" size={13} />
-  ) : tab.type === 'kimi' ? (
-    <AIModelIcon model="kimi" size={13} />
-  ) : tab.type === 'process' ? (
-    <StatusDot color={tab.color ?? '#22c55e'} />
-  ) : tab.type === 'project' ? (
-    <FolderOpen className="size-3 text-muted-foreground shrink-0" />
-  ) : (
-    <TerminalSquare className="size-3 text-muted-foreground shrink-0" />
-  );
-
-  const activeBg = `linear-gradient(135deg, ${accent}00 0%, ${accent}0a 100%), hsl(var(--secondary))`;
-  const activeBorderColor = `color-mix(in srgb, ${accent} 25%, hsl(var(--border)))`;
-
-  return (
-    <div
-      onClick={onActivate}
-      className={cn(
-        'group relative flex items-center rounded-full select-none overflow-hidden',
-        'border transition-all duration-150',
-        compact ? 'gap-1 h-[26px] px-2' : 'gap-1.5 h-[28px] px-3',
-        isActive
-          ? 'text-foreground'
-          : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border/40 hover:bg-secondary/40'
-      )}
-      style={{
-        maxWidth: compact ? 150 : 200,
-        background: isActive ? activeBg : undefined,
-        borderColor: isActive ? activeBorderColor : undefined,
-      }}
-    >
-      {typeIcon}
-
-      {isActive ? (
-        <span
-          className="text-[11px] font-medium truncate flex-1 min-w-0 leading-none select-none"
-          style={{
-            background: `linear-gradient(to right, color-mix(in srgb, ${accent} 70%, hsl(var(--foreground))), hsl(var(--foreground)))`,
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-          }}
-        >
-          {tab.label}
-        </span>
-      ) : (
-        <span className="text-[11px] font-medium truncate flex-1 min-w-0 leading-none">
-          {tab.label}
-        </span>
-      )}
-
-      {!tab.pinned && onClose && (
-        <button
-          className="flex items-center justify-center size-3 rounded-full bg-foreground/10 hover:bg-foreground/20 text-foreground/60 hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-100 ml-0.5"
-          onClick={(e) => { e.stopPropagation(); onClose(); }}
-        >
-          <X className="size-2" />
-        </button>
-      )}
-    </div>
   );
 }
 
@@ -407,23 +203,11 @@ export function SessionPage() {
     setToolbarSlot(document.getElementById('app-toolbar'));
   }, []);
 
-  // Right-edge fade on the tools toolbar while more tools are scrolled out of view
-  const toolsScrollRef = useRef<HTMLDivElement>(null);
-  const [toolsFade, setToolsFade] = useState(false);
-  const updateToolsFade = () => {
-    const el = toolsScrollRef.current;
-    if (el) setToolsFade(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
-  };
-  useEffect(() => {
-    updateToolsFade();
-    const el = toolsScrollRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(updateToolsFade);
-    ro.observe(el);
-    if (el.firstElementChild) ro.observe(el.firstElementChild);
-    return () => ro.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toolbarSlot]);
+  const { data: sshHosts = [] } = useQuery({
+    queryKey: ['ssh-hosts'],
+    queryFn: api.getSshHosts,
+    enabled: FEATURE_SESSION_SSH,
+  });
   const [showThemeSelector, setShowThemeSelector] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [showReviewDrawer, setShowReviewDrawer] = useState(false);
@@ -511,6 +295,21 @@ export function SessionPage() {
     },
   });
 
+  // An SSH host as one more tab in this session.
+  const sshTabMutation = useMutation({
+    mutationFn: (hostId: string) => api.connectSshHost(hostId, { sessionId: id! }),
+    onSuccess: ({ terminalId }) => {
+      queryClient.invalidateQueries({ queryKey: ['terminals', id] });
+      queryClient.invalidateQueries({ queryKey: ['ssh-sessions'] });
+      setActiveTerminalId(terminalId);
+      setViewMode('terminal');
+      navigate(sessionPath(ownerMachine, id!, terminalId), { replace: true });
+    },
+    onError: (error) => {
+      toast({ title: 'SSH connect failed', description: (error as Error).message, variant: 'destructive' });
+    },
+  });
+
   // Hand off: the owner machine pushes branch + uncommitted work, the target restores it and starts an agent.
   // The UI's own machine is 'self' here but must be 'caller' to a remote owner.
   const [handoffOpen, setHandoffOpen] = useState(false);
@@ -577,7 +376,8 @@ export function SessionPage() {
   const canOpenEditor = !!editorStatus?.configured && !!activeProject?.localPath;
   const canOpenLocalEditor = isLocalMode && !!activeProject?.localPath;
   const activeTerminals = useMemo(
-    () => terminals.filter((t) => (t.liveStatus || t.status) === 'running'),
+    // An SSH tab that dropped stays, to offer Reconnect; closing it removes it.
+    () => terminals.filter((t) => t.type === 'ssh' || (t.liveStatus || t.status) === 'running'),
     [terminals]
   );
 
@@ -607,12 +407,48 @@ export function SessionPage() {
   // The running agent terminal that review comments can be typed into: the one
   // in view if it is an agent, otherwise the first running agent terminal.
   const reviewTargetTerminal = useMemo(() => {
-    const isAgent = (t: TerminalInfo) => t.type === 'claude' || t.type === 'opencode' || t.type === 'kimi';
-    if (activeTerminal && isAgent(activeTerminal) && (activeTerminal.liveStatus || activeTerminal.status) === 'running') {
+    if (activeTerminal && isAgentTerminal(activeTerminal) && (activeTerminal.liveStatus || activeTerminal.status) === 'running') {
       return activeTerminal;
     }
-    return activeTerminals.find(isAgent);
+    return activeTerminals.find(isAgentTerminal);
   }, [activeTerminal, activeTerminals]);
+
+  // Sends drafted review comments (from the diff or the file viewer) to an agent.
+  const sendReview = async (message: string, target: ReviewTarget) => {
+    if (target === 'new') {
+      createMutation.mutate(
+        { type: 'claude', name: 'Review', initialPrompt: message },
+        {
+          onSuccess: () => { toast({ title: 'Claude terminal started', description: 'Review comments are being processed' }); },
+          onError: () => { toast({ title: 'Failed to create terminal', description: 'Please try again', variant: 'destructive' }); },
+        }
+      );
+      return;
+    }
+    try {
+      if (target === 'current') {
+        if (!reviewTargetTerminal) throw new Error('No agent terminal is running');
+        // Type the review in but leave the Enter to the user, so a stray
+        // send never interrupts whatever the agent is already doing.
+        await api.sendTerminalInput(reviewTargetTerminal.id, message);
+        selectTerminal(reviewTargetTerminal.id);
+        toast({ title: 'Review sent', description: `Typed into ${reviewTargetTerminal.name} — press Enter to run it` });
+        return;
+      }
+      const agent = (await api.getSessionTerminals(target.sessionId)).find(
+        (t) => isAgentTerminal(t) && (t.liveStatus || t.status) === 'running'
+      );
+      if (!agent) throw new Error(`${target.label} has no running agent`);
+      // Nobody watches that session, so submit it, like the MCP send_prompt:
+      // bracketed paste, a beat for the TUI to take it, then Enter alone.
+      await api.sendTerminalInput(agent.id, `\x1b[200~${message}\x1b[201~`);
+      await new Promise((r) => setTimeout(r, 150));
+      await api.sendTerminalInput(agent.id, '\r');
+      toast({ title: 'Review sent', description: `Submitted to ${target.label}` });
+    } catch (e) {
+      toast({ title: 'Send failed', description: (e as Error).message, variant: 'destructive' });
+    }
+  };
 
   // ── Push-to-talk dictation ──
   // Hold ⌃⇧ to talk; the transcript takes over the recent-files bar and is typed
@@ -720,6 +556,107 @@ export function SessionPage() {
   };
   const handleTabPointerUp = () => { pointerDragRef.current = null; };
 
+  // ── Split: a tab (or a sidebar terminal) dropped on an edge of the content
+  // makes a view with what is shown now and the dropped item side by side.
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [splitZone, setSplitZone] = useState<SplitZone | null>(null);
+  const splitZoneRef = useRef<SplitZone | null>(null);
+  const showZone = (zone: SplitZone | null) => {
+    splitZoneRef.current = zone;
+    setSplitZone(zone);
+  };
+
+  const createSplitView = async (dropped: Omit<ViewPanelInput, 'id'>, zone: SplitZone) => {
+    const tabPanel = (tabId: string): Omit<ViewPanelInput, 'id'> =>
+      tabId === '__project__'
+        ? { machineId: ownerMachine, sessionId: id!, kind: 'tool', tool: 'files' }
+        : { machineId: ownerMachine, sessionId: id!, kind: 'terminal', terminalId: tabId };
+    const same = (a: Omit<ViewPanelInput, 'id'>, b: Omit<ViewPanelInput, 'id'>) =>
+      a.sessionId === b.sessionId && a.terminalId === b.terminalId && a.tool === b.tool;
+    // What the content shows now; if that is the dragged tab, the next tab.
+    let current: Omit<ViewPanelInput, 'id'> | null =
+      viewMode === 'terminal'
+        ? activeTerminal ? tabPanel(activeTerminal.id) : null
+        : { machineId: ownerMachine, sessionId: id!, kind: 'tool', tool: viewMode };
+    if (!current || same(current, dropped)) {
+      const other = orderedTabs.find((t) => !same(tabPanel(t.id), dropped));
+      current = other ? tabPanel(other.id) : null;
+    }
+    if (!current) {
+      toast({ title: 'Nothing to split with', description: 'Open a second tab first.' });
+      return;
+    }
+    // Not crypto.randomUUID: it is missing on plain-http origins (the tailnet IP).
+    const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+    const first = newId();
+    try {
+      const view = await api.createView({ panels: [{ ...current, id: first }, { ...dropped, id: newId() }] });
+      queryClient.invalidateQueries({ queryKey: ['views'] });
+      const state: ViewLocationState = { split: ZONE_DIRECTION[zone], first };
+      navigate(`/views/${view.id}`, { state });
+    } catch (err) {
+      toast({ title: 'Could not create the view', description: (err as Error).message, variant: 'destructive' });
+    }
+  };
+
+  // Tab drags use pointer events (the reorder above). Capture on window, so this
+  // runs before the tab's own pointerup clears the drag.
+  const createSplitViewRef = useRef(createSplitView);
+  createSplitViewRef.current = createSplitView;
+  useEffect(() => {
+    const move = (e: PointerEvent) => {
+      const el = contentRef.current;
+      if (!pointerDragRef.current || !el) return;
+      showZone(zoneAt(e.clientX, e.clientY, el.getBoundingClientRect()));
+    };
+    const up = () => {
+      const drag = pointerDragRef.current;
+      const zone = splitZoneRef.current;
+      pointerDragRef.current = null; // a release off the tabs must end the drag too
+      showZone(null);
+      if (drag && zone) {
+        createSplitViewRef.current(
+          drag.id === '__project__'
+            ? { machineId: ownerMachine, sessionId: id!, kind: 'tool', tool: 'files' }
+            : { machineId: ownerMachine, sessionId: id!, kind: 'terminal', terminalId: drag.id },
+          zone,
+        );
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up, true);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up, true);
+    };
+  }, [ownerMachine, id]);
+
+  // Sidebar terminals use HTML5 drag. Capture phase: the terminal's own file
+  // drop handler must not see these.
+  const splitDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes(PANEL_DRAG_TYPE) || !contentRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    showZone(zoneAt(e.clientX, e.clientY, contentRef.current.getBoundingClientRect()));
+  };
+  const splitDrop = (e: React.DragEvent) => {
+    const drag = readDragPanel(e);
+    const zone = splitZoneRef.current;
+    showZone(null);
+    if (!drag) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (zone) {
+      createSplitView({
+        machineId: drag.machineId,
+        sessionId: drag.sessionId,
+        kind: drag.tool ? 'tool' : 'terminal',
+        terminalId: drag.terminalId ?? null,
+        tool: drag.tool ?? null,
+      }, zone);
+    }
+  };
+
   // Surface a failed session load instead of falling through to a blank shell.
   // The common case is a remote session whose owning machine is unreachable, or
   // a session that was terminated/removed.
@@ -752,8 +689,84 @@ export function SessionPage() {
     );
   }
 
+  // ── Top-bar menus: "+" opens a new tab, "⋯" holds every session tool ──
+  const newTabEntries: MenuEntry[] = [
+    ...AGENTS.map((a) => ({
+      icon: <AIModelIcon model={a.type} size={14} />,
+      label: a.label,
+      onSelect: () => createMutation.mutate({ type: a.type }),
+    })),
+    'divider',
+    { icon: <TerminalSquare />, label: 'Shell', onSelect: () => createMutation.mutate({ type: 'shell' }) },
+    // ponytail: this machine only — SSH hosts and their secrets live in its vault.
+    ...(FEATURE_SESSION_SSH && ownerMachine === 'self'
+      ? [{
+          icon: <Server />,
+          label: 'SSH',
+          empty: 'No SSH hosts yet. Add one in the sidebar.',
+          sub: sshHosts.map((h) => ({
+            label: h.label,
+            hint: `${h.username}@${h.host}`,
+            onSelect: () => sshTabMutation.mutate(h.id),
+          })),
+        }]
+      : []),
+  ];
+
+  const needsProject = !!session?.project?.isMultiProject && !activeProject;
+  const togglePanel = (mode: ViewMode) => setViewMode(viewMode === mode ? 'terminal' : mode);
+  const toolEntries: MenuEntry[] = [
+    ...(session?.project
+      ? [
+          { icon: <Play />, label: 'Run', active: viewMode === 'run', disabled: needsProject, onSelect: () => togglePanel('run') },
+          ...(activeProject
+            ? [{ icon: <PanelRight />, label: 'Runs panel', active: runnerOpen, onSelect: () => setRunnerOpen((v) => !v) }]
+            : []),
+          { icon: <Workflow />, label: 'Flow', active: viewMode === 'flow', onSelect: () => togglePanel('flow') },
+          { icon: <FolderOpen />, label: 'Files', active: viewMode === 'files', disabled: needsProject, onSelect: () => togglePanel('files') },
+          { icon: <KeyRound />, label: 'Env', active: viewMode === 'env', disabled: needsProject, onSelect: () => togglePanel('env') },
+        ]
+      : []),
+    { icon: <Container />, label: 'Docker', active: viewMode === 'docker', disabled: needsProject, onSelect: () => togglePanel('docker') },
+    {
+      icon: <Monitor />,
+      label: 'Browser',
+      active: browserOpen && hasBrowser,
+      disabled: needsProject,
+      onSelect: () => (hasBrowser ? setBrowserOpen((v) => !v) : setShowPreviewDialog(true)),
+    },
+    ...(canOpenLocalEditor
+      ? ['divider' as const, {
+          icon: <Code2 />,
+          label: 'Open in editor',
+          sub: EDITORS.map((e) => ({
+            icon: <e.Icon size={14} />,
+            label: e.label,
+            active: e.id === defaultEditorId(),
+            onSelect: () => openInEditor(e.id, activeProject!.localPath),
+          })),
+        }]
+      : canOpenEditor
+        ? ['divider' as const, {
+            icon: <Code2 />,
+            label: 'VS Code',
+            disabled: openEditorMutation.isPending,
+            onSelect: () => openEditorMutation.mutate(activeProject!.localPath),
+          }]
+        : []),
+    ...(session?.project?.repoUrl
+      ? [
+          'divider' as const,
+          { icon: <Send />, label: 'Hand off', disabled: handoffMutation.isPending, onSelect: () => setHandoffOpen(true) },
+          ...(ownerMachine !== 'self'
+            ? [{ icon: <Download />, label: 'Continue here', disabled: handoffMutation.isPending, onSelect: () => handoffMutation.mutate({ machineId: 'self' }) }]
+            : []),
+        ]
+      : []),
+  ];
+
   return (
-    <div className="flex flex-col h-full gap-2">
+    <div className="flex flex-col h-full gap-1.5">
       {handoffOpen && (
         <HandoffDialog
           ownerMachine={ownerMachine}
@@ -762,252 +775,71 @@ export function SessionPage() {
           onCancel={() => setHandoffOpen(false)}
         />
       )}
-      {/* ── Tools Menu Toolbar — portaled into the app-wide top bar ── */}
+      {/* ── Top bar: tabs, "+" new tab, then the "⋯" tools menu on the right.
+           Portaled into Layout's #app-toolbar, so the session has no toolbar row. ── */}
       {toolbarSlot && createPortal(
-      <div className="relative flex-1 min-w-0 flex items-stretch overflow-hidden">
-        <div
-          ref={toolsScrollRef}
-          onScroll={updateToolsFade}
-          className="flex-1 min-w-0 flex items-stretch overflow-x-auto scrollbar-hide"
-        >
-          <div className="flex items-stretch px-1 electrobun-webkit-app-region-no-drag">
-            {/* Nav */}
-            <ToolBtn icon={ArrowLeft} onClick={() => navigate('/')} className="w-7 justify-center px-0" />
-            {session?.project?.isMultiProject && session.project.childLinks && session.project.childLinks.length > 0 ? (
-              <div className="flex items-center self-stretch px-1">
-                <ProjectSelector
-                  links={session.project.childLinks}
-                  selectedProjectId={selectedProjectId}
-                  onSelect={(id) => {
-                    setSelectedProjectId(id);
-                    // Auto-switch to terminal if clearing selection while a project-dependent panel is open
-                    const projectDependentViews: ViewMode[] = ['git', 'files', 'env'];
-                    if (!id && projectDependentViews.includes(viewMode)) {
-                      setViewMode('terminal');
-                    }
-                  }}
-                />
-              </div>
-            ) : (
-              <ToolBtn
-                label={session?.project?.name || 'Session'}
-                className="font-semibold text-foreground/90 px-2"
+        <div className="flex-1 min-w-0 flex items-center gap-1 pr-1">
+          {session?.project?.isMultiProject && session.project.childLinks && session.project.childLinks.length > 0 && (
+            <div className="hidden md:flex items-center shrink-0 electrobun-webkit-app-region-no-drag">
+              <ProjectSelector
+                links={session.project.childLinks}
+                selectedProjectId={selectedProjectId}
+                onSelect={(id) => {
+                  setSelectedProjectId(id);
+                  // Leave a project-dependent panel when the selection is cleared
+                  const projectDependentViews: ViewMode[] = ['git', 'files', 'env'];
+                  if (!id && projectDependentViews.includes(viewMode)) setViewMode('terminal');
+                }}
               />
-            )}
+            </div>
+          )}
 
-            <div className="flex items-stretch">
-                  {/* AI */}
-                  <Divider />
-                  <div className="flex items-stretch gap-0.5">
-                    <ToolBtn
-                      customIcon={<AIModelIcon model="claude" size={14} />}
-                      label="Claude"
-                      onClick={() => createMutation.mutate({ type: 'claude' })}
-                      disabled={createMutation.isPending}
-                    />
-                    <ToolBtn
-                      customIcon={<AIModelIcon model="opencode" size={14} />}
-                      label="Opencode"
-                      onClick={() => createMutation.mutate({ type: 'opencode' })}
-                      disabled={createMutation.isPending}
-                    />
-                    <ToolBtn
-                      customIcon={<AIModelIcon model="kimi" size={14} />}
-                      label="Kimi"
-                      onClick={() => createMutation.mutate({ type: 'kimi' })}
-                      disabled={createMutation.isPending}
-                    />
-                    {session?.project?.repoUrl && (
-                      <ToolBtn
-                        icon={Send}
-                        label="Hand off"
-                        onClick={() => setHandoffOpen(true)}
-                        disabled={handoffMutation.isPending}
-                      />
-                    )}
-                    {session?.project?.repoUrl && ownerMachine !== 'self' && (
-                      <ToolBtn
-                        icon={Download}
-                        label="Continue here"
-                        onClick={() => handoffMutation.mutate({ machineId: 'self' })}
-                        disabled={handoffMutation.isPending}
-                      />
-                    )}
-                  </div>
-
-                  {/* Shell */}
-                  <Divider />
-                  <div className="flex items-stretch gap-0.5">
-                    <ToolBtn
-                      icon={TerminalSquare}
-                      label="Shell"
-                      onClick={() => createMutation.mutate({ type: 'shell' })}
-                      disabled={createMutation.isPending}
-                    />
-                  </div>
-
-                  {/* Run / Files */}
-                  {session?.project && (
-                    <>
-                      <Divider />
-                      <div className="flex items-stretch gap-0.5">
-                        <ToolBtn
-                          icon={Play}
-                          label="Run"
-                          isActive={viewMode === 'run'}
-                          disabled={!!session?.project?.isMultiProject && !activeProject}
-                          onClick={() => setViewMode(viewMode === 'run' ? 'terminal' : 'run')}
-                        />
-                        <ToolBtn
-                          icon={Workflow}
-                          label="Flow"
-                          isActive={viewMode === 'flow'}
-                          onClick={() => setViewMode(viewMode === 'flow' ? 'terminal' : 'flow')}
-                        />
-                        <ToolBtn
-                          icon={FolderOpen}
-                          label="Files"
-                          isActive={viewMode === 'files'}
-                          disabled={!!session?.project?.isMultiProject && !activeProject}
-                          onClick={() => setViewMode(viewMode === 'files' ? 'terminal' : 'files')}
-                        />
-                      </div>
-                    </>
-                  )}
-
-                  {/* Infra */}
-                  <Divider />
-                  <div className="flex items-stretch gap-0.5">
-                    {session?.project && (
-                      <ToolBtn
-                        icon={KeyRound}
-                        label="Env"
-                        isActive={viewMode === 'env'}
-                        disabled={!!session?.project?.isMultiProject && !activeProject}
-                        onClick={() => setViewMode(viewMode === 'env' ? 'terminal' : 'env')}
-                      />
-                    )}
-                    <ToolBtn
-                      icon={Container}
-                      label="Docker"
-                      isActive={viewMode === 'docker'}
-                      disabled={!!session?.project?.isMultiProject && !activeProject}
-                      onClick={() => setViewMode(viewMode === 'docker' ? 'terminal' : 'docker')}
-                    />
-                    <ToolBtn
-                      icon={Monitor}
-                      label="Preview"
-                      isActive={browserOpen && hasBrowser}
-                      disabled={!!session?.project?.isMultiProject && !activeProject}
-                      onClick={() => {
-                        if (hasBrowser) setBrowserOpen((v) => !v);
-                        else setShowPreviewDialog(true);
-                      }}
-                    />
-                  </div>
-
-                  {/* Editor */}
-                  {canOpenLocalEditor ? (
-                    <>
-                      <Divider />
-                      <div className="flex items-stretch gap-0.5">
-                        <OpenInEditorButton folder={activeProject!.localPath} />
-                      </div>
-                    </>
-                  ) : canOpenEditor ? (
-                    <>
-                      <Divider />
-                      <div className="flex items-stretch gap-0.5">
-                        <ToolBtn
-                          icon={Code2}
-                          label="VS Code"
-                          external
-                          iconColor="#007ACC"
-                          onClick={() => openEditorMutation.mutate(activeProject!.localPath)}
-                          disabled={openEditorMutation.isPending}
-                        />
-                      </div>
-                    </>
-                  ) : null}
+          <div className="hidden md:block min-w-0 overflow-x-auto overflow-y-hidden scrollbar-hide electrobun-webkit-app-region-no-drag">
+            <div className="flex items-center gap-1">
+              {orderedTabs.map((tab) => (
+                <div
+                  key={tab.id}
+                  className="flex items-center shrink-0"
+                  onPointerDown={(e) => handleTabPointerDown(e, tab.id)}
+                  onPointerMove={(e) => handleTabPointerMove(e, tab.id)}
+                  onPointerUp={handleTabPointerUp}
+                >
+                  <TabItem
+                    tab={tab}
+                    compact={orderedTabs.length > 5}
+                    isActive={
+                      tab.id === '__project__'
+                        ? viewMode !== 'terminal'
+                        : tab.id === activeTerminalId && viewMode === 'terminal'
+                    }
+                    onActivate={() => {
+                      if (tab.id === '__project__') {
+                        if (!session?.project?.isMultiProject || activeProject) setViewMode('files');
+                      } else {
+                        selectTerminal(tab.id);
+                      }
+                    }}
+                    onClose={tab.pinned ? undefined : () => closeMutation.mutate(tab.id)}
+                  />
+                </div>
+              ))}
             </div>
           </div>
-        </div>
+          <IconMenu icon={<Plus className="size-4" />} title="New tab" entries={newTabEntries} />
 
-        {/* Right-edge fade: hints that more tools are scrolled out of view */}
-        {toolsFade && (
-          <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-card to-transparent" />
-        )}
-      </div>,
+          {/* Empty space stays a window drag region */}
+          <div className="flex-1 self-stretch" />
+          <IconMenu
+            icon={<MoreHorizontal className="size-4" />}
+            title="Session tools"
+            align="end"
+            entries={toolEntries}
+            active={runnerOpen || (browserOpen && hasBrowser) || ['run', 'flow', 'files', 'env', 'docker'].includes(viewMode)}
+          />
+        </div>,
       toolbarSlot)}
 
-      {/* ── Grouped box: tabs — connected flush under the top bar, lifted a shade above the base ── */}
-      <div className="shrink-0 rounded-b-lg border border-t-0 border-border bg-secondary/40 overflow-hidden">
-      {/* ── Tab Bar ── */}
-      <div className="hidden md:flex items-center h-10 w-full shrink-0 electrobun-webkit-app-region-drag px-2 gap-0.5">
-        <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-hide">
-          <div className="flex items-center h-10 gap-0.5 electrobun-webkit-app-region-no-drag">
-            {orderedTabs.map((tab) => (
-              <div
-                key={tab.id}
-                className="flex items-center px-0.5 h-full shrink-0"
-                onPointerDown={(e) => handleTabPointerDown(e, tab.id)}
-                onPointerMove={(e) => handleTabPointerMove(e, tab.id)}
-                onPointerUp={handleTabPointerUp}
-              >
-                <TabItem
-                  tab={tab}
-                  compact={orderedTabs.length > 5}
-                  isActive={
-                    tab.id === '__project__'
-                      ? viewMode !== 'terminal'
-                      : tab.id === activeTerminalId && viewMode === 'terminal'
-                  }
-                  onActivate={() => {
-                    if (tab.id === '__project__') {
-                      if (!session?.project?.isMultiProject || activeProject) {
-                        setViewMode('files');
-                      }
-                    } else {
-                      selectTerminal(tab.id);
-                    }
-                  }}
-                  onClose={tab.pinned ? undefined : () => closeMutation.mutate(tab.id)}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Add tab */}
-        <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
-        <button
-          onClick={() => createMutation.mutate({ type: 'shell' })}
-          className="flex items-center justify-center size-6 rounded-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-secondary/60 transition-colors shrink-0 electrobun-webkit-app-region-no-drag"
-        >
-          <Plus className="size-3" />
-        </button>
-
-        {/* Runs — a floating panel over the terminal, not a view of its own */}
-        {activeProject && (
-          <>
-            <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
-            <button
-              onClick={() => setRunnerOpen((v) => !v)}
-              aria-label="Runs"
-              title="Runs"
-              className={cn(
-                'flex items-center justify-center size-6 rounded-full transition-colors shrink-0 electrobun-webkit-app-region-no-drag',
-                runnerOpen
-                  ? 'text-foreground bg-secondary'
-                  : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-secondary/60'
-              )}
-            >
-              <Play className="size-3" />
-            </button>
-          </>
-        )}
-      </div>
-
+      <div className="md:hidden shrink-0">
       {/* Mobile terminal dropdown */}
       <div className="md:hidden flex flex-col shrink-0">
         {session?.project?.isMultiProject && session.project.childLinks && session.project.childLinks.length > 0 && (
@@ -1092,13 +924,40 @@ export function SessionPage() {
       </div>
       </div>
 
-      {/* ── Content Area — xterm stays unboxed on the base bg; panels get a box ── */}
+      {/* ── Content Area — every tool is an island; the terminal island takes the xterm bg ── */}
       {/* Runs sits in the flow beside the content, so opening it shrinks the terminal. */}
-      <div className="flex-1 min-h-0 flex gap-2">
-      <div className={cn('flex-1 min-w-0', viewMode !== 'terminal' && 'rounded-lg border border-border bg-card overflow-hidden')}>
+      <div className="flex-1 min-h-0 flex gap-1.5">
+      <div
+        ref={contentRef}
+        onDragOverCapture={splitDragOver}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) showZone(null); }}
+        onDropCapture={splitDrop}
+        className={cn('relative flex-1 min-w-0 island shadow-[0_0_9px_-2px_rgb(0_0_0/0.2),0_0_0_1px_hsl(var(--border)/0.2)]', viewMode === 'terminal' && 'terminal-surface')}
+        style={viewMode === 'terminal' ? { background: 'var(--code-bg, hsl(var(--island)))' } : undefined}
+      >
+        {splitZone && (
+          <div
+            className="pointer-events-none absolute z-30 rounded-lg border-2 border-primary/60 bg-primary/15 transition-all duration-100"
+            style={{
+              left: splitZone === 'right' ? '50%' : 0,
+              top: splitZone === 'bottom' ? '50%' : 0,
+              width: splitZone === 'left' || splitZone === 'right' ? '50%' : '100%',
+              height: splitZone === 'top' || splitZone === 'bottom' ? '50%' : '100%',
+            }}
+          />
+        )}
         {viewMode === 'terminal' ? (
-          activeTerminal ? (
-            <div className="h-full min-h-0 px-2">
+          activeTerminal?.type === 'ssh' ? (
+            <div className="h-full min-h-0 px-2 pt-1.5">
+              <SshTerminal
+                key={activeTerminal.id}
+                terminalId={activeTerminal.id}
+                className="h-full"
+                onStatusChange={() => { queryClient.invalidateQueries({ queryKey: ['terminals', id] }); }}
+              />
+            </div>
+          ) : activeTerminal ? (
+            <div className="h-full min-h-0 px-2 pt-1.5">
               <Terminal
                 ref={terminalHandleRef}
                 key={activeTerminal.id}
@@ -1118,26 +977,7 @@ export function SessionPage() {
             projectId={gitProjectId}
             openFile={gitOpenFile}
             currentTargetLabel={reviewTargetTerminal?.name}
-            onProceed={(message, target) => {
-              if (target === 'current' && reviewTargetTerminal) {
-                // Type the review in but leave the Enter to the user, so a stray
-                // send never interrupts whatever the agent is already doing.
-                api.sendTerminalInput(reviewTargetTerminal.id, message)
-                  .then(() => {
-                    selectTerminal(reviewTargetTerminal.id);
-                    toast({ title: 'Review sent', description: `Typed into ${reviewTargetTerminal.name} — press Enter to run it` });
-                  })
-                  .catch((e) => toast({ title: 'Send failed', description: (e as Error).message, variant: 'destructive' }));
-                return;
-              }
-              createMutation.mutate(
-                { type: 'claude', name: 'Review', initialPrompt: message },
-                {
-                  onSuccess: () => { toast({ title: 'Claude terminal started', description: 'Review comments are being processed' }); },
-                  onError: () => { toast({ title: 'Failed to create terminal', description: 'Please try again', variant: 'destructive' }); },
-                }
-              );
-            }}
+            onProceed={sendReview}
           />
         ) : viewMode === 'run' && activeProject ? (
           <RunConfigPanel
@@ -1173,7 +1013,7 @@ export function SessionPage() {
             <EnvEditor projectId={activeProject.id} />
           </div>
         ) : (
-          <FileExplorer sessionId={id!} project={session?.project} selectedProjectId={selectedProjectId} openFile={searchParams.get('file') ?? undefined} className="h-full" />
+          <FileExplorer sessionId={id!} project={session?.project} selectedProjectId={selectedProjectId} openFile={searchParams.get('file') ?? undefined} className="h-full" currentTargetLabel={reviewTargetTerminal?.name} onProceed={sendReview} />
         )}
       </div>
 
@@ -1191,16 +1031,19 @@ export function SessionPage() {
       )}
 
       {browserOpen && hasBrowser && (
+        // -ml-1.5 puts the grab strip in the gap, on the frame, like the sidebar handle.
         <div
-          className="flex shrink-0 rounded-lg border border-border bg-card overflow-hidden"
+          className="flex shrink-0 -ml-1.5"
           style={{ width: browserWidth }}
         >
           {/* A strip beside the page, not over it: the native view sits above all HTML. */}
           <div
             onPointerDown={startBrowserResize}
-            className="w-1.5 shrink-0 cursor-col-resize hover:bg-primary/30 transition-colors"
-          />
-          <div className="min-w-0 flex-1">
+            className="group w-1.5 shrink-0 cursor-col-resize flex justify-center"
+          >
+            <div className="w-px h-full bg-primary/50 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+          <div className="min-w-0 flex-1 island">
             {nativeBrowser ? (
               <NativeBrowser
                 url={nativeBrowser.url}
@@ -1230,8 +1073,8 @@ export function SessionPage() {
       )}
       </div>
 
-      {/* ── Bottom box: recent files + status bar, attached rows sharing one radius ── */}
-      <div className="shrink-0 rounded-lg border border-border bg-card">
+      {/* ── Bottom: recent files + status bar sit on the frame, outside the islands ── */}
+      <div className="shrink-0">
       {viewMode === 'terminal' && activeTerminal && (
         dictation.active ? (
           <DictationBar transcript={dictation.transcript} />
@@ -1248,6 +1091,21 @@ export function SessionPage() {
       )}
       <ToolbarRoot>
         <ToolbarGroup>
+          {/* What the bar is about: the active project, or the host of an SSH tab. */}
+          {(activeTerminal?.type === 'ssh' || activeProject || session?.project) && (
+            <>
+              <span className="flex items-center gap-1.5 px-2 h-full text-[10.5px] font-semibold leading-none tracking-tight text-foreground/90">
+                {activeTerminal?.type === 'ssh'
+                  ? <Server className="size-[11px] shrink-0 text-muted-foreground" />
+                  : <FolderOpen className="size-[11px] shrink-0 text-muted-foreground" />}
+                <MarqueeText
+                  text={activeTerminal?.type === 'ssh' ? activeTerminal.name : (activeProject ?? session?.project)!.name}
+                  className="max-w-[12rem] leading-none"
+                />
+              </span>
+              <ToolbarDivider />
+            </>
+          )}
           <ToolbarStatus status="green" label="Connected" pulse />
           <ToolbarDivider />
           {upload.total > 0 && (
@@ -1365,10 +1223,10 @@ export function SessionPage() {
       {showPreviewDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-card border rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
-            <h3 className="text-sm font-semibold mb-4">Start Browser Preview</h3>
+            <h3 className="text-sm font-semibold mb-4">Open Browser</h3>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-muted-foreground mb-1 block">URL to preview</label>
+                <label className="text-xs text-muted-foreground mb-1 block">URL to open</label>
                 <input
                   type="text"
                   value={previewUrl}
@@ -1397,7 +1255,7 @@ export function SessionPage() {
                   ) : (
                     <Monitor className="h-3.5 w-3.5 mr-1.5" />
                   )}
-                  Start Preview
+                  Open Browser
                 </Button>
               </div>
             </div>

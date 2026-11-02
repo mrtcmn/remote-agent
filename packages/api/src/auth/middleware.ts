@@ -1,6 +1,9 @@
 import { Elysia } from 'elysia';
+import type { Server } from 'bun';
 import { eq } from 'drizzle-orm';
 import { auth } from './index';
+import { getLocalUserId } from './seed';
+import { isLocalMode } from '../config/mode';
 import { verifyPin, hasPin } from './pin';
 import { db } from '../db';
 import { user as userTable, pairedMasters } from '../db/schema';
@@ -29,7 +32,7 @@ export interface AuthContext {
 
 // Authentication middleware
 export const authMiddleware = new Elysia({ name: 'auth' })
-  .derive({ as: 'global' }, async ({ request }) => {
+  .derive({ as: 'global' }, async ({ request, server }) => {
     const session = await auth.api.getSession({
       headers: request.headers,
     });
@@ -115,8 +118,43 @@ export const authMiddleware = new Elysia({ name: 'auth' })
       }
     }
 
+    // Local mode is single-user: a caller on this machine is the owner, so the
+    // desktop app needs no login. Tunnelled requests also come from loopback, so
+    // they are skipped; the LAN still logs in, because we listen on 0.0.0.0.
+    const localId = await localOwnerId(request, requestAddress(server, request));
+    if (localId) {
+      const owner = await db.query.user.findFirst({ where: eq(userTable.id, localId) });
+      if (owner) {
+        return {
+          user: { id: owner.id, email: owner.email, name: owner.name, image: owner.image ?? undefined },
+          session: {
+            id: 'local',
+            userId: owner.id,
+            expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+            machineId: undefined as string | undefined,
+          },
+        };
+      }
+    }
+
     return { user: null, session: null };
   });
+
+/** The local owner for a no-login request from this machine; null otherwise. */
+export async function localOwnerId(request: Request, address: string | undefined): Promise<string | null> {
+  const loopback = address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
+  if (!isLocalMode() || request.headers.has(TUNNEL_AUTH_HEADER) || !loopback) return null;
+  return getLocalUserId();
+}
+
+export function requestAddress(server: Server<unknown> | null, request: Request): string | undefined {
+  try {
+    return server?.requestIP(request)?.address;
+  } catch {
+    // An in-process app.handle() call has no socket.
+    return undefined;
+  }
+}
 
 // Require authentication
 export const requireAuth = new Elysia({ name: 'requireAuth' })

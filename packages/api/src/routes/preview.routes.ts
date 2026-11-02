@@ -74,6 +74,24 @@ export const previewRoutes = new Elysia({ prefix: '/preview' })
   }))
   .delete('/open/:sessionId', ({ params }) => ({ closed: opened.delete(params.sessionId) }))
 
+  // DevTools for the panel's page. The UI cannot read /json/list itself: CDP
+  // sends no CORS headers.
+  .get('/inspector', async ({ query, set }) => {
+    const targets = await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)
+      .then((r) => r.json() as Promise<{ type: string; url: string; devtoolsFrontendUrl?: string }[]>)
+      .catch(() => []);
+    // An open inspector is a page too; never inspect the inspector.
+    const pages = targets.filter((t) => t.type === 'page' && t.devtoolsFrontendUrl && !t.url.includes('/devtools/'));
+    const page = pages.find((t) => t.url === query.url) ?? pages[0];
+    if (!page) {
+      set.status = 404;
+      return { error: `No browser page on CDP port ${CDP_PORT}` };
+    }
+    return { url: `http://127.0.0.1:${CDP_PORT}${page.devtoolsFrontendUrl}` };
+  }, {
+    query: t.Object({ url: t.Optional(t.String()) }),
+  })
+
   // List active previews
   .get('/active', async () => {
     const previews = browserPreviewService.getActivePreviews();

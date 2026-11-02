@@ -520,6 +520,30 @@ export const pairedMasters = sqliteTable('paired_masters', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
+// ─── Split views: named layouts that hold panels from many sessions ────────
+export const views = sqliteTable('views', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(),
+  layout: text('layout'), // dockview JSON — the shape only, panels are referenced by id
+  position: integer('position').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+// One panel of a view — the link from a view to a session. No FK on session_id:
+// the session may live on another machine. kind: terminal | tool
+export const viewPanels = sqliteTable('view_panels', {
+  id: text('id').primaryKey(),
+  viewId: text('view_id').references(() => views.id, { onDelete: 'cascade' }).notNull(),
+  machineId: text('machine_id'), // null = this machine
+  sessionId: text('session_id').notNull(),
+  kind: text('kind').notNull(),
+  terminalId: text('terminal_id'),
+  tool: text('tool'), // files | git | run | docker | env | flow
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
 // ─── Relations (identical for both pg and sqlite) ───────────────────────────
 
 export const userRelations = relations(user, ({ many, one }) => ({

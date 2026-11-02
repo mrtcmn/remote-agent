@@ -1,7 +1,7 @@
 # Split views — design
 
 Date: 2026-11-01
-Status: approved, not implemented
+Status: implemented (first version) — see "Differences from the plan" at the end
 
 ## Goal
 
@@ -93,8 +93,8 @@ can query and repair the links without parsing the layout.
 - **Remote session gone:** the view checks on load. A 404 from the machine marks the panel
   "Session gone". An offline machine marks it "Offline" and removes nothing.
 - **View deleted:** the view and its `view_panels` go (cascade). Sessions and terminals continue.
-- **Reverse link:** `GET /sessions/:id` returns `views: [{ id, name }]`. The session page can show
-  "In View 1", and closing a session from the sidebar warns when the session is in a view.
+- **Reverse link:** the `GET /views` list carries the sessions of each view. It cannot live on
+  `GET /sessions/:id`: views are stored on the UI's machine, a remote session is not.
 
 ## API (`packages/api`)
 
@@ -148,3 +148,18 @@ the app makes it click-through (`togglePassthrough`), as the resize code does no
 - UI: a check that a saved layout plus panels rebuilds the same groups, and that panels with a
   missing terminal or session get the right placeholder.
 - Manual: split, move, resize, restart the app, and confirm the view returns the same.
+
+## Differences from the plan
+
+- **Tools follow the focused machine.** Terminals carry their own `machineId`. The tools (Files,
+  Git, Run, Flow, Docker, Env) still read the globally active machine, so a view sets the active
+  machine to the focused pane's machine, and a tool panel from another machine shows
+  "click to load" until it is focused. Per-panel machines for tools need every tool's API calls
+  to take a machine; that is a larger change.
+- **Panel order of a new view** is passed in the navigation state (`first`), with client-chosen
+  panel ids: the rows of one insert share a `created_at` second.
+- **Not built yet:** the keyboard shortcuts (`⌘\`, `⌘1`–`⌘3`, `⌘W`), the "In View 1" hint on the
+  session page, the warning when a session in a view is closed, and the phone layout (a view
+  renders the dock as is).
+- **Library package:** `dockview` 8 is only the vanilla core; the React component is in
+  `dockview-react`.

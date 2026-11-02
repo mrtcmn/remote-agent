@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ArrowLeft, ArrowRight, RotateCw, SquareCode, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { api } from '@/lib/api';
 
 /** Electrobun's <electrobun-webview> element — only the members we call. */
 interface WebviewTag extends HTMLElement {
@@ -8,7 +9,6 @@ interface WebviewTag extends HTMLElement {
   goBack(): void;
   goForward(): void;
   reload(): void;
-  toggleDevTools(): void;
   togglePassthrough(enable?: boolean): void;
   executeJavascript(js: string): void;
   on(event: string, listener: (e: CustomEvent) => void): void;
@@ -96,7 +96,10 @@ export function NativeBrowser({
   onClose: () => void;
 }) {
   const ref = useRef<WebviewTag>(null);
+  const inspectorRef = useRef<WebviewTag>(null);
   const [address, setAddress] = useState(url);
+  /** DevTools frontend URL while the inspector is open. */
+  const [inspector, setInspector] = useState<string | null>(null);
   const [initialUrl] = useState(url);
   const agentUntilRef = useRef(agentUntil);
   agentUntilRef.current = agentUntil;
@@ -134,7 +137,21 @@ export function NativeBrowser({
 
   useEffect(() => {
     ref.current?.togglePassthrough(resizing);
-  }, [resizing]);
+    inspectorRef.current?.togglePassthrough(resizing);
+  }, [resizing, inspector]);
+
+  // Electrobun's toggleDevTools looks for CDP on 9222-9232, but our CEF listens
+  // on the API's CDP port, so open the frontend from that port ourselves.
+  // ponytail: the inspector is a CDP page too; agent-browser switches to a new
+  // page, so opening it while the agent drives can steal the agent's tab.
+  const toggleInspector = async () => {
+    if (inspector) return setInspector(null);
+    try {
+      setInspector((await api.getInspectorUrl(address)).url);
+    } catch (error) {
+      console.error('[NativeBrowser] inspector:', error);
+    }
+  };
 
   const go = () => {
     let next = address.trim();
@@ -165,7 +182,7 @@ export function NativeBrowser({
           spellCheck={false}
           className="mx-1 h-6 min-w-0 flex-1 rounded-md border border-border/60 bg-background px-2 font-mono text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
-        <IconButton label="Inspector" onClick={() => ref.current?.toggleDevTools()}><SquareCode className="size-3.5" /></IconButton>
+        <IconButton label="Inspector" onClick={toggleInspector}><SquareCode className="size-3.5" /></IconButton>
         <IconButton label="Close browser" onClick={onClose}><X className="size-3.5" /></IconButton>
       </div>
       <electrobun-webview
@@ -178,6 +195,15 @@ export function NativeBrowser({
         // and React 18 does not map className onto a custom element.
         style={{ display: 'block', width: '100%', flex: '1 1 0%', minHeight: 0 }}
       />
+      {inspector && (
+        <electrobun-webview
+          ref={inspectorRef}
+          src={inspector}
+          renderer="cef"
+          masks="[role=dialog]"
+          style={{ display: 'block', width: '100%', flex: '1 1 0%', minHeight: 0, borderTop: '1px solid hsl(var(--border))' }}
+        />
+      )}
     </div>
   );
 }

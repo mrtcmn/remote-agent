@@ -87,6 +87,16 @@ class PairedMastersService {
     return { ok: true, master: inserted };
   }
 
+  /** The local nickname for a master — only this machine sees it. */
+  async rename(id: string, userId: string, name: string): Promise<boolean> {
+    const result = await db
+      .update(pairedMasters)
+      .set({ name })
+      .where(and(eq(pairedMasters.id, id), eq(pairedMasters.ownerUserId, userId)))
+      .returning({ id: pairedMasters.id });
+    return result.length > 0;
+  }
+
   async unpair(id: string, userId: string): Promise<boolean> {
     const result = await db
       .delete(pairedMasters)

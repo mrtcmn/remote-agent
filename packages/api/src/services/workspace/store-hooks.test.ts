@@ -26,3 +26,9 @@ test('remote mode still defaults to 5100', async () => {
   const settings = await bakedHooks({ RA_MODE: 'remote', RA_PORT: undefined, PORT: undefined, RA_API_URL: undefined, REMOTE_AGENT_API: undefined });
   expect(settings).toContain('${REMOTE_AGENT_API:-http://localhost:5100}/internal/hooks/complete');
 });
+
+test('hook payload survives /bin/sh: printf, not echo (echo expands \\n and breaks the JSON)', async () => {
+  const settings = await bakedHooks({ RA_MODE: 'local', RA_PORT: '13590', RA_API_URL: undefined, REMOTE_AGENT_API: undefined });
+  expect(settings).not.toContain('echo \\"$INPUT\\"');
+  expect(settings).toContain(`printf '%s' \\"$INPUT\\"`);
+});

@@ -941,7 +941,33 @@ export const pairedMasters = pgTable('paired_masters', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
+// ─── Split views: named layouts that hold panels from many sessions ────────
+export const views = pgTable('views', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(),
+  layout: text('layout'), // dockview JSON — the shape only, panels are referenced by id
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// One panel of a view — the link from a view to a session. No FK on session_id:
+// the session may live on another machine. kind: terminal | tool
+export const viewPanels = pgTable('view_panels', {
+  id: text('id').primaryKey(),
+  viewId: text('view_id').references(() => views.id, { onDelete: 'cascade' }).notNull(),
+  machineId: text('machine_id'), // null = this machine
+  sessionId: text('session_id').notNull(),
+  kind: text('kind').notNull(),
+  terminalId: text('terminal_id'),
+  tool: text('tool'), // files | git | run | docker | env | flow
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
 // Type exports
+export type View = typeof views.$inferSelect;
+export type ViewPanel = typeof viewPanels.$inferSelect;
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
 export type UserProfile = typeof userProfiles.$inferSelect;

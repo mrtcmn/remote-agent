@@ -5,12 +5,15 @@ export interface StoreSchema {
   mode: "local" | "remote";
   apiUrl: string;
   windowBounds: { x?: number; y?: number; width: number; height: number };
+  /** macOS window vibrancy (see glass.ts). */
+  glass: boolean;
 }
 
 const DEFAULTS: StoreSchema = {
   mode: "local",
   apiUrl: "",
   windowBounds: { width: 1200, height: 800 },
+  glass: false,
 };
 
 export interface Store {

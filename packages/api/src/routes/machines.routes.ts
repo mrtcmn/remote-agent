@@ -84,6 +84,19 @@ export const machineRoutes = new Elysia({ prefix: '/machines' })
     return { machines: machines.map(({ tokenHash, ...rest }) => rest) };
   })
 
+  // Machine tokens allowed: a secondary renames its peers through here. The
+  // owner check below keeps it to the same user's machines.
+  .patch('/:id', async ({ user, params, body, set }) => {
+    const renamed = await machineRegistry.rename(params.id, user!.id, body.name.trim());
+    if (!renamed) {
+      set.status = 404;
+      return { error: 'Machine not found' };
+    }
+    return { ok: true };
+  }, {
+    body: t.Object({ name: t.String({ minLength: 1, maxLength: 100 }) }),
+  })
+
   .delete('/:id', async ({ user, session, params, set }) => {
     if (session?.machineId) {
       set.status = 403;

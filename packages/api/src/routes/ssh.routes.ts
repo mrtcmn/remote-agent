@@ -2,15 +2,45 @@ import { Elysia, t } from 'elysia';
 import { eq, and } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { requireAuth } from '../auth/middleware';
-import { db, sshHosts, sshGroups, sshCredentials, claudeSessions } from '../db';
+import { db, sshHosts, sshGroups, sshCredentials, terminals } from '../db';
 import { sshService } from '../services/ssh/ssh.service';
-import { encrypt } from '../services/crypto/secret-box';
+import { encrypt, decrypt } from '../services/crypto/secret-box';
+import { inspectKey, generateKey, listLocalIdentities, readLocalIdentity } from '../services/ssh/keys';
+import { isLocalMode } from '../config/mode';
 
 const enc = (v?: string) => (v ? encrypt(v).toString('base64') : null);
 
-// Strip secret material — enc* columns never leave the server.
+// Strip secret material — enc* columns never leave the server. A key shows its
+// public half, so the user can put it in the server's authorized_keys.
 function publicCred(c: typeof sshCredentials.$inferSelect) {
-  return { id: c.id, name: c.name, type: c.type, createdAt: c.createdAt };
+  let key: { publicKey: string; fingerprint: string } | null = null;
+  if (c.type === 'key' && c.encPrivateKey) {
+    try {
+      const open = (b: string) => decrypt(Buffer.from(b, 'base64'));
+      const { publicKey, fingerprint } = inspectKey(open(c.encPrivateKey), c.encPassphrase ? open(c.encPassphrase) : undefined);
+      key = { publicKey, fingerprint };
+    } catch {
+      // unreadable (secret.key replaced?): list it without the public half
+    }
+  }
+  return { id: c.id, name: c.name, type: c.type, createdAt: c.createdAt, ...key };
+}
+
+/** Store a key credential, after checking it parses with the given passphrase. */
+async function storeKey(userId: string, name: string, privateKey: string, passphrase?: string) {
+  inspectKey(privateKey, passphrase); // throws a readable message
+  const id = nanoid();
+  await db.insert(sshCredentials).values({
+    id, userId, name, type: 'key',
+    encPrivateKey: enc(privateKey.trim() + '\n'), encPassphrase: enc(passphrase),
+  });
+  return publicCred((await db.query.sshCredentials.findFirst({ where: eq(sshCredentials.id, id) }))!);
+}
+
+/** An SSH terminal in one of this user's sessions, or null. */
+async function ownSshTerminal(userId: string, terminalId: string) {
+  const terminal = await db.query.terminals.findFirst({ where: eq(terminals.id, terminalId), with: { session: true } });
+  return terminal?.type === 'ssh' && terminal.session.userId === userId ? terminal : null;
 }
 
 export const sshRoutes = new Elysia({ prefix: '/ssh' })
@@ -57,6 +87,7 @@ export const sshRoutes = new Elysia({ prefix: '/ssh' })
       ...(body.tags !== undefined && { tags: JSON.stringify(body.tags) }),
       ...(body.color !== undefined && { color: body.color }),
     }).where(eq(sshHosts.id, params.id));
+    sshService.dropPooled(params.id);
     return db.query.sshHosts.findFirst({ where: eq(sshHosts.id, params.id) });
   }, {
     body: t.Partial(t.Object({
@@ -68,6 +99,7 @@ export const sshRoutes = new Elysia({ prefix: '/ssh' })
   })
   .delete('/hosts/:id', async ({ user, params }) => {
     await db.delete(sshHosts).where(and(eq(sshHosts.id, params.id), eq(sshHosts.userId, user!.id)));
+    sshService.dropPooled(params.id);
     return { ok: true };
   })
   .get('/hosts/:id/logs', async ({ user, params, set }) => {
@@ -78,31 +110,81 @@ export const sshRoutes = new Elysia({ prefix: '/ssh' })
   // Reset TOFU fingerprint (e.g. after a legitimate server key change).
   .post('/hosts/:id/trust-reset', async ({ user, params }) => {
     await db.update(sshHosts).set({ knownHostFp: null }).where(and(eq(sshHosts.id, params.id), eq(sshHosts.userId, user!.id)));
+    sshService.dropPooled(params.id);
     return { ok: true };
   })
 
   // ─── Connect / stop ──────────────────────────────────────────────────────
   .post('/hosts/:id/connect', async ({ user, params, body, set }) => {
     try {
-      return await sshService.connect({ userId: user!.id, hostId: params.id, cols: body?.cols, rows: body?.rows });
+      return await sshService.connect({ userId: user!.id, hostId: params.id, sessionId: body?.sessionId, cols: body?.cols, rows: body?.rows });
     } catch (err) {
       set.status = 400; return { error: (err as Error).message };
     }
-  }, { body: t.Optional(t.Object({ cols: t.Optional(t.Integer()), rows: t.Optional(t.Integer()) })) })
-  .post('/sessions/:sessionId/stop', async ({ params }) => {
-    await sshService.close(params.sessionId);
+  }, {
+    body: t.Optional(t.Object({
+      // Open it as a tab in this session instead of a session of its own.
+      sessionId: t.Optional(t.String()),
+      cols: t.Optional(t.Integer()), rows: t.Optional(t.Integer()),
+    })),
+  })
+  .post('/terminals/:terminalId/stop', async ({ user, params, set }) => {
+    if (!(await ownSshTerminal(user!.id, params.terminalId))) { set.status = 404; return { error: 'Not found' }; }
+    await sshService.close(params.terminalId);
     return { ok: true };
   })
+  // Dial again into the same terminal (same id, tab, scrollback).
+  .post('/terminals/:terminalId/reconnect', async ({ user, params, set }) => {
+    try {
+      return await sshService.resume(user!.id, params.terminalId);
+    } catch (err) {
+      set.status = 400; return { error: (err as Error).message };
+    }
+  })
+
+  // ─── For agents (MCP) ────────────────────────────────────────────────────
+  // One command on the host's shared connection; no terminal, no secrets out.
+  .post('/hosts/:id/exec', async ({ user, params, body, set }) => {
+    try {
+      return await sshService.exec(user!.id, params.id, body.command, body.timeoutMs);
+    } catch (err) {
+      set.status = 400; return { error: (err as Error).message };
+    }
+  }, {
+    body: t.Object({
+      command: t.String({ minLength: 1 }),
+      timeoutMs: t.Optional(t.Integer({ minimum: 1000, maximum: 30 * 60_000 })),
+    }),
+  })
+  // Type into a live shell the user can watch; returns what it printed.
+  .post('/terminals/:terminalId/send', async ({ user, params, body, set }) => {
+    try {
+      return await sshService.send(user!.id, params.terminalId, body.input, body.waitMs);
+    } catch (err) {
+      set.status = 400; return { error: (err as Error).message };
+    }
+  }, {
+    body: t.Object({
+      input: t.String(),
+      waitMs: t.Optional(t.Integer({ minimum: 0, maximum: 120_000 })),
+    }),
+  })
+  .get('/terminals/:terminalId/output', ({ user, params, query, set }) => {
+    try {
+      return sshService.read(user!.id, params.terminalId, query.lines ? Number(query.lines) : undefined);
+    } catch (err) {
+      set.status = 404; return { error: (err as Error).message };
+    }
+  }, { query: t.Object({ lines: t.Optional(t.String()) }) })
   .get('/sessions', ({ user }) => sshService.listActive(user!.id))
-  .get('/sessions/:sessionId', async ({ user, params, set }) => {
-    const session = await db.query.claudeSessions.findFirst({
-      where: and(eq(claudeSessions.id, params.sessionId), eq(claudeSessions.userId, user!.id)),
-    });
-    if (!session?.sshHostId) { set.status = 404; return { error: 'Not found' }; }
-    const host = await db.query.sshHosts.findFirst({ where: eq(sshHosts.id, session.sshHostId) });
+  .get('/terminals/:terminalId', async ({ user, params, set }) => {
+    const terminal = await ownSshTerminal(user!.id, params.terminalId);
+    if (!terminal) { set.status = 404; return { error: 'Not found' }; }
+    const hostId = (JSON.parse(terminal.command) as string[])[1];
+    const host = await db.query.sshHosts.findFirst({ where: eq(sshHosts.id, hostId) });
     if (!host) { set.status = 404; return { error: 'Host not found' }; }
-    const live = sshService.getInstance(params.sessionId);
-    return { sessionId: session.id, hostId: host.id, status: live?.status ?? 'exited', host };
+    const live = sshService.getInstance(params.terminalId);
+    return { sessionId: terminal.sessionId, terminalId: terminal.id, hostId: host.id, status: live?.status ?? 'exited', host };
   })
 
   // ─── Groups ──────────────────────────────────────────────────────────────
@@ -122,14 +204,19 @@ export const sshRoutes = new Elysia({ prefix: '/ssh' })
     const creds = await db.query.sshCredentials.findMany({ where: eq(sshCredentials.userId, user!.id) });
     return creds.map(publicCred);
   })
-  .post('/credentials', async ({ user, body }) => {
+  .post('/credentials', async ({ user, body, set }) => {
+    try {
+      if (body.type === 'key') {
+        if (!body.privateKey) throw new Error('Paste the private key');
+        return await storeKey(user!.id, body.name, body.privateKey, body.passphrase);
+      }
+      if (!body.password) throw new Error('Enter the password');
+    } catch (err) {
+      set.status = 400; return { error: (err as Error).message };
+    }
     const id = nanoid();
-    await db.insert(sshCredentials).values({
-      id, userId: user!.id, name: body.name, type: body.type,
-      encPassword: enc(body.password), encPrivateKey: enc(body.privateKey), encPassphrase: enc(body.passphrase),
-    });
-    const c = await db.query.sshCredentials.findFirst({ where: eq(sshCredentials.id, id) });
-    return publicCred(c!);
+    await db.insert(sshCredentials).values({ id, userId: user!.id, name: body.name, type: 'password', encPassword: enc(body.password) });
+    return publicCred((await db.query.sshCredentials.findFirst({ where: eq(sshCredentials.id, id) }))!);
   }, {
     body: t.Object({
       name: t.String({ minLength: 1 }),
@@ -139,6 +226,24 @@ export const sshRoutes = new Elysia({ prefix: '/ssh' })
       passphrase: t.Optional(t.String()),
     }),
   })
+  // A new ed25519 identity; the response carries the public key to install.
+  .post('/credentials/generate', async ({ user, body }) => {
+    const key = generateKey(body.comment || `remote-agent-${body.name}`);
+    return storeKey(user!.id, body.name, key.privateKey);
+  }, { body: t.Object({ name: t.String({ minLength: 1 }), comment: t.Optional(t.String()) }) })
+  // The user's own keys in ~/.ssh — only where the server is the user's machine.
+  .get('/credentials/local', ({ set }) => {
+    if (!isLocalMode()) { set.status = 404; return { error: 'Only on a local install' }; }
+    return listLocalIdentities();
+  })
+  .post('/credentials/import', async ({ user, body, set }) => {
+    if (!isLocalMode()) { set.status = 404; return { error: 'Only on a local install' }; }
+    try {
+      return await storeKey(user!.id, body.name || body.file, readLocalIdentity(body.file), body.passphrase);
+    } catch (err) {
+      set.status = 400; return { error: (err as Error).message };
+    }
+  }, { body: t.Object({ file: t.String({ minLength: 1 }), name: t.Optional(t.String()), passphrase: t.Optional(t.String()) }) })
   .delete('/credentials/:id', async ({ user, params }) => {
     await db.delete(sshCredentials).where(and(eq(sshCredentials.id, params.id), eq(sshCredentials.userId, user!.id)));
     return { ok: true };

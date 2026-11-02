@@ -32,17 +32,10 @@ final class NotchViewModel: ObservableObject {
     @Published var isHovering: Bool = false
 
     let geometry: NotchGeometry
-    let hasPhysicalNotch: Bool
 
     var pillSize: CGSize { geometry.pillSize }
     var screenRect: CGRect { geometry.screenRect }
     var windowHeight: CGFloat { geometry.windowHeight }
-    var anchor: NotchAnchor { geometry.anchor }
-
-    /// Beside the Dock nothing hides an idle pill, so it goes away when there
-    /// is no activity. On the notch the physical housing hides it.
-    var hidesWhenIdle: Bool { anchor == .dock || hasPhysicalNotch }
-
     var openedSize: CGSize {
         CGSize(width: min(screenRect.width * 0.45, 480), height: 400)
     }
@@ -51,9 +44,8 @@ final class NotchViewModel: ObservableObject {
     private let events = EventMonitors.shared
     private var hoverTimer: DispatchWorkItem?
 
-    init(geometry: NotchGeometry, hasPhysicalNotch: Bool) {
+    init(geometry: NotchGeometry) {
         self.geometry = geometry
-        self.hasPhysicalNotch = hasPhysicalNotch
         setupEventHandlers()
     }
 

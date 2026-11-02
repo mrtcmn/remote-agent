@@ -28,6 +28,8 @@ export default defineConfig({
             },
         },
     },
+    // The diff worker lazy-loads its highlighter, so it must build as ES modules.
+    worker: { format: 'es' },
     build: {
         outDir: 'dist',
         emptyOutDir: true,

@@ -16,43 +16,25 @@ final class NotchWindowController: NSWindowController {
         self.screen = screen
 
         let screenFrame = screen.frame
-        let anchor = AppSettings.anchor
 
-        // Collapsed pill: the camera housing on the notch, a small capsule beside the Dock.
-        let pillSize = anchor == .notch ? screen.notchSize : CGSize(width: 320, height: 64)
-
-        // The window must hold the opened panel. It is pinned to the top edge
-        // for the notch, and to the bottom-right corner for the Dock.
-        let windowFrame: NSRect
-        switch anchor {
-        case .notch:
-            let windowHeight: CGFloat = 600
-            windowFrame = NSRect(
-                x: screenFrame.origin.x,
-                y: screenFrame.maxY - windowHeight,
-                width: screenFrame.width,
-                height: windowHeight
-            )
-        case .dock:
-            let width = min(560, screenFrame.width)
-            let height = min(600, screenFrame.height)
-            windowFrame = NSRect(
-                x: screenFrame.maxX - width,
-                y: screenFrame.minY,
-                width: width,
-                height: height
-            )
-        }
+        // The window must hold the opened panel. It is centred on the bottom edge,
+        // and the panel inside it rests on the Dock.
+        let width = min(560, screenFrame.width)
+        let height = min(600, screenFrame.height)
+        let windowFrame = NSRect(
+            x: screenFrame.midX - width / 2,
+            y: screenFrame.minY,
+            width: width,
+            height: height
+        )
 
         self.viewModel = NotchViewModel(
             geometry: NotchGeometry(
-                anchor: anchor,
-                pillSize: pillSize,
+                pillSize: CGSize(width: 320, height: 64),
                 screenRect: screenFrame,
                 windowFrame: windowFrame,
                 dockHeight: screen.bottomDockHeight
-            ),
-            hasPhysicalNotch: screen.hasPhysicalNotch
+            )
         )
 
         let notchWindow = NotchPanel(

@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { FileTree } from '@/components/FileTree';
 import { FileViewer } from '@/components/FileViewer';
+import { DiffWorkerPool } from '@/components/git/DiffRenderer';
+import type { ReviewTarget } from '@/components/review/ReviewComposer';
 import { ProjectSelector } from '@/components/ProjectSelector';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -14,10 +16,18 @@ interface FileExplorerProps {
   // Path to open + reveal (e.g. from the recent-changes strip via ?file=).
   openFile?: string;
   className?: string;
+  currentTargetLabel?: string;
+  onProceed?: (message: string, target: ReviewTarget) => void;
 }
 
-export function FileExplorer({ sessionId, project, selectedProjectId: externalSelectedProjectId, openFile, className }: FileExplorerProps) {
+export function FileExplorer({ sessionId, project, selectedProjectId: externalSelectedProjectId, openFile, className, currentTargetLabel, onProceed }: FileExplorerProps) {
   const [selectedFile, setSelectedFile] = useState<string | null>(openFile ?? null);
+  const dirtyRef = useRef(false);
+  const selectFile = (path: string | null) => {
+    if (dirtyRef.current && !window.confirm('Discard unsaved changes?')) return;
+    dirtyRef.current = false;
+    setSelectedFile(path);
+  };
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(externalSelectedProjectId ?? null);
 
   // Sync with external selection (from toolbar project selector)
@@ -67,7 +77,7 @@ export function FileExplorer({ sessionId, project, selectedProjectId: externalSe
           <FileTree
             sessionId={sessionId}
             selectedFile={selectedFile}
-            onFileSelect={setSelectedFile}
+            onFileSelect={selectFile}
             basePath={basePath}
             revealPath={openFile}
           />
@@ -75,10 +85,15 @@ export function FileExplorer({ sessionId, project, selectedProjectId: externalSe
 
         {/* File Viewer - Right Panel */}
         <div className="flex-1 min-w-0">
-          <FileViewer
-            sessionId={sessionId}
-            filePath={selectedFile}
-          />
+          <DiffWorkerPool>
+            <FileViewer
+              sessionId={sessionId}
+              filePath={selectedFile}
+              currentTargetLabel={currentTargetLabel}
+              onProceed={onProceed}
+              onDirtyChange={(dirty) => { dirtyRef.current = dirty; }}
+            />
+          </DiffWorkerPool>
         </div>
       </div>
     </div>

@@ -8,8 +8,9 @@ import {
   type ReactNode,
   type ErrorInfo,
 } from 'react';
-import { PatchDiff, FileDiff, WorkerPoolContextProvider } from '@pierre/diffs/react';
+import { PatchDiff, FileDiff, WorkerPoolContextProvider, EditProvider } from '@pierre/diffs/react';
 import { parsePatchFiles, type DiffLineAnnotation, type FileDiffMetadata } from '@pierre/diffs';
+import { Editor, type EditorFactory } from '@pierre/diffs/edit';
 import { FileCode, Eye, ChevronDown } from 'lucide-react';
 import { DIFF_THEME } from '@/lib/constants';
 import { useTerminalTheme } from '@/hooks/useTerminalTheme';
@@ -25,11 +26,19 @@ const LARGE_DIFF_LINE_THRESHOLD = 2000;
 const workerFactory = () =>
   new Worker(new URL('../../workers/diff-worker.js', import.meta.url), { type: 'module' });
 
-/** Wraps children in the shiki worker pool that @pierre/diffs needs. */
+const createEditor: EditorFactory<unknown, unknown> = (type, options, key) => new Editor(type, options, key);
+
+/**
+ * Wraps children in the highlighter worker pool that @pierre/diffs needs, on the
+ * WebAssembly `highlights` engine, plus the editor factory that `edit` needs.
+ */
 export function DiffWorkerPool({ children }: { children: ReactNode }) {
   return (
-    <WorkerPoolContextProvider poolOptions={{ workerFactory }} highlighterOptions={{}}>
-      {children}
+    <WorkerPoolContextProvider
+      poolOptions={{ workerFactory }}
+      highlighterOptions={{ preferredHighlighter: 'highlights' }}
+    >
+      <EditProvider createEditor={createEditor}>{children}</EditProvider>
     </WorkerPoolContextProvider>
   );
 }
@@ -58,7 +67,7 @@ export function useDiffOptions(settings: DiffViewSettings) {
       overflow: settings.overflow,
       expandUnchanged: settings.expandUnchanged,
       disableFileHeader: true,
-      enableHoverUtility: true,
+      enableGutterUtility: true,
     }),
     [activeTheme.type, settings.diffStyle, settings.overflow, settings.expandUnchanged]
   );
@@ -172,7 +181,7 @@ function DiffRenderGuard({
 export interface DiffAnnotationProps {
   lineAnnotations?: DiffLineAnnotation<string>[];
   renderAnnotation?: (annotation: DiffLineAnnotation<string>) => ReactNode;
-  renderHoverUtility?: (
+  renderGutterUtility?: (
     getHoveredLine: () => { lineNumber: number; side: 'additions' | 'deletions' } | undefined
   ) => ReactNode;
 }
@@ -205,7 +214,7 @@ interface MultiFileDiffProps {
   options: unknown;
   getLineAnnotationsForFile: (filePath: string) => DiffLineAnnotation<string>[];
   renderAnnotation: (annotation: DiffLineAnnotation<string>) => ReactNode;
-  createRenderHoverUtility: (
+  createRenderGutterUtility: (
     filePath: string
   ) => (
     getHoveredLine: () => { lineNumber: number; side: 'additions' | 'deletions' } | undefined
@@ -219,7 +228,7 @@ export function MultiFileDiff({
   options,
   getLineAnnotationsForFile,
   renderAnnotation,
-  createRenderHoverUtility,
+  createRenderGutterUtility,
   onSelectFile,
 }: MultiFileDiffProps) {
   const { parsedFiles, parseError } = useMemo(() => {
@@ -305,7 +314,7 @@ export function MultiFileDiff({
                     options={options as never}
                     lineAnnotations={getLineAnnotationsForFile(fileDiff.name)}
                     renderAnnotation={renderAnnotation}
-                    renderHoverUtility={createRenderHoverUtility(fileDiff.name)}
+                    renderGutterUtility={createRenderGutterUtility(fileDiff.name)}
                   />
                 </DiffRenderGuard>
               </DiffErrorBoundary>

@@ -45,6 +45,20 @@ class MasterSyncService {
     return this.peersByMaster.get(masterId) ?? [];
   }
 
+  /**
+   * Rename a machine in the master's registry — a peer, or ourselves (our id on
+   * the master is the paired-master row id). Every machine reads names from there.
+   */
+  async renameOnMaster(master: PairedMaster, machineId: string, name: string): Promise<void> {
+    const res = await this.call(master, `/api/machines/${machineId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) throw new Error(`Master rejected rename (HTTP ${res.status})`);
+    const peers = this.peersByMaster.get(master.id);
+    if (peers) this.peersByMaster.set(master.id, peers.map((p) => (p.id === machineId ? { ...p, name } : p)));
+  }
+
   /** Force an immediate sync (e.g., right after pairing). */
   async syncNow(): Promise<void> {
     await this.tick();

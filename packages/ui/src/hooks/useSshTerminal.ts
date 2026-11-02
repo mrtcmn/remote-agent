@@ -6,7 +6,7 @@ import '@xterm/xterm/css/xterm.css';
 import { getApiBase } from '@/lib/api-config';
 import { resolveWsPath } from '@/lib/active-machine';
 
-// Lean SSH terminal: xterm bound to /ws/ssh/:sessionId. Separate from
+// Lean SSH terminal: xterm bound to /ws/ssh/:terminalId. Separate from
 // useTerminal (which is welded to the local-PTY protocol/URL) on purpose.
 function b64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
@@ -44,7 +44,7 @@ export interface SshTerminalOptions {
   fontWeight?: string | number;
 }
 
-export function useSshTerminal(sessionId: string | null, options: SshTerminalOptions = {}) {
+export function useSshTerminal(terminalId: string | null, options: SshTerminalOptions = {}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -77,7 +77,7 @@ export function useSshTerminal(sessionId: string | null, options: SshTerminalOpt
   }, [options.theme, options.fontFamily, options.fontSize, options.fontWeight, fit]);
 
   useEffect(() => {
-    if (!sessionId || !containerRef.current) return;
+    if (!terminalId || !containerRef.current) return;
     const opts = optionsRef.current;
 
     const term = new Terminal({
@@ -101,12 +101,65 @@ export function useSshTerminal(sessionId: string | null, options: SshTerminalOpt
     const base = getApiBase();
     const proto = (base || window.location.origin).startsWith('https') ? 'wss' : 'ws';
     const host = base ? base.replace(/^https?:\/\//, '') : window.location.host;
-    const ws = new WebSocket(`${proto}://${host}${resolveWsPath(`/ws/ssh/${sessionId}`)}`);
-    wsRef.current = ws;
+    const url = `${proto}://${host}${resolveWsPath(`/ws/ssh/${terminalId}`)}`;
 
-    term.onData((d) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data: bytesToB64(d) }));
-    });
+    // The socket to the API drops on sleep or an API restart while the SSH
+    // connection itself lives on in the server — so open it again, and the
+    // server replays the scrollback.
+    let ws: WebSocket;
+    let disposed = false;
+    let gone = false; // the server does not know this session
+    let wsRetry: ReturnType<typeof setTimeout> | undefined;
+    let wsAttempt = 0;
+    const send = (msg: unknown) => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); };
+
+    const open = () => {
+      ws = new WebSocket(url);
+      wsRef.current = ws;
+      ws.onopen = () => { wsAttempt = 0; fit(); };
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        switch (msg.type) {
+          case 'scrollback':
+            term.reset(); // a reopened socket replays everything
+            term.write(b64ToBytes(msg.data));
+            break;
+          case 'output':
+            term.write(b64ToBytes(msg.data));
+            break;
+          case 'connected':
+            setStatus('connected'); setAttempt(0); fit();
+            break;
+          case 'reconnecting':
+            setStatus('reconnecting'); setAttempt(msg.data.attempt);
+            break;
+          case 'exit':
+            setStatus('closed');
+            term.write(`\r\n\x1b[38;5;208m● session closed${msg.data?.message ? ': ' + msg.data.message : ''}\x1b[0m\r\n`);
+            break;
+          case 'error':
+            // e.g. a key typed while SSH reconnects; only a missing session ends it.
+            if (/not found/i.test(msg.data?.message ?? '')) { gone = true; setStatus('closed'); }
+            else term.write(`\r\n\x1b[2m${msg.data?.message ?? 'error'}\x1b[0m\r\n`);
+            break;
+          case 'status':
+            // Sent on attach: reflect the live instance state instead of
+            // sitting on "connecting" forever when we reattach to a running session.
+            if (msg.data.status === 'running') { setStatus('connected'); fit(); }
+            else if (msg.data.status === 'connecting') setStatus('reconnecting');
+            else if (msg.data.status === 'exited') setStatus('closed');
+            break;
+        }
+      };
+      ws.onclose = () => {
+        if (disposed || gone) return;
+        setStatus((s) => (s === 'closed' ? s : 'reconnecting'));
+        wsRetry = setTimeout(open, Math.min(1000 * 2 ** wsAttempt++, 15000));
+      };
+    };
+    open();
+
+    term.onData((d) => send({ type: 'input', data: bytesToB64(d) }));
 
     // File drag-and-drop → type the path(s) into the session (for Claude's file import).
     const el = containerRef.current;
@@ -114,59 +167,27 @@ export function useSshTerminal(sessionId: string | null, options: SshTerminalOpt
     const onDrop = (e: DragEvent) => {
       e.preventDefault();
       const paths = pathsFromDrop(e.dataTransfer);
-      if (!paths.length || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ type: 'input', data: bytesToB64(paths.map(quotePath).join(' ') + ' ') }));
+      if (paths.length) send({ type: 'input', data: bytesToB64(paths.map(quotePath).join(' ') + ' ') });
     };
     el.addEventListener('dragover', onDragOver);
     el.addEventListener('drop', onDrop);
 
-    ws.onopen = () => fit();
-    ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data);
-      switch (msg.type) {
-        case 'scrollback':
-        case 'output':
-          term.write(b64ToBytes(msg.data));
-          break;
-        case 'connected':
-          setStatus('connected'); setAttempt(0); fit();
-          break;
-        case 'reconnecting':
-          setStatus('reconnecting'); setAttempt(msg.data.attempt);
-          break;
-        case 'exit':
-          setStatus('closed');
-          term.write(`\r\n\x1b[38;5;208m● session closed${msg.data?.message ? ': ' + msg.data.message : ''}\x1b[0m\r\n`);
-          break;
-        case 'error':
-          setStatus('closed');
-          break;
-        case 'status':
-          // Sent on attach: reflect the live instance state instead of
-          // sitting on "connecting" forever when we reattach to a running session.
-          if (msg.data.status === 'running') { setStatus('connected'); fit(); }
-          else if (msg.data.status === 'exited') setStatus('closed');
-          break;
-      }
-    };
-    ws.onclose = () => setStatus((s) => (s === 'reconnecting' || s === 'closed' ? s : 'closed'));
-
     // keepalive
-    const ping = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
-    }, 20000);
+    const ping = setInterval(() => send({ type: 'ping' }), 20000);
 
     return () => {
       clearInterval(ping);
       el.removeEventListener('dragover', onDragOver);
       el.removeEventListener('drop', onDrop);
+      disposed = true;
+      clearTimeout(wsRetry);
       ws.close();
       term.dispose();
       termRef.current = null;
       setStatus('connecting');
       setAttempt(0);
     };
-  }, [sessionId, fit]);
+  }, [terminalId, fit]);
 
   return { containerRef, status, attempt, fit };
 }

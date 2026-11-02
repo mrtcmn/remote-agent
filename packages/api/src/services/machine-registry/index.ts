@@ -118,6 +118,15 @@ class MachineRegistryService {
       .returning({ id: machines.id });
     return result.length > 0;
   }
+
+  async rename(id: string, userId: string, name: string): Promise<boolean> {
+    const result = await db
+      .update(machines)
+      .set({ name })
+      .where(and(eq(machines.id, id), eq(machines.ownerUserId, userId)))
+      .returning({ id: machines.id });
+    return result.length > 0;
+  }
 }
 
 export const machineRegistry = new MachineRegistryService();

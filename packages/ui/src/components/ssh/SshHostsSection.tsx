@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { toast } from '@/components/ui/Toaster';
 import { cn } from '@/lib/utils';
+import { sessionPath } from '@/lib/session-route';
 
 // Sidebar section listing SSH hosts. Clicking a host reattaches to its live
 // session if one exists, otherwise dials a new one, then routes to /ssh/:sessionId.
@@ -34,14 +35,16 @@ export function SshHostsSection({ onNavigate }: { onNavigate: (path: string) => 
     queryClient.invalidateQueries({ queryKey: ['ssh-credentials'] });
   };
 
+  // A host opens in the normal session page, like any shell. A live
+  // connection is reused — its own session, or a tab in another one.
   const connect = async (host: SshHost) => {
     const live = activeSessions.find((s) => s.hostId === host.id && s.status !== 'exited');
-    if (live) { onNavigate(`/ssh/${live.sessionId}`); return; }
+    if (live) { onNavigate(sessionPath('self', live.sessionId, live.terminalId)); return; }
     setConnectingId(host.id);
     try {
-      const { sessionId } = await api.connectSshHost(host.id);
+      const { sessionId, terminalId } = await api.connectSshHost(host.id);
       queryClient.invalidateQueries({ queryKey: ['ssh-sessions'] });
-      onNavigate(`/ssh/${sessionId}`);
+      onNavigate(sessionPath('self', sessionId, terminalId));
     } catch (err) {
       toast({ title: 'SSH connect failed', description: (err as Error).message, variant: 'destructive' });
     } finally {
@@ -80,7 +83,7 @@ export function SshHostsSection({ onNavigate }: { onNavigate: (path: string) => 
           )}
           {groupHosts.map((h) => {
             const live = sessionByHost.get(h.id);
-            const isSelected = !!live && location.pathname === `/ssh/${live.sessionId}`;
+            const isSelected = !!live && location.pathname === sessionPath('self', live.sessionId, live.terminalId);
             return (
               <div
                 key={h.id}
@@ -197,44 +200,109 @@ function HostEditor({ host, groups, creds, onClose, onSaved }: {
   );
 }
 
+type VaultMode = 'password' | 'paste' | 'generate' | 'import';
+
+// Secrets go in, never out: the server encrypts them (AES-256-GCM) and only
+// ever returns a key's public half, for the server's authorized_keys.
 function CredentialVault({ creds, onClose, onChanged }: { creds: SshCredential[]; onClose: () => void; onChanged: () => void }) {
+  const [mode, setMode] = useState<VaultMode>('generate');
   const [name, setName] = useState('');
-  const [type, setType] = useState<'password' | 'key'>('password');
   const [secret, setSecret] = useState('');
   const [passphrase, setPassphrase] = useState('');
+  const [file, setFile] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [shown, setShown] = useState<string | null>(null);
+  const { data: localKeys = [] } = useQuery({
+    queryKey: ['ssh-local-keys'], queryFn: api.getLocalSshKeys, enabled: mode === 'import', retry: false,
+  });
+  const picked = localKeys.find((k) => k.file === file);
 
   const add = async () => {
-    await api.createSshCredential({ name, type, ...(type === 'password' ? { password: secret } : { privateKey: secret, passphrase: passphrase || undefined }) });
-    setName(''); setSecret(''); setPassphrase(''); onChanged();
+    setBusy(true);
+    try {
+      const made = mode === 'password' ? await api.createSshCredential({ name, type: 'password', password: secret })
+        : mode === 'paste' ? await api.createSshCredential({ name, type: 'key', privateKey: secret, passphrase: passphrase || undefined })
+        : mode === 'generate' ? await api.generateSshKey(name)
+        : await api.importSshKey({ file, name: name || file, passphrase: passphrase || undefined });
+      setName(''); setSecret(''); setPassphrase(''); setFile('');
+      if (made.publicKey) setShown(made.id); // show the new key's public half at once
+      onChanged();
+    } catch (err) {
+      toast({ title: 'Could not add credential', description: (err as Error).message, variant: 'destructive' });
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const ready = mode === 'import' ? !!file && (!picked?.encrypted || !!passphrase)
+    : mode === 'generate' ? !!name
+    : !!name && !!secret;
 
   return (
     <Modal title="Credentials" onClose={onClose}>
-      <div className="space-y-2 mb-4">
+      <div className="space-y-1 mb-4">
         {creds.length === 0 && <p className="text-xs text-muted-foreground">No credentials stored.</p>}
         {creds.map((c) => (
-          <div key={c.id} className="flex items-center gap-2 text-sm py-1">
-            <KeyRound className="size-3.5 text-muted-foreground" />
-            <span className="flex-1 truncate">{c.name}</span>
-            <span className="text-[10px] uppercase text-muted-foreground">{c.type}</span>
-            <button onClick={async () => { await api.deleteSshCredential(c.id); onChanged(); }} className="text-destructive"><Trash2 className="size-3.5" /></button>
+          <div key={c.id} className="text-sm py-1">
+            <div className="flex items-center gap-2">
+              <KeyRound className="size-3.5 text-muted-foreground" />
+              <span className="flex-1 truncate">{c.name}</span>
+              {c.publicKey && (
+                <button onClick={() => setShown(shown === c.id ? null : c.id)} className="text-[10px] text-muted-foreground hover:text-foreground">
+                  {shown === c.id ? 'hide' : 'public key'}
+                </button>
+              )}
+              <span className="text-[10px] uppercase text-muted-foreground">{c.type}</span>
+              <button aria-label={`Delete ${c.name}`} onClick={async () => { await api.deleteSshCredential(c.id); onChanged(); }} className="text-destructive"><Trash2 className="size-3.5" /></button>
+            </div>
+            {shown === c.id && c.publicKey && (
+              <div className="mt-1.5 space-y-1">
+                <textarea readOnly value={c.publicKey} onFocus={(e) => e.currentTarget.select()}
+                  className="w-full h-16 rounded-md border border-input bg-background p-2 text-[10px] font-mono break-all" />
+                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                  <span className="flex-1 truncate font-mono">{c.fingerprint}</span>
+                  <button onClick={() => { void navigator.clipboard.writeText(c.publicKey!); toast({ title: 'Public key copied' }); }} className="hover:text-foreground">copy</button>
+                </div>
+                <p className="text-[10px] text-muted-foreground">Add this line to <code>~/.ssh/authorized_keys</code> on the server.</p>
+              </div>
+            )}
           </div>
         ))}
       </div>
       <div className="space-y-3 border-t border-border pt-4">
-        <Input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-        <select value={type} onChange={(e) => setType(e.target.value as 'password' | 'key')} className="w-full h-9 rounded-md border border-input bg-background px-2 text-sm">
-          <option value="password">Password</option>
-          <option value="key">Private key</option>
-        </select>
-        {type === 'password'
-          ? <Input type="password" placeholder="Password" value={secret} onChange={(e) => setSecret(e.target.value)} />
-          : <>
-              <textarea placeholder="-----BEGIN PRIVATE KEY-----" value={secret} onChange={(e) => setSecret(e.target.value)}
-                className="w-full h-24 rounded-md border border-input bg-background p-2 text-xs font-mono" />
-              <Input type="password" placeholder="Passphrase (optional)" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />
-            </>}
-        <Button onClick={add} disabled={!name || !secret} className="w-full">Add credential</Button>
+        <div className="grid grid-cols-4 gap-1 rounded-md bg-secondary/50 p-0.5 text-xs">
+          {([['generate', 'Generate'], ['import', '~/.ssh'], ['paste', 'Paste key'], ['password', 'Password']] as const).map(([m, label]) => (
+            <button key={m} onClick={() => setMode(m)}
+              className={cn('rounded px-2 py-1', mode === m ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {mode === 'import' ? (
+          <>
+            <select value={file} onChange={(e) => setFile(e.target.value)} className="w-full h-9 rounded-md border border-input bg-background px-2 text-sm">
+              <option value="">{localKeys.length ? 'Pick a key from ~/.ssh…' : 'No private keys found in ~/.ssh'}</option>
+              {localKeys.map((k) => <option key={k.file} value={k.file}>{k.file}{k.encrypted ? ' (passphrase)' : ''}</option>)}
+            </select>
+            <Input placeholder={file ? `Name (default: ${file})` : 'Name'} value={name} onChange={(e) => setName(e.target.value)} />
+            {picked?.encrypted && <Input type="password" placeholder="Passphrase" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />}
+          </>
+        ) : (
+          <Input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+        )}
+        {mode === 'generate' && <p className="text-xs text-muted-foreground">Makes a new ed25519 key. Its public key shows here to put on the server.</p>}
+        {mode === 'password' && <Input type="password" placeholder="Password" value={secret} onChange={(e) => setSecret(e.target.value)} />}
+        {mode === 'paste' && (
+          <>
+            <textarea placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" value={secret} onChange={(e) => setSecret(e.target.value)}
+              className="w-full h-24 rounded-md border border-input bg-background p-2 text-xs font-mono" />
+            <Input type="password" placeholder="Passphrase (if the key has one)" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />
+          </>
+        )}
+        <Button onClick={add} disabled={!ready || busy} className="w-full gap-1.5">
+          {busy && <Loader2 className="size-3.5 animate-spin" />}
+          {mode === 'generate' ? 'Generate key' : mode === 'import' ? 'Import key' : 'Add credential'}
+        </Button>
       </div>
     </Modal>
   );

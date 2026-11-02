@@ -40,7 +40,7 @@ final class NotchViewController: NSViewController {
         hostingView = PassThroughHostingView(rootView: NotchView(viewModel: viewModel, store: store))
 
         // Window coordinates: origin at bottom-left, Y increases upward.
-        // NotchGeometry knows where the panel sits for the current anchor.
+        // NotchGeometry knows where the panel sits on the Dock.
         hostingView.hitTestRect = { [weak self] in
             guard let self else { return .zero }
             let vm = self.viewModel

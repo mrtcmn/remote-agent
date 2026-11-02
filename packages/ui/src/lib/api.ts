@@ -87,6 +87,19 @@ export const api = {
     if (projectId) params.set('projectId', projectId);
     return request<{ diff: string; file: string }>(`/sessions/${sessionId}/git/file-diff?${params.toString()}`);
   },
+  // Whole old (HEAD) and new (working tree) files, for the editable diff.
+  getSessionFileDiffContents: (sessionId: string, file: string, projectId?: string) => {
+    const params = new URLSearchParams({ file, contents: '1' });
+    if (projectId) params.set('projectId', projectId);
+    return request<{ diff: string; file: string; oldContent: string; newContent: string | null }>(
+      `/sessions/${sessionId}/git/file-diff?${params.toString()}`
+    );
+  },
+  saveSessionGitFile: (sessionId: string, file: string, content: string, projectId?: string) =>
+    request<{ success: boolean }>(`/sessions/${sessionId}/git/file`, {
+      method: 'PUT',
+      body: JSON.stringify({ file, content, projectId }),
+    }),
 
   // Git operations (session-level)
   gitStage: (sessionId: string, files: string[], projectId?: string) =>
@@ -143,6 +156,11 @@ export const api = {
     request<DirectoryListing>(`/sessions/${sessionId}/files?path=${encodeURIComponent(path)}`),
   getSessionFileContent: (sessionId: string, path: string) =>
     request<FileContent>(`/sessions/${sessionId}/files/content?path=${encodeURIComponent(path)}`),
+  saveSessionFileContent: (sessionId: string, path: string, content: string) =>
+    request<{ success: boolean; size: number }>(`/sessions/${sessionId}/files/content`, {
+      method: 'PUT',
+      body: JSON.stringify({ path, content }),
+    }),
   uploadFiles: async (sessionId: string, files: File[], directory = '.') => {
     const formData = new FormData();
     files.forEach(f => formData.append('files', f));
@@ -251,11 +269,27 @@ export const api = {
     }),
 
   // Presence
-  sendHeartbeat: (terminalId?: string) =>
+  sendHeartbeat: (terminalId?: string, machineId?: string) =>
     request('/presence/heartbeat', {
       method: 'POST',
       body: JSON.stringify({ terminalId }),
+      machineId,
     }),
+
+  // Split views — always on this machine (see LOCAL_ONLY_PREFIXES)
+  listViews: () => request<{ views: ViewSummary[] }>('/views'),
+  getView: (id: string) => request<ViewDetail>(`/views/${id}`),
+  createView: (data: { name?: string; layout?: unknown; panels: ViewPanelInput[] }) =>
+    request<ViewDetail>('/views', { method: 'POST', body: JSON.stringify(data) }),
+  updateView: (id: string, data: { name?: string; layout?: unknown; position?: number }) =>
+    request<{ ok: true }>(`/views/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteView: (id: string) => request<{ ok: true }>(`/views/${id}`, { method: 'DELETE' }),
+  addViewPanel: (id: string, panel: ViewPanelInput) =>
+    request<ViewPanel>(`/views/${id}/panels`, { method: 'POST', body: JSON.stringify(panel) }),
+  setViewPanelTerminal: (id: string, panelId: string, terminalId: string) =>
+    request<{ ok: true }>(`/views/${id}/panels/${panelId}`, { method: 'PATCH', body: JSON.stringify({ terminalId }) }),
+  removeViewPanel: (id: string, panelId: string) =>
+    request<{ ok: true }>(`/views/${id}/panels/${panelId}`, { method: 'DELETE' }),
 
   // Version
   getVersion: (force = false) =>
@@ -271,12 +305,12 @@ export const api = {
     request(`/workspace/ssh-keys/${id}`, { method: 'DELETE', headers: { 'X-Pin': pin } }),
 
   // Terminals
-  getSessionTerminals: (sessionId: string) =>
-    request<TerminalInfo[]>(`/terminals/session/${sessionId}`),
+  getSessionTerminals: (sessionId: string, machineId?: string) =>
+    request<TerminalInfo[]>(`/terminals/session/${sessionId}`, { machineId }),
   getTerminal: (id: string) =>
     request<TerminalInfo>(`/terminals/${id}`),
-  createTerminal: (data: CreateTerminalInput) =>
-    request<TerminalInfo>('/terminals', { method: 'POST', body: JSON.stringify(data) }),
+  createTerminal: (data: CreateTerminalInput, machineId?: string) =>
+    request<TerminalInfo>('/terminals', { method: 'POST', body: JSON.stringify(data), machineId }),
   // Plain-text tail of a terminal's output, for readers that don't want an xterm.
   getTerminalOutput: (id: string, lines = 200) =>
     request<{ output: string; truncated: boolean }>(`/terminals/${id}/output?lines=${lines}`),
@@ -558,6 +592,8 @@ export const api = {
     request<{ browsers: { sessionId: string; url: string; at: number; agentUntil?: number }[] }>('/preview/open'),
   closeBrowser: (sessionId: string) =>
     request<{ closed: boolean }>(`/preview/open/${sessionId}`, { method: 'DELETE' }),
+  getInspectorUrl: (pageUrl: string) =>
+    request<{ url: string }>(`/preview/inspector?url=${encodeURIComponent(pageUrl)}`),
 
   // ─── Code Editor ──────────────────────────────────────────────────────────
 
@@ -760,6 +796,8 @@ export const api = {
       method: 'POST',
     }),
   listMachines: () => request<{ machines: MachineSummary[] }>('/machines'),
+  renameMachine: (id: string, name: string) =>
+    request<{ ok: true }>(`/machines/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   revokeMachine: (id: string) =>
     request<{ ok: true }>(`/machines/${id}`, { method: 'DELETE' }),
 
@@ -773,6 +811,10 @@ export const api = {
     }),
   unpairMaster: (id: string) =>
     request<{ ok: true }>(`/paired-masters/${id}`, { method: 'DELETE' }),
+  renamePairedMaster: (id: string, name: string) =>
+    request<{ ok: true }>(`/paired-masters/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  renamePeer: (masterId: string, peerId: string, name: string) =>
+    request<{ ok: true }>(`/paired-masters/${masterId}/peers/${peerId}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   getPairedMasterPeers: (id: string) =>
     request<{ peers: MachineSummary[] }>(`/paired-masters/${id}/peers`),
 
@@ -783,17 +825,23 @@ export const api = {
   deleteSshHost: (id: string) => request<{ ok: true }>(`/ssh/hosts/${id}`, { method: 'DELETE' }),
   getSshHostLogs: (id: string) => request<SshLogEvent[]>(`/ssh/hosts/${id}/logs`),
   resetSshHostTrust: (id: string) => request<{ ok: true }>(`/ssh/hosts/${id}/trust-reset`, { method: 'POST' }),
-  connectSshHost: (id: string, size?: { cols: number; rows: number }) =>
-    request<{ sessionId: string; terminalId: string }>(`/ssh/hosts/${id}/connect`, { method: 'POST', body: JSON.stringify(size ?? {}) }),
-  stopSshSession: (sessionId: string) => request<{ ok: true }>(`/ssh/sessions/${sessionId}/stop`, { method: 'POST' }),
+  /** Without sessionId the connection gets a session of its own; with it, a tab there. */
+  connectSshHost: (id: string, opts?: { sessionId?: string; cols?: number; rows?: number }) =>
+    request<{ sessionId: string; terminalId: string }>(`/ssh/hosts/${id}/connect`, { method: 'POST', body: JSON.stringify(opts ?? {}) }),
+  stopSshTerminal: (terminalId: string) => request<{ ok: true }>(`/ssh/terminals/${terminalId}/stop`, { method: 'POST' }),
+  reconnectSshTerminal: (terminalId: string) =>
+    request<{ sessionId: string; terminalId: string }>(`/ssh/terminals/${terminalId}/reconnect`, { method: 'POST' }),
   getSshSessions: () => request<SshActiveSession[]>('/ssh/sessions'),
-  getSshSession: (sessionId: string) => request<SshSessionDetail>(`/ssh/sessions/${sessionId}`),
   getSshGroups: () => request<SshGroup[]>('/ssh/groups'),
   createSshGroup: (data: { name: string; parentId?: string; sortOrder?: number }) => request<SshGroup>('/ssh/groups', { method: 'POST', body: JSON.stringify(data) }),
   deleteSshGroup: (id: string) => request<{ ok: true }>(`/ssh/groups/${id}`, { method: 'DELETE' }),
   getSshCredentials: () => request<SshCredential[]>('/ssh/credentials'),
   createSshCredential: (data: SshCredentialInput) => request<SshCredential>('/ssh/credentials', { method: 'POST', body: JSON.stringify(data) }),
   deleteSshCredential: (id: string) => request<{ ok: true }>(`/ssh/credentials/${id}`, { method: 'DELETE' }),
+  generateSshKey: (name: string) => request<SshCredential>('/ssh/credentials/generate', { method: 'POST', body: JSON.stringify({ name }) }),
+  getLocalSshKeys: () => request<SshLocalKey[]>('/ssh/credentials/local'),
+  importSshKey: (data: { file: string; name?: string; passphrase?: string }) =>
+    request<SshCredential>('/ssh/credentials/import', { method: 'POST', body: JSON.stringify(data) }),
 };
 
 export interface LLMSettings {
@@ -822,10 +870,18 @@ export interface SshHostInput {
   credentialId?: string | null; groupId?: string | null; tags?: string[]; color?: string;
 }
 export interface SshGroup { id: string; name: string; parentId: string | null; sortOrder: number; }
-export interface SshCredential { id: string; name: string; type: 'password' | 'key'; createdAt: string; }
+export interface SshCredential {
+  id: string; name: string; type: 'password' | 'key'; createdAt: string;
+  /** Key credentials: the authorized_keys line and its SHA256 fingerprint. */
+  publicKey?: string; fingerprint?: string;
+}
+export interface SshLocalKey { file: string; encrypted: boolean; publicKey: string | null; }
 export interface SshCredentialInput { name: string; type: 'password' | 'key'; password?: string; privateKey?: string; passphrase?: string; }
-export interface SshActiveSession { sessionId: string; hostId: string; status: 'connecting' | 'running' | 'exited'; }
-export interface SshSessionDetail extends SshActiveSession { host: SshHost; }
+export interface SshActiveSession {
+  sessionId: string; terminalId: string; hostId: string; status: 'connecting' | 'running' | 'exited';
+  /** The session exists only for this connection (opened from the SSH sidebar). */
+  standalone: boolean;
+}
 export interface SshLogEvent {
   id: string; hostId: string; sessionId: string | null;
   type: 'connect' | 'disconnect' | 'auth_fail' | 'retry' | 'error';
@@ -1039,7 +1095,7 @@ export interface PairWorkspaceInput {
   claudeSettings?: Record<string, unknown>;
 }
 
-export type TerminalType = 'shell' | 'claude' | 'opencode' | 'kimi' | 'process';
+export type TerminalType = 'shell' | 'claude' | 'opencode' | 'kimi' | 'process' | 'ssh';
 
 export interface TerminalInfo {
   id: string;
@@ -1550,6 +1606,42 @@ export interface AggregateMachine {
 
 export interface MachineSidebar extends AggregateMachine {
   data: SidebarData;
+}
+
+export type ViewTool = 'files' | 'git' | 'run' | 'docker' | 'env' | 'flow';
+
+export interface ViewPanelInput {
+  id?: string;
+  machineId?: string | null;
+  sessionId: string;
+  kind: 'terminal' | 'tool';
+  terminalId?: string | null;
+  tool?: ViewTool | null;
+}
+
+export interface ViewPanel {
+  id: string;
+  viewId: string;
+  machineId: string | null; // null = this machine
+  sessionId: string;
+  kind: 'terminal' | 'tool';
+  terminalId: string | null;
+  tool: ViewTool | null;
+}
+
+export interface ViewSummary {
+  id: string;
+  name: string;
+  position: number;
+  sessions: { machineId: string | null; sessionId: string }[];
+}
+
+export interface ViewDetail {
+  id: string;
+  name: string;
+  position: number;
+  layout: unknown | null;
+  panels: ViewPanel[];
 }
 
 export interface AggregatedSidebar {

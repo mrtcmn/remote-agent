@@ -204,15 +204,17 @@ export class WorkspaceService {
     const baseUrl = `${process.env.RA_API_URL || `\${REMOTE_AGENT_API:-http://localhost:${getDefaultPort()}}`}/internal/hooks`;
 
     // Guard: skip hooks when spawned by the classifier (prevents infinite loop)
+    // printf, not echo: macOS /bin/sh's echo expands the \n escapes inside the JSON
+    // into raw newlines, jq rejects it, and the hook silently posts an empty body.
     const guard = '[ "$REMOTE_AGENT_CLASSIFIER" = "1" ] && exit 0;';
 
-    const attentionCommand = `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '. + {"sessionId": env.REMOTE_AGENT_SESSION_ID, "terminalId": env.REMOTE_AGENT_TERMINAL_ID}' | curl -s -X POST "${baseUrl}/attention" -H "Content-Type: application/json" -d @- &`;
+    const attentionCommand = `${guard} INPUT=$(cat); printf '%s' "$INPUT" | jq -c '. + {"sessionId": env.REMOTE_AGENT_SESSION_ID, "terminalId": env.REMOTE_AGENT_TERMINAL_ID}' | curl -s -X POST "${baseUrl}/attention" -H "Content-Type: application/json" -d @- &`;
 
-    const completeCommand = `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '. + {"sessionId": env.REMOTE_AGENT_SESSION_ID, "terminalId": env.REMOTE_AGENT_TERMINAL_ID}' | curl -s -X POST "${baseUrl}/complete" -H "Content-Type: application/json" -d @- &`;
+    const completeCommand = `${guard} INPUT=$(cat); printf '%s' "$INPUT" | jq -c '. + {"sessionId": env.REMOTE_AGENT_SESSION_ID, "terminalId": env.REMOTE_AGENT_TERMINAL_ID}' | curl -s -X POST "${baseUrl}/complete" -H "Content-Type: application/json" -d @- &`;
 
     // Fired on UserPromptSubmit + PreToolUse → the agent is working again, so the
     // terminal flips to in-progress and any pending needs-you notification clears.
-    const activeCommand = `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '. + {"sessionId": env.REMOTE_AGENT_SESSION_ID, "terminalId": env.REMOTE_AGENT_TERMINAL_ID}' | curl -s -X POST "${baseUrl}/active" -H "Content-Type: application/json" -d @- &`;
+    const activeCommand = `${guard} INPUT=$(cat); printf '%s' "$INPUT" | jq -c '. + {"sessionId": env.REMOTE_AGENT_SESSION_ID, "terminalId": env.REMOTE_AGENT_TERMINAL_ID}' | curl -s -X POST "${baseUrl}/active" -H "Content-Type: application/json" -d @- &`;
 
     const defaultHooks: HookConfig = {
       hooks: {
@@ -245,7 +247,7 @@ export class WorkspaceService {
           matcher: 'mcp__agent-browser__screenshot',
           hooks: [{
             type: 'command',
-            command: `${guard} INPUT=$(cat); echo "$INPUT" | jq -c '{sessionId: env.REMOTE_AGENT_SESSION_ID, terminalId: env.REMOTE_AGENT_TERMINAL_ID, tool_name: .tool_name, tool_input: (.tool_input | tostring), tool_result: (if .tool_result.content then (.tool_result.content | if type == "array" then (map(select(.type == "text")) | .[0].text // "") else tostring end) else (.tool_result | tostring) end)}' | curl -s -X POST "${baseUrl}/artifact" -H "Content-Type: application/json" -d @- &`,
+            command: `${guard} INPUT=$(cat); printf '%s' "$INPUT" | jq -c '{sessionId: env.REMOTE_AGENT_SESSION_ID, terminalId: env.REMOTE_AGENT_TERMINAL_ID, tool_name: .tool_name, tool_input: (.tool_input | tostring), tool_result: (if .tool_result.content then (.tool_result.content | if type == "array" then (map(select(.type == "text")) | .[0].text // "") else tostring end) else (.tool_result | tostring) end)}' | curl -s -X POST "${baseUrl}/artifact" -H "Content-Type: application/json" -d @- &`,
           }],
         }],
       },

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Bell, Key, Lock, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw, RefreshCw, ExternalLink, Package, Trash2, Globe, Plus, X, Github, Star, ChevronDown, ChevronRight, Building2, Cpu, Mic } from 'lucide-react';
+import { Bell, Key, Lock, Smartphone, Loader2, Check, Send, BellOff, BellRing, AlertCircle, RotateCcw, RefreshCw, ExternalLink, Package, Trash2, Globe, Plus, X, Github, Star, ChevronDown, ChevronRight, Building2, Cpu, Mic, SlidersHorizontal, Shield, Server, Plug, LifeBuoy } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -9,31 +9,82 @@ import { useVersion } from '@/hooks/useVersion';
 import { useGitHubApps, useGitHubAppInstallations, useDeleteGitHubApp, useSetDefaultGitHubApp, useSyncInstallations } from '@/hooks/useGitHubApps';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
+import { SettingsRow, SettingsSection } from '@/components/ui/SettingsSection';
 import { toast } from '@/components/ui/Toaster';
 import { MachinesSection } from '@/components/MachinesSection';
+import { cn } from '@/lib/utils';
+
+const GROUPS = [
+  { id: 'general', label: 'General', icon: SlidersHorizontal },
+  { id: 'security', label: 'Security', icon: Shield },
+  { id: 'machines', label: 'Machines', icon: Server },
+  { id: 'integrations', label: 'Integrations', icon: Plug },
+  { id: 'troubleshoot', label: 'Troubleshoot', icon: LifeBuoy },
+] as const;
+
+type GroupId = (typeof GROUPS)[number]['id'];
 
 export function SettingsPage() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  // The GitHub App callback lands here with ?github-app=… — open the group that shows it.
+  const [group, setGroup] = useState<GroupId>(() => {
+    const tab = searchParams.get('tab');
+    if (GROUPS.some((g) => g.id === tab)) return tab as GroupId;
+    return searchParams.has('github-app') || searchParams.has('installation') ? 'integrations' : 'general';
+  });
+  const current = GROUPS.find((g) => g.id === group)!;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-muted-foreground">Manage your account and preferences</p>
-      </div>
+    <div className="flex flex-col gap-6 md:flex-row md:gap-10">
+      <nav className="md:sticky md:top-0 md:self-start md:w-52 shrink-0">
+        <div className="px-3 pb-3 text-[13px] text-muted-foreground">Settings</div>
+        <div className="flex gap-1 overflow-x-auto scrollbar-hide md:flex-col">
+          {GROUPS.map((g) => (
+            <button
+              key={g.id}
+              type="button"
+              onClick={() => setGroup(g.id)}
+              className={cn(
+                'flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
+                g.id === group
+                  ? 'bg-secondary text-foreground font-medium'
+                  : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground',
+              )}
+            >
+              <g.icon className="size-4" />
+              {g.label}
+            </button>
+          ))}
+        </div>
+      </nav>
 
-      <VersionSection />
-      <PasswordSection />
-      <PinSection hasPin={user?.hasPin || false} />
-      <MachinesSection />
-      <OriginsSection />
-      <LLMEngineSection />
-      <DictationSection />
-      <GitHubAppsSection />
-      <NotificationSection />
-      <SSHKeysSection />
-      <TroubleshootSection />
+      <div className="flex-1 min-w-0 max-w-3xl space-y-10 pb-10">
+        <h1 className="px-1 text-2xl font-semibold tracking-tight">{current.label}</h1>
+        {group === 'general' && (
+          <>
+            <VersionSection />
+            <LLMEngineSection />
+            <DictationSection />
+            <NotificationSection />
+          </>
+        )}
+        {group === 'security' && (
+          <>
+            <PasswordSection />
+            <PinSection hasPin={user?.hasPin || false} />
+            <OriginsSection />
+          </>
+        )}
+        {group === 'machines' && <MachinesSection />}
+        {group === 'integrations' && (
+          <>
+            <GitHubAppsSection />
+            <SSHKeysSection />
+          </>
+        )}
+        {group === 'troubleshoot' && <TroubleshootSection />}
+      </div>
     </div>
   );
 }
@@ -69,17 +120,15 @@ function VersionSection() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Package className="h-5 w-5" />
-          <CardTitle>Version</CardTitle>
-        </div>
-        <CardDescription>
-          Application version and update information
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <SettingsSection
+        icon={Package}
+        title="Version"
+        description={
+          <>
+            Application version and update information
+          </>
+        } className="space-y-4"
+      >
         {isLoading ? (
           <div className="flex items-center gap-2 text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -87,26 +136,18 @@ function VersionSection() {
           </div>
         ) : (
           <>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Current version</span>
+            <div>
+              <SettingsRow label="Current version" description="The build that runs on this server.">
                 <span className="font-mono text-sm">{version?.current || 'Unknown'}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Latest version</span>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm">{version?.latest || 'Unknown'}</span>
-                  {version?.updateAvailable && (
-                    <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
-                      Update available
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Last checked</span>
-                <span className="text-sm">{formatLastChecked(version?.lastChecked || null)}</span>
-              </div>
+              </SettingsRow>
+              <SettingsRow label="Latest version" description={`Last checked ${formatLastChecked(version?.lastChecked || null).toLowerCase()}.`}>
+                {version?.updateAvailable && (
+                  <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full border border-primary/20">
+                    Update available
+                  </span>
+                )}
+                <span className="font-mono text-sm">{version?.latest || 'Unknown'}</span>
+              </SettingsRow>
             </div>
 
             {version?.updateAvailable && (
@@ -145,8 +186,7 @@ function VersionSection() {
             </div>
           </>
         )}
-      </CardContent>
-    </Card>
+      </SettingsSection>
   );
 }
 
@@ -182,52 +222,51 @@ function PasswordSection() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Lock className="h-5 w-5" />
-          <CardTitle>Password</CardTitle>
-        </div>
-        <CardDescription>
-          Change your account password
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4 max-w-xs">
-          <div>
-            <label className="text-sm font-medium">Current Password</label>
+    <SettingsSection
+        icon={Lock}
+        title="Password"
+        description={
+          <>
+            Change your account password
+          </>
+        }
+      >
+        <form onSubmit={handleSubmit}>
+          <SettingsRow label="Current password">
             <Input
               type="password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               placeholder="Enter current password"
+              className="w-64"
             />
-          </div>
-          <div>
-            <label className="text-sm font-medium">New Password</label>
+          </SettingsRow>
+          <SettingsRow label="New password" description="At least 6 characters.">
             <Input
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="Enter new password"
+              className="w-64"
             />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Confirm New Password</label>
+          </SettingsRow>
+          <SettingsRow label="Confirm new password">
             <Input
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Confirm new password"
+              className="w-64"
             />
-          </div>
+          </SettingsRow>
+          <div className="flex justify-end pt-4">
           <Button type="submit" disabled={!currentPassword || !newPassword || !confirmPassword || changeMutation.isPending}>
             {changeMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             Change Password
           </Button>
+          </div>
         </form>
-      </CardContent>
-    </Card>
+      </SettingsSection>
   );
 }
 
@@ -266,34 +305,30 @@ function PinSection({ hasPin }: { hasPin: boolean }) {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Key className="h-5 w-5" />
-          <CardTitle>Security PIN</CardTitle>
-        </div>
-        <CardDescription>
-          {hasPin
+    <SettingsSection
+        icon={Key}
+        title="Security PIN"
+        description={
+          <>
+            {hasPin
             ? 'Your PIN is set. Required for sensitive operations like deleting projects and SSH keys.'
             : 'Set a PIN for extra security on sensitive operations.'}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSetPin} className="space-y-4 max-w-xs">
-          <div>
-            <label className="text-sm font-medium">Current Password</label>
+          </>
+        }
+      >
+        <form onSubmit={handleSetPin}>
+          <SettingsRow label="Current password">
             <Input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
+              className="w-64"
             />
-          </div>
-          <div>
-            <label className="text-sm font-medium">
-              {hasPin ? 'New PIN' : 'PIN'} (4-8 digits)
-            </label>
+          </SettingsRow>
+          <SettingsRow label={hasPin ? 'New PIN' : 'PIN'} description="4–8 digits.">
             <Input
+              className="w-64"
               type="password"
               inputMode="numeric"
               pattern="[0-9]*"
@@ -302,10 +337,10 @@ function PinSection({ hasPin }: { hasPin: boolean }) {
               maxLength={8}
               placeholder="Enter PIN"
             />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Confirm PIN</label>
+          </SettingsRow>
+          <SettingsRow label="Confirm PIN">
             <Input
+              className="w-64"
               type="password"
               inputMode="numeric"
               pattern="[0-9]*"
@@ -314,13 +349,14 @@ function PinSection({ hasPin }: { hasPin: boolean }) {
               maxLength={8}
               placeholder="Confirm PIN"
             />
+          </SettingsRow>
+          <div className="flex justify-end pt-4">
+            <Button type="submit" disabled={!password || !pin || !confirmPin}>
+              {hasPin ? 'Update PIN' : 'Set PIN'}
+            </Button>
           </div>
-          <Button type="submit" disabled={!password || !pin || !confirmPin}>
-            {hasPin ? 'Update PIN' : 'Set PIN'}
-          </Button>
         </form>
-      </CardContent>
-    </Card>
+      </SettingsSection>
   );
 }
 
@@ -384,17 +420,15 @@ function OriginsSection() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Globe className="h-5 w-5" />
-          <CardTitle>Allowed Origins</CardTitle>
-        </div>
-        <CardDescription>
-          Manage CORS and trusted origins. Changes take effect immediately without a server restart.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <SettingsSection
+        icon={Globe}
+        title="Allowed Origins"
+        description={
+          <>
+            Manage CORS and trusted origins. Changes take effect immediately without a server restart.
+          </>
+        } className="space-y-4"
+      >
         {origins.length === 0 ? (
           <p className="text-sm text-muted-foreground">No origins configured.</p>
         ) : (
@@ -451,8 +485,7 @@ function OriginsSection() {
             Add
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </SettingsSection>
   );
 }
 
@@ -524,18 +557,16 @@ function LLMEngineSection() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Cpu className="h-5 w-5" />
-          <CardTitle>AI Engine</CardTitle>
-        </div>
-        <CardDescription>
-          Model that writes notification summaries and PR-diff slides. Defaults to the local
+    <SettingsSection
+        icon={Cpu}
+        title="AI Engine"
+        description={
+          <>
+            Model that writes notification summaries and PR-diff slides. Defaults to the local
           Claude Code CLI; point it at any OpenAI-compatible endpoint for faster/cheaper runs.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4 max-w-md">
+          </>
+        } className="space-y-4"
+      >
         <div>
           <label className="text-sm font-medium">Provider</label>
           <select
@@ -586,8 +617,7 @@ function LLMEngineSection() {
           {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
           Save
         </Button>
-      </CardContent>
-    </Card>
+      </SettingsSection>
   );
 }
 
@@ -608,20 +638,18 @@ function DictationSection() {
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Mic className="h-5 w-5" />
-          <CardTitle>Dictation</CardTitle>
-        </div>
-        <CardDescription>
-          Hold <kbd className="px-1 rounded bg-muted font-mono text-xs">⌃⇧</kbd> in a session to talk;
+    <SettingsSection
+        icon={Mic}
+        title="Dictation"
+        description={
+          <>
+            Hold <kbd className="px-1 rounded bg-muted font-mono text-xs">⌃⇧</kbd> in a session to talk;
           the transcript is typed into the active terminal. Powered by Soniox — paste a key from{' '}
           <a href="https://console.soniox.com" target="_blank" rel="noreferrer" className="underline">console.soniox.com</a>.
           The key stays on the server; the browser only gets short-lived temporary keys.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4 max-w-md">
+          </>
+        } className="space-y-4"
+      >
         <div>
           <label className="text-sm font-medium flex items-center gap-2">
             API Key
@@ -639,8 +667,7 @@ function DictationSection() {
           {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
           Save
         </Button>
-      </CardContent>
-    </Card>
+      </SettingsSection>
   );
 }
 
@@ -708,18 +735,16 @@ function GitHubAppsSection() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Github className="h-5 w-5" />
-          GitHub Apps
-        </CardTitle>
-        <CardDescription>
-          Connect GitHub Apps for OAuth login and repository access.
+    <SettingsSection
+        icon={Github}
+        title="GitHub Apps"
+        description={
+          <>
+            Connect GitHub Apps for OAuth login and repository access.
           Each app provides authentication and access to private repositories.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+          </>
+        } className="space-y-4"
+      >
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -782,8 +807,7 @@ function GitHubAppsSection() {
             </div>
           </>
         )}
-      </CardContent>
-    </Card>
+      </SettingsSection>
   );
 }
 
@@ -1025,17 +1049,15 @@ function NotificationSection() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Bell className="h-5 w-5" />
-          <CardTitle>Notifications</CardTitle>
-        </div>
-        <CardDescription>
-          Get notified when Claude needs your attention
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
+    <SettingsSection
+        icon={Bell}
+        title="Notifications"
+        description={
+          <>
+            Get notified when Claude needs your attention
+          </>
+        } className="space-y-6"
+      >
         {/* Enable notifications section */}
         <div className="space-y-3">
           <h4 className="font-medium text-sm">This Device</h4>
@@ -1112,8 +1134,7 @@ function NotificationSection() {
             Send Test Notification
           </Button>
         )}
-      </CardContent>
-    </Card>
+      </SettingsSection>
   );
 }
 
@@ -1173,17 +1194,15 @@ function SSHKeysSection() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Key className="h-5 w-5" />
-          <CardTitle>SSH Keys</CardTitle>
-        </div>
-        <CardDescription>
-          Manage SSH keys for git operations
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <SettingsSection
+        icon={Key}
+        title="SSH Keys"
+        description={
+          <>
+            Manage SSH keys for git operations
+          </>
+        } className="space-y-4"
+      >
         {keys?.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No SSH keys added yet.
@@ -1280,8 +1299,7 @@ function SSHKeysSection() {
             Add SSH Key
           </Button>
         )}
-      </CardContent>
-    </Card>
+      </SettingsSection>
   );
 }
 
@@ -1297,17 +1315,15 @@ function TroubleshootSection() {
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <RotateCcw className="h-5 w-5" />
-          <CardTitle>Troubleshoot</CardTitle>
-        </div>
-        <CardDescription>
-          Tools to help fix issues with your workspace
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <SettingsSection
+        icon={RotateCcw}
+        title="Troubleshoot"
+        description={
+          <>
+            Tools to help fix issues with your workspace
+          </>
+        } className="space-y-4"
+      >
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
             If you're experiencing issues with hooks, settings, or workspace configuration,
@@ -1326,7 +1342,6 @@ function TroubleshootSection() {
             Pair Workspace
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </SettingsSection>
   );
 }
