@@ -74,14 +74,16 @@ async function getLatestVersion(force: boolean = false): Promise<VersionCache | 
 }
 
 // Compare semantic versions (returns true if v1 < v2)
-function isNewerVersion(current: string, latest: string): boolean {
+export function isNewerVersion(current: string, latest: string): boolean {
   // Remove 'v' prefix if present
   const cleanCurrent = current.replace(/^v/, '');
   const cleanLatest = latest.replace(/^v/, '');
 
-  // Handle non-semver versions
-  if (cleanCurrent === 'dev' || cleanCurrent === 'unknown') {
-    return false; // Dev versions don't need updates
+  // Only numeric versions compare. dev, dev-<sha> (main builds), latest and
+  // unknown would parse as 0 and nag forever, so they never see an update.
+  const numeric = /^\d+(\.\d+)*$/;
+  if (!numeric.test(cleanCurrent) || !numeric.test(cleanLatest)) {
+    return false;
   }
 
   const currentParts = cleanCurrent.split('.').map((n) => parseInt(n, 10) || 0);

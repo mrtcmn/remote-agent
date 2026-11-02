@@ -31,6 +31,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # The self-hosted runner keeps state between runs, and no-cache builds
+      # pile up build cache until the disk fills ("No space left on device").
+      # ponytail: build cache only; add `docker image prune` if images fill it too.
+      - name: Free disk on self-hosted runner
+        if: matrix.platform == 'linux/arm64'
+        run: docker buildx prune -af
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

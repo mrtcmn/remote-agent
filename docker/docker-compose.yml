@@ -68,7 +68,6 @@ services:
 
       # App
       - APP_URL=${APP_URL:-http://localhost:5100}
-      - APP_VERSION=${IMAGE_TAG:-dev}
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
       - NODE_ENV=${NODE_ENV:-production}
 
