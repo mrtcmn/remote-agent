@@ -1,4 +1,6 @@
 import type { ElectrobunConfig } from "electrobun";
+// The one app version (desktop, Docker, host) lives in the root package.json.
+import { version } from "../../package.json";
 
 // The browser panel is a CEF webview; agent-browser drives it over CDP here.
 // Must equal the API's CDP_PORT (API port + 10): dev API 13690, the app 13590.
@@ -8,7 +10,7 @@ export default {
   app: {
     name: "Remote Agent",
     identifier: "com.remote-agent.app",
-    version: "1.3.0",
+    version,
     // Deep linking: remoteagent://open/sessions/<id> focuses the app + routes.
     // macOS only, and registration requires the app to live in /Applications.
     urlSchemes: ["remoteagent"],

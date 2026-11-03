@@ -174,7 +174,6 @@ COPY --chown=agent:agent --chmod=755 docker/git-credential-helper.sh /usr/local/
 COPY --chown=agent:agent docker/claude/ /app/templates/claude/
 
 # ── Metadata & environment ──
-ENV APP_VERSION=$VERSION
 ENV NODE_ENV=production
 ENV BUN_TMPDIR=/tmp
 ENV WORKSPACES_ROOT=/app/workspaces

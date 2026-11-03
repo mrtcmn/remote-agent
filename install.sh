@@ -511,7 +511,7 @@ fi
 
 # Get current version
 if [ "$DEPLOY_MODE" = "docker" ]; then
-    CURRENT_VERSION=$(docker exec remote-agent printenv APP_VERSION 2>/dev/null || echo "latest")
+    CURRENT_VERSION=$(docker exec remote-agent bun -e 'console.log(require("/app/package.json").version)' 2>/dev/null || echo "latest")
 else
     CURRENT_VERSION=$(git -C "${INSTALL_DIR}/app" rev-parse --short HEAD 2>/dev/null || echo "latest")
 fi

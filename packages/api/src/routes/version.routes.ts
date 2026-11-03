@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { getMode } from '../config/mode';
+import { APP_VERSION } from '../config/version';
 
 // Configuration
 const GITHUB_REPO = process.env.GITHUB_REPO || 'mrtcmn/remote-agent';
@@ -15,11 +16,6 @@ interface VersionCache {
 }
 
 let versionCache: VersionCache | null = null;
-
-// Get current version from environment
-function getCurrentVersion(): string {
-  return process.env.APP_VERSION || 'dev';
-}
 
 // Fetch latest version from GitHub Releases API
 async function fetchLatestVersion(): Promise<VersionCache | null> {
@@ -104,7 +100,7 @@ export const versionRoutes = new Elysia({ prefix: '/version' })
   // Get version info - public endpoint (no auth required)
   .get('/', async ({ query }) => {
     const force = query.force === 'true';
-    const current = getCurrentVersion();
+    const current = APP_VERSION;
     const latestInfo = await getLatestVersion(force);
 
     const mode = getMode();

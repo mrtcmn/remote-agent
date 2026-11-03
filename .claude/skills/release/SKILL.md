@@ -12,7 +12,8 @@ The update check (`packages/api/src/routes/version.routes.ts`) and `scripts/upgr
 ## How the pipeline works
 
 - `.github/workflows/docker-publish.yml` runs on the `release: published` event.
-- It builds with `VERSION=<tag>`. The Dockerfile bakes that into `APP_VERSION`.
+- The app version is the root `package.json` `version`, and only that. The desktop client, the Docker image, and the host install all read it (`packages/api/src/config/version.ts`, `packages/desktop/electrobun.config.ts`). No env var or image tag changes it.
+- The workflow fails the release if the tag is not `v` + the `package.json` version.
 - It pushes `ghcr.io/mrtcmn/remote-agent:vX.Y.Z`, `:X.Y`, and `:X`. It does not move `:latest`. Only a push to main moves `:latest`.
 - `isNewerVersion` compares only numeric tags. Use `vX.Y.Z` exactly. A tag like `v1.3.0-rc1` never counts as an update.
 
@@ -22,7 +23,7 @@ Confirm the version and the target commit with the user before step 4. A release
 
 1. Make sure the work is on `main`: `git fetch origin && git log origin/main --oneline -5`.
 2. Find the last release: `gh release list -R mrtcmn/remote-agent -L 5`. Pick the next semver.
-3. Make sure the last main run is green: `gh run list -R mrtcmn/remote-agent -L 3`.
+3. Set that version in the root `package.json` `version` field. Commit it to main and push. Wait until the main run is green: `gh run list -R mrtcmn/remote-agent -L 3`.
 4. Create the release:
    ```bash
    gh release create vX.Y.Z -R mrtcmn/remote-agent --target main --generate-notes

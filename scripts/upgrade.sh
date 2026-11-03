@@ -75,7 +75,7 @@ log_error() {
 # Get current version from running container
 get_current_version() {
     local version
-    version=$(docker exec remote-agent printenv APP_VERSION 2>/dev/null || echo "unknown")
+    version=$(docker exec remote-agent bun -e 'console.log(require("/app/package.json").version)' 2>/dev/null || echo "unknown")
     echo "$version"
 }
 

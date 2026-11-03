@@ -2,10 +2,10 @@ import { pairedMastersService } from '../paired-masters';
 import { terminalService } from '../terminal';
 import { machineTunnelClient } from '../machine-tunnel/client';
 import type { PairedMaster } from '../../db/schema';
+import { APP_VERSION } from '../../config/version';
 
 const HEARTBEAT_INTERVAL_MS = 30 * 1000;
 const HEARTBEAT_TIMEOUT_MS = 10 * 1000;
-const AGENT_VERSION = process.env.npm_package_version || '1.0.0';
 
 // Lightweight shape of what /api/machines/me/peers returns per machine.
 export interface PeerSummary {
@@ -98,7 +98,7 @@ class MasterSyncService {
       method: 'POST',
       body: JSON.stringify({
         sessionCount: terminalService.getActiveCount(),
-        version: AGENT_VERSION,
+        version: APP_VERSION,
       }),
     });
     if (!res.ok) throw new Error(`Heartbeat failed: HTTP ${res.status}`);
