@@ -352,22 +352,19 @@ if [ "$DEPLOY_MODE" = "docker" ]; then
     # so a broken container from a prior failed run gets fully recreated.
     docker compose down --remove-orphans 2>/dev/null || true
 
-    # Check the ports we're about to bind — every run, not just first install,
-    # since another container (e.g. something already using 8080) can show up later.
+    # Check the port we're about to bind — every run, not just first install,
+    # since another container can show up later. code-server needs no host port:
+    # it stays inside the container and the app serves it at /code.
     log_info "Checking required ports are free..."
-    CODE_SERVER_PORT="$(grep -m1 '^CODE_SERVER_PORT=' .env 2>/dev/null | cut -d= -f2)"
-    CODE_SERVER_PORT="${CODE_SERVER_PORT:-8080}"
     ensure_port_free PORT "app UI"
-    ensure_port_free CODE_SERVER_PORT "code-server"
-    grep -v '^PORT=\|^CODE_SERVER_PORT=' .env > .env.tmp || true
+    grep -v '^PORT=' .env > .env.tmp || true
     {
         cat .env.tmp
         echo "PORT=${PORT}"
-        echo "CODE_SERVER_PORT=${CODE_SERVER_PORT}"
     } > .env
     rm -f .env.tmp
     chmod 600 .env
-    log_success "Ports OK (app: ${PORT}, code-server: ${CODE_SERVER_PORT})"
+    log_success "Port OK (app: ${PORT})"
 
     # Start services
     echo ""

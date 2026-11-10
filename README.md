@@ -79,7 +79,7 @@ Sessions include a tabbed workspace with:
 - **Env** — Manage environment variables per project
 - **Docker** — List containers, build images, compose up/down
 - **Preview** — Browser preview for web development
-- **Editor** — Launch code-server for full VS Code editing
+- **Editor** — VS Code (code-server) in a side panel, served on the app port
 - **Files** — Browse, upload, edit, and manage project files
 
 ### Project Workspaces
