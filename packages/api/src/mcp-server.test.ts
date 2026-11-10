@@ -1,4 +1,4 @@
-import { test, expect, beforeEach } from 'bun:test';
+import { test, expect, beforeEach, afterAll } from 'bun:test';
 
 // A machine token skips the sign-in round trip; the stub below only serves /api.
 process.env.RA_TOKEN = 'test-token';
@@ -14,6 +14,10 @@ beforeEach(() => {
   calls = [];
   responses = {};
 });
+
+// Put the real fetch back: bun runs every test file in one process.
+const realFetch = globalThis.fetch;
+afterAll(() => { globalThis.fetch = realFetch; });
 
 globalThis.fetch = (async (url: string, init: any = {}) => {
   const path = url.replace('http://ra.test/api', '');
