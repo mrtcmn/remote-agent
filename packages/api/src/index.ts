@@ -19,6 +19,7 @@ import { sonioxSettings } from './services/soniox';
 import { masterSyncService } from './services/master-sync';
 import { machineProxyPlugin, resolveCallerUserId } from './plugins/machine-proxy';
 import { codeProxy } from './plugins/code-proxy';
+import { resolveMachine } from './services/machines/resolve';
 import { machineRelayPlugin } from './plugins/machine-relay';
 import { machineTunnelRoute } from './services/machine-tunnel/route';
 import { machineTunnelClient } from './services/machine-tunnel/client';
@@ -95,6 +96,7 @@ const app = new Elysia()
     port: CODE_SERVER_PORT,
     authorize: resolveCallerUserId,
     onActivity: () => codeServerManager.resetIdleTimer(),
+    resolve: resolveMachine,
   }))
 
   // Tunnel endpoint — paired secondaries connect here and hold it open.

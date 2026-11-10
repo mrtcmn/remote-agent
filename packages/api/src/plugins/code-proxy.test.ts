@@ -65,3 +65,40 @@ test('401 without a user', async () => {
   expect((await fetch(`http://127.0.0.1:${closed.server!.port}/code/x`)).status).toBe(401);
   closed.stop();
 });
+
+// A second proxy plays "this machine"; the app above is the remote one.
+const near = new Elysia().use(codeProxy({
+  port: 1, // unused: every request here names another machine
+  authorize: async () => 'user-1',
+  resolve: async (id) => id === 'm1'
+    ? { kind: 'direct', machineId: 'm1', name: 'remote', url: `http://${base}`, token: 't' }
+    : null,
+})).listen(0);
+const nearBase = `127.0.0.1:${near.server!.port}`;
+afterAll(() => near.stop());
+
+test('remote HTTP: /code/m/<id>/ reaches /code/ on that machine, gzip intact', async () => {
+  expect(await (await fetch(`http://${nearBase}/code/m/m1/a/b?x=1`)).text()).toBe('path=/a/b?x=1');
+  const gz = await fetch(`http://${nearBase}/code/m/m1/gz`, { decompress: false } as RequestInit);
+  expect(gz.headers.get('content-encoding')).toBe('gzip');
+  expect((await fetch(`http://${nearBase}/code/m/nope/x`)).status).toBe(404);
+});
+
+test('remote WS: subprotocol, text and binary survive two hops', async () => {
+  const ws = new WebSocket(`ws://${nearBase}/code/m/m1/ws`, ['vscode-test']);
+  ws.binaryType = 'arraybuffer';
+  const got: (string | Uint8Array)[] = [];
+  const done = new Promise<void>((resolve) => {
+    ws.onmessage = (e) => {
+      got.push(typeof e.data === 'string' ? e.data : new Uint8Array(e.data));
+      if (got.length === 3) resolve();
+    };
+  });
+  await new Promise((r) => (ws.onopen = r));
+  ws.send('{"a":1}');
+  ws.send(new Uint8Array([0, 255, 10, 13]));
+  await done;
+  expect(ws.protocol).toBe('vscode-test');
+  expect(got).toEqual(['proto:vscode-test', '{"a":1}', new Uint8Array([0, 255, 10, 13])]);
+  ws.close();
+});

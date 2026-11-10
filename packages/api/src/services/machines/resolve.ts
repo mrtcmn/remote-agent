@@ -118,7 +118,13 @@ export async function listTargets(userId: string): Promise<MachineTarget[]> {
 export async function machineFetch(
   target: MachineTarget,
   path: string,
-  init: { method?: string; headers?: Headers; body?: Bytes | null; signal?: AbortSignal } = {},
+  init: {
+    method?: string; headers?: Headers; body?: Bytes | null; signal?: AbortSignal;
+    /** Tunnel only; the default suits API calls, not a multi-megabyte editor bundle. */
+    timeoutMs?: number;
+    /** Pass the body through still compressed, with the caller's accept-encoding. */
+    raw?: boolean;
+  } = {},
 ): Promise<Response> {
   if (target.kind === 'tunnel') {
     return machineTunnel.fetch(target.machineId, path, {
@@ -126,12 +132,13 @@ export async function machineFetch(
       headers: init.headers,
       body: init.body,
       signal: init.signal,
+      timeoutMs: init.timeoutMs,
     });
   }
 
   const headers = new Headers(init.headers ?? {});
   headers.set('authorization', `Bearer ${target.token}`);
-  headers.set('accept-encoding', 'identity');
+  if (!init.raw) headers.set('accept-encoding', 'identity');
   if (target.kind === 'relay') {
     headers.set(TARGET_MACHINE_HEADER, target.machineId);
   }
@@ -142,5 +149,6 @@ export async function machineFetch(
     body: init.body && init.body.byteLength > 0 ? init.body : undefined,
     signal: init.signal,
     redirect: 'manual',
-  });
+    ...(init.raw ? { decompress: false } : {}),
+  } as RequestInit);
 }
