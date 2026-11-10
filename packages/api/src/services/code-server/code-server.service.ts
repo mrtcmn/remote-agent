@@ -1,6 +1,7 @@
 import { spawn, type Subprocess } from 'bun';
+import { getWorkspacesRoot } from '../../config/paths';
 
-const CODE_SERVER_PORT = parseInt(process.env.CODE_SERVER_PORT || '8080', 10);
+export const CODE_SERVER_PORT = parseInt(process.env.CODE_SERVER_PORT || '8080', 10);
 const IDLE_TIMEOUT_MS = parseInt(process.env.CODE_SERVER_IDLE_TIMEOUT || '600', 10) * 1000; // default 10 min
 
 type Status = 'stopped' | 'starting' | 'running';
@@ -13,6 +14,10 @@ class CodeServerManager {
 
   getStatus(): Status {
     return this.status;
+  }
+
+  isInstalled(): boolean {
+    return !!Bun.which('code-server');
   }
 
   /**
@@ -39,13 +44,15 @@ class CodeServerManager {
 
     const proc = spawn([
       'code-server',
+      // No auth of its own, so loopback only: the /code proxy is the one door,
+      // and it sits behind the API's auth.
       '--auth', 'none',
-      '--bind-addr', `0.0.0.0:${CODE_SERVER_PORT}`,
+      '--bind-addr', `127.0.0.1:${CODE_SERVER_PORT}`,
       '--disable-telemetry',
       '--disable-getting-started-override',
-      '/app/workspaces',
+      getWorkspacesRoot(),
     ], {
-      cwd: '/app/workspaces',
+      cwd: getWorkspacesRoot(),
       env: {
         ...process.env,
         HOME: process.env.HOME || '/home/agent',

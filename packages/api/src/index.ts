@@ -11,13 +11,14 @@ import { terminalService } from './services/terminal';
 import { taskLoopService } from './services/kanban';
 import { sshService } from './services/ssh/ssh.service';
 import { browserPreviewService } from './services/browser-preview';
-import { codeServerManager } from './services/code-server/code-server.service';
+import { codeServerManager, CODE_SERVER_PORT } from './services/code-server/code-server.service';
 import { originsService } from './services/origins';
 import { machineIdentity } from './services/machine-identity';
 import { llmSettings } from './services/llm-engine';
 import { sonioxSettings } from './services/soniox';
 import { masterSyncService } from './services/master-sync';
-import { machineProxyPlugin } from './plugins/machine-proxy';
+import { machineProxyPlugin, resolveCallerUserId } from './plugins/machine-proxy';
+import { codeProxy } from './plugins/code-proxy';
 import { machineRelayPlugin } from './plugins/machine-relay';
 import { machineTunnelRoute } from './services/machine-tunnel/route';
 import { machineTunnelClient } from './services/machine-tunnel/client';
@@ -88,6 +89,13 @@ const app = new Elysia()
   // Machine proxy — short-circuits requests with X-Machine-Id to the resolved
   // machine. Must run before any route so local handlers never see them.
   .use(machineProxyPlugin)
+
+  // code-server on the app port: /code/* → 127.0.0.1:CODE_SERVER_PORT.
+  .use(codeProxy({
+    port: CODE_SERVER_PORT,
+    authorize: resolveCallerUserId,
+    onActivity: () => codeServerManager.resetIdleTimer(),
+  }))
 
   // Tunnel endpoint — paired secondaries connect here and hold it open.
   .use(machineTunnelRoute)

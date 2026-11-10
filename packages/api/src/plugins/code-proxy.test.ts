@@ -3,7 +3,7 @@ import { Elysia } from 'elysia';
 import { codeProxy } from './code-proxy';
 
 // Fake code-server: echoes frames, reports the subprotocol, serves a gzip body.
-const upstream = Bun.serve({
+const upstream = Bun.serve<{ proto: string }>({
   port: 0,
   fetch(req, server) {
     const url = new URL(req.url);
@@ -20,12 +20,12 @@ const upstream = Bun.serve({
     return new Response(`path=${url.pathname}${url.search}`);
   },
   websocket: {
-    open(ws) { ws.send(`proto:${(ws.data as { proto: string }).proto}`); },
+    open(ws) { ws.send(`proto:${ws.data.proto}`); },
     message(ws, m) { ws.send(m); },
   },
 });
 
-const app = new Elysia().use(codeProxy({ port: upstream.port, authorize: async () => 'user-1' })).listen(0);
+const app = new Elysia().use(codeProxy({ port: upstream.port!, authorize: async () => 'user-1' })).listen(0);
 const base = `127.0.0.1:${app.server!.port}`;
 afterAll(() => { app.stop(); upstream.stop(true); });
 
@@ -61,7 +61,7 @@ test('WS: subprotocol, text that looks like JSON, and binary all survive', async
 });
 
 test('401 without a user', async () => {
-  const closed = new Elysia().use(codeProxy({ port: upstream.port, authorize: async () => null })).listen(0);
+  const closed = new Elysia().use(codeProxy({ port: upstream.port!, authorize: async () => null })).listen(0);
   expect((await fetch(`http://127.0.0.1:${closed.server!.port}/code/x`)).status).toBe(401);
   closed.stop();
 });

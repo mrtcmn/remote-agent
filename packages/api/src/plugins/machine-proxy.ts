@@ -26,7 +26,7 @@ interface WsBridge {
  * Identify the caller by cookie session or machineToken bearer. The bearer case
  * is what lets a peer open a relayed WebSocket through its hub.
  */
-async function resolveCallerUserId(request: Request, address: string | undefined): Promise<string | null> {
+export async function resolveCallerUserId(request: Request, address: string | undefined): Promise<string | null> {
   const headers = request.headers;
   const session = await auth.api.getSession({ headers });
   if (session) return session.user.id;
