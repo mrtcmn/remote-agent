@@ -182,7 +182,7 @@ class MasterTunnel {
         await this.serveRequest(frame);
         break;
       case 'wsopen':
-        this.openChannel(frame.id, frame.path);
+        this.openChannel(frame.id, frame.path, frame.protocols);
         break;
       case 'wsmsg': {
         const socket = this.channels.get(frame.id);
@@ -231,7 +231,7 @@ class MasterTunnel {
   }
 
   /** Bridge a tunnelled WS channel to a local WebSocket endpoint. */
-  private openChannel(id: string, path: string): void {
+  private openChannel(id: string, path: string, protocols?: string[]): void {
     let socket: WebSocket;
     try {
       const port = process.env.RA_PORT || process.env.PORT || 5100;
@@ -240,6 +240,7 @@ class MasterTunnel {
           [TUNNEL_AUTH_HEADER]: TUNNEL_INTERNAL_SECRET,
           [TUNNEL_MACHINE_HEADER]: this.master.id,
         },
+        ...(protocols?.length ? { protocols } : {}),
       } as unknown as string[]);
     } catch (err) {
       this.send({ t: 'wsclose', id, code: 1011, reason: (err as Error).message });

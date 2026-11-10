@@ -4,6 +4,10 @@ import { localOwnerId, requestAddress } from '../auth/middleware';
 import { resolveMachine, machineFetch, type MachineTarget } from '../services/machines/resolve';
 import { machineTunnel } from '../services/machine-tunnel/server';
 import { machineRegistry } from '../services/machine-registry';
+import { TUNNEL_AUTH_HEADER, TUNNEL_INTERNAL_SECRET, TUNNEL_MACHINE_HEADER } from '../services/machine-tunnel/internal';
+import { db } from '../db';
+import { pairedMasters } from '../db/schema';
+import { eq } from 'drizzle-orm';
 
 const HEADER_NAME = 'x-machine-id';
 const QUERY_NAME = 'machineId';
@@ -14,7 +18,7 @@ interface Upstream {
   close(code?: number, reason?: string): void;
 }
 
-interface WsBridge {
+export interface WsBridge {
   upstream: Upstream | null;
   buffered: (string | Uint8Array)[];
   closed: boolean;
@@ -30,6 +34,14 @@ export async function resolveCallerUserId(request: Request, address: string | un
   const headers = request.headers;
   const session = await auth.api.getSession({ headers });
   if (session) return session.user.id;
+  // Dispatched by our own tunnel client for a master we paired with (see auth/middleware.ts).
+  if (headers.get(TUNNEL_AUTH_HEADER) === TUNNEL_INTERNAL_SECRET) {
+    const masterId = headers.get(TUNNEL_MACHINE_HEADER);
+    const master = masterId
+      ? await db.query.pairedMasters.findFirst({ where: eq(pairedMasters.id, masterId) })
+      : null;
+    return master?.ownerUserId ?? null;
+  }
   // The desktop app on this machine has no login cookie (local mode).
   const local = await localOwnerId(request, address);
   if (local) return local;
@@ -74,7 +86,7 @@ function pickMachineId(url: URL, headers: Headers): string | null {
   return null;
 }
 
-function buildForwardHeaders(source: Headers): Headers {
+export function buildForwardHeaders(source: Headers): Headers {
   const out = new Headers();
   source.forEach((value, key) => {
     const lower = key.toLowerCase();
@@ -217,9 +229,12 @@ export const machineProxyPlugin = new Elysia({ name: 'machine-proxy' })
       };
 
       try {
+        // A relayed code-server socket needs its subprotocol on the last hop too.
+        const protocols = ws.data.request.headers.get('sec-websocket-protocol')
+          ?.split(',').map((p) => p.trim()).filter(Boolean);
         state.upstream = target.kind === 'tunnel'
-          ? openTunnelUpstream(target.machineId, path, toClient)
-          : openSocketUpstream(target, path, state, toClient);
+          ? openTunnelUpstream(target.machineId, path, toClient, protocols)
+          : openSocketUpstream(target, path, state, toClient, protocols);
       } catch (err) {
         toClient.close(1011, (err as Error).message);
         return;
@@ -255,15 +270,16 @@ export const machineProxyPlugin = new Elysia({ name: 'machine-proxy' })
   });
 
 /** Bridge to a NAT'd secondary over its tunnel. */
-function openTunnelUpstream(
+export function openTunnelUpstream(
   machineId: string,
   path: string,
   toClient: { message: (d: string | Uint8Array) => void; close: (c: number, r: string) => void },
+  protocols?: string[],
 ): Upstream {
   const channel = machineTunnel.openWs(machineId, path, {
     onMessage: toClient.message,
     onClose: toClient.close,
-  });
+  }, protocols);
   return { send: (d) => channel.send(d), close: (c, r) => channel.close(c, r) };
 }
 
@@ -271,11 +287,12 @@ function openTunnelUpstream(
  * Bridge to a machine reachable by URL. For `relay`, that URL is the hub's own
  * /ws/proxy endpoint naming the final target — the hub then tunnels the last hop.
  */
-function openSocketUpstream(
+export function openSocketUpstream(
   target: Exclude<MachineTarget, { kind: 'tunnel' }>,
   path: string,
   state: WsBridge,
   toClient: { message: (d: string | Uint8Array) => void; close: (c: number, r: string) => void },
+  protocols?: string[],
 ): Upstream {
   const base = target.url.replace(/^http/, 'ws');
   const url = target.kind === 'relay'
@@ -284,7 +301,9 @@ function openSocketUpstream(
 
   const socket = new WebSocket(url, {
     headers: { authorization: `Bearer ${target.token}` },
+    ...(protocols?.length ? { protocols } : {}),
   } as unknown as string[]);
+  socket.binaryType = 'arraybuffer';
 
   state.ready = false;
   socket.addEventListener('open', () => {

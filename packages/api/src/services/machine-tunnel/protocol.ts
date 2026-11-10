@@ -15,7 +15,7 @@ export type Frame =
   | { t: 'res'; id: string; status: number; statusText?: string; headers: Record<string, string>; body?: string }
   | { t: 'err'; id: string; message: string }
   // ── websocket bridge (master → secondary, then bidirectional per id) ──
-  | { t: 'wsopen'; id: string; path: string }
+  | { t: 'wsopen'; id: string; path: string; protocols?: string[] }
   | { t: 'wsready'; id: string }
   | { t: 'wsmsg'; id: string; data: string; binary?: boolean }
   | { t: 'wsclose'; id: string; code?: number; reason?: string }

@@ -115,6 +115,13 @@ describe('teardown', () => {
 });
 
 describe('ws channels', () => {
+  test('wsopen carries the subprotocols', () => {
+    const fake = fakeSocket();
+    machineTunnel.register('m-proto', fake.socket);
+    machineTunnel.openWs('m-proto', '/code/x', { onMessage: () => {}, onClose: () => {} }, ['vscode-test']);
+    expect(fake.sent.find((f) => f.t === 'wsopen')).toMatchObject({ path: '/code/x', protocols: ['vscode-test'] });
+  });
+
   test('bridges messages and closes the channel from the far side', () => {
     const fake = fakeSocket();
     const conn = machineTunnel.register('m-ws', fake.socket);

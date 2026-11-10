@@ -239,13 +239,13 @@ class MachineTunnelServer {
   }
 
   /** Open a bridged WebSocket channel on a tunnelled machine. */
-  openWs(machineId: string, path: string, handlers: TunnelWsHandlers): TunnelWsChannel {
+  openWs(machineId: string, path: string, handlers: TunnelWsHandlers, protocols?: string[]): TunnelWsChannel {
     const conn = this.conns.get(machineId);
     if (!conn) throw new Error(`Machine ${machineId} is not connected`);
 
     const id = crypto.randomUUID();
     conn.channels.set(id, handlers);
-    conn.send({ t: 'wsopen', id, path });
+    conn.send({ t: 'wsopen', id, path, ...(protocols?.length ? { protocols } : {}) });
 
     return {
       send(data) {
