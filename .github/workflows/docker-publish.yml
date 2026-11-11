@@ -7,10 +7,17 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Re-publish the images of an existing release tag, e.g. v1.3.1. Empty builds this branch as :latest.'
+        required: false
+        default: ''
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # Set for a published release, and for a manual run that names a tag.
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
 jobs:
   build:
@@ -30,6 +37,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # A manual run for a tag builds that tag's source; empty means the default ref.
+          ref: ${{ inputs.tag }}
 
       # The self-hosted runner keeps state between runs, and no-cache builds
       # pile up build cache until the disk fills ("No space left on device").
@@ -51,15 +61,15 @@ jobs:
       - name: Determine version
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
+          if [ -n "$RELEASE_TAG" ]; then
             # The app reports the root package.json version; the tag must match it.
-            tag="${{ github.event.release.tag_name }}"
-            pkg="v$(jq -r .version package.json)"
-            if [ "$tag" != "$pkg" ]; then
-              echo "::error::Release tag $tag does not match package.json $pkg"
+            # sed, not jq: the self-hosted runner has no jq.
+            pkg="v$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' package.json | head -1)"
+            if [ "$RELEASE_TAG" != "$pkg" ]; then
+              echo "::error::Release tag $RELEASE_TAG does not match package.json $pkg"
               exit 1
             fi
-            echo "version=$tag" >> $GITHUB_OUTPUT
+            echo "version=$RELEASE_TAG" >> $GITHUB_OUTPUT
           else
             echo "version=dev-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           fi
@@ -125,10 +135,10 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
-            type=semver,pattern=v{{version}},enable=${{ github.event_name == 'release' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
-            type=semver,pattern={{major}},enable=${{ github.event_name == 'release' }}
+            type=raw,value=latest,enable=${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && !inputs.tag) }}
+            type=semver,pattern=v{{version}},value=${{ env.RELEASE_TAG }},enable=${{ env.RELEASE_TAG != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.RELEASE_TAG }},enable=${{ env.RELEASE_TAG != '' }}
+            type=semver,pattern={{major}},value=${{ env.RELEASE_TAG }},enable=${{ env.RELEASE_TAG != '' }}
 
       - name: Create multi-platform manifest and push
         working-directory: /tmp/digests

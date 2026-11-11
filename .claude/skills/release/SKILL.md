@@ -39,3 +39,9 @@ Confirm the version and the target commit with the user before step 4. A release
 
 - `No space left on device` on the ARM64 self-hosted runner: the build cache filled the disk. The workflow runs `docker buildx prune -af` first. If it still fails, old images fill the disk. Ask the user before you prune images on that host.
 - Rerun the failed jobs: `gh run rerun <id> --failed -R mrtcmn/remote-agent`. Do not delete and re-create the release for a CI failure.
+- A rerun uses the workflow file from the tagged commit. If the workflow itself was wrong at that commit, a rerun fails the same way. Fix the workflow on main, then build the images for the existing tag from main's workflow:
+  ```bash
+  gh workflow run docker-publish.yml -R mrtcmn/remote-agent --ref main -f tag=vX.Y.Z
+  ```
+  This checks out the tag's source and pushes `:vX.Y.Z`, `:X.Y` and `:X`. It does not move `:latest`.
+- The self-hosted ARM64 runner is a bare machine: it has no `jq`. A step in the `build` job must use only tools that are sure to be there (`sed`, `grep`, `git`, `docker`). v1.3.1 failed on this.
