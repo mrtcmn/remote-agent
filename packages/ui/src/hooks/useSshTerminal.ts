@@ -85,6 +85,8 @@ export function useSshTerminal(terminalId: string | null, options: SshTerminalOp
       fontFamily: opts.fontFamily ?? "'SF Mono','Fira Code',monospace",
       fontSize: opts.fontSize ?? 13,
       fontWeight: (opts.fontWeight ?? 'normal') as never,
+      // xterm keeps a 14px column for its scrollbar by default. A thin one removes the wide empty strip on the right.
+      overviewRuler: { width: 6 },
       theme: opts.theme ?? { background: '#0a0a0a', foreground: '#fafafa' },
     });
     const fitAddon = new FitAddon();
@@ -101,7 +103,7 @@ export function useSshTerminal(terminalId: string | null, options: SshTerminalOp
     const base = getApiBase();
     const proto = (base || window.location.origin).startsWith('https') ? 'wss' : 'ws';
     const host = base ? base.replace(/^https?:\/\//, '') : window.location.host;
-    const url = `${proto}://${host}${resolveWsPath(`/ws/ssh/${terminalId}`)}`;
+    const url = `${proto}://${host}${resolveWsPath(`/ws/ssh/${terminalId}`, 'self')}`;
 
     // The socket to the API drops on sleep or an API restart while the SSH
     // connection itself lives on in the server — so open it again, and the

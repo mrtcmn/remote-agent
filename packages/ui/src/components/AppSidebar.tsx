@@ -1161,16 +1161,17 @@ export function AppSidebar({ data, isLoading, onClose }: AppSidebarProps) {
             ))
           )}
 
-          {FEATURE_SESSION_SSH && (
-            <>
-              <div className="h-px bg-border my-2 shrink-0" />
-              <SshHostsSection onNavigate={handleNavigate} />
-            </>
-          )}
           {/* Empty space below sessions is a window drag handle */}
           <div className="flex-1 min-h-[48px] electrobun-webkit-app-region-drag" />
         </div>
       </div>
+
+      {/* SSH: pinned above the bottom nav, its own scroll when the list is long. */}
+      {FEATURE_SESSION_SSH && (
+        <div className="shrink-0 max-h-[35%] overflow-y-auto border-t border-border">
+          <SshHostsSection onNavigate={handleNavigate} />
+        </div>
+      )}
 
       {/* Bottom nav */}
       <div className="shrink-0 border-t border-border">

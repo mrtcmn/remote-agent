@@ -1,4 +1,5 @@
 import {
+  memo,
   useMemo,
   useState,
   useCallback,
@@ -9,7 +10,7 @@ import {
   type ErrorInfo,
 } from 'react';
 import { PatchDiff, FileDiff, WorkerPoolContextProvider, EditProvider } from '@pierre/diffs/react';
-import { parsePatchFiles, type DiffLineAnnotation, type FileDiffMetadata } from '@pierre/diffs';
+import { parsePatchFiles, FileDiff as PierreFileDiff, type DiffLineAnnotation, type FileDiffMetadata } from '@pierre/diffs';
 import { Editor, type EditorFactory } from '@pierre/diffs/edit';
 import { FileCode, Eye, ChevronDown } from 'lucide-react';
 import { DIFF_THEME } from '@/lib/constants';
@@ -23,8 +24,27 @@ import { cn } from '@/lib/utils';
  */
 const LARGE_DIFF_LINE_THRESHOLD = 2000;
 
+// TEMP debug: trace every Pierre render/rerender with its caller stack.
+for (const m of ['render', 'rerender'] as const) {
+  const proto = PierreFileDiff.prototype as unknown as Record<string, (...a: unknown[]) => unknown>;
+  if (proto[m] && !(proto[m] as { __traced?: boolean }).__traced) {
+    const orig = proto[m];
+    const traced = function (this: unknown, ...a: unknown[]) {
+      const o = a[0] as { forceRender?: boolean } | undefined;
+      console.log(`[pierre] ${m}`, m === 'render' ? { forceRender: o?.forceRender } : '', new Error().stack?.split('\n').slice(2, 7).join('\n'));
+      return orig.apply(this, a);
+    };
+    (traced as { __traced?: boolean }).__traced = true;
+    proto[m] = traced;
+  }
+}
+
 const workerFactory = () =>
   new Worker(new URL('../../workers/diff-worker.js', import.meta.url), { type: 'module' });
+
+// Module constants: new object identities would make the provider rebuild its pool.
+const POOL_OPTIONS = { workerFactory };
+const HIGHLIGHTER_OPTIONS = { preferredHighlighter: 'highlights' } as const;
 
 const createEditor: EditorFactory<unknown, unknown> = (type, options, key) => new Editor(type, options, key);
 
@@ -35,8 +55,8 @@ const createEditor: EditorFactory<unknown, unknown> = (type, options, key) => ne
 export function DiffWorkerPool({ children }: { children: ReactNode }) {
   return (
     <WorkerPoolContextProvider
-      poolOptions={{ workerFactory }}
-      highlighterOptions={{ preferredHighlighter: 'highlights' }}
+      poolOptions={POOL_OPTIONS}
+      highlighterOptions={HIGHLIGHTER_OPTIONS}
     >
       <EditProvider createEditor={createEditor}>{children}</EditProvider>
     </WorkerPoolContextProvider>
@@ -142,6 +162,56 @@ export function RawDiffView({ diff, fileName }: { diff: string; fileName?: strin
   );
 }
 
+
+// TEMP debug: find who resets the diff scroll. Logs the events just before a jump to 0.
+function installScrollSpy(wrapper: HTMLElement) {
+  let scroller: HTMLElement | null = wrapper.parentElement;
+  while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement;
+  if (!scroller) return () => {};
+  const sc = scroller;
+  const t0 = performance.now();
+  const events: string[] = [];
+  const note = (e: string) => {
+    events.push(`${Math.round(performance.now() - t0)}ms ${e}`);
+    if (events.length > 25) events.shift();
+  };
+  // 1. JS writes to scrollTop on the scroller (with a stack).
+  const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop')!;
+  Object.defineProperty(sc, 'scrollTop', {
+    configurable: true,
+    get() { return desc.get!.call(this); },
+    set(v) {
+      note(`JS set scrollTop=${v}`);
+      console.log('[scrollspy] JS set scrollTop', v, new Error().stack?.split('\n').slice(2, 7).join('\n'));
+      desc.set!.call(this, v);
+    },
+  });
+  // 2. DOM mutations inside the diff (light DOM and shadow DOM).
+  const host = wrapper.querySelector('diffs-container');
+  const mo = new MutationObserver((list) =>
+    note(`DOM ${list.length} mutations: ${[...new Set(list.map((m) => `${m.type}:${(m.target as Element).nodeName}`))].slice(0, 4).join(',')}`)
+  );
+  const opts = { childList: true, subtree: true, attributes: true };
+  if (host) { mo.observe(host, opts); if (host.shadowRoot) mo.observe(host.shadowRoot, opts); }
+  // 3. Size changes of the diff.
+  const ro = new ResizeObserver((es) => note(`resize h=${Math.round(es[0].contentRect.height)}`));
+  if (host) ro.observe(host);
+  // 4. The jump itself.
+  let last = sc.scrollTop;
+  const onScroll = () => {
+    const now = sc.scrollTop;
+    if (last > 50 && now === 0) console.warn('[scrollspy] JUMPED to 0 from', last, '\nrecent events:\n' + events.join('\n'));
+    last = now;
+  };
+  sc.addEventListener('scroll', onScroll, { passive: true });
+  return () => {
+    sc.removeEventListener('scroll', onScroll);
+    mo.disconnect();
+    ro.disconnect();
+    delete (sc as { scrollTop?: number }).scrollTop;
+  };
+}
+
 /**
  * The highlighter paints into a custom element, so a broken worker shows a
  * blank pane instead of throwing. Watch the host: if it is still empty a moment
@@ -158,6 +228,8 @@ function DiffRenderGuard({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [blank, setBlank] = useState(false);
+
+  useEffect(() => (ref.current ? installScrollSpy(ref.current) : undefined), [watchKey]);
 
   useEffect(() => {
     setBlank(false);
@@ -187,12 +259,18 @@ export interface DiffAnnotationProps {
 }
 
 /** Renders one file's patch with syntax highlighting and inline annotations. */
-export function SinglePatchDiff({
+export const SinglePatchDiff = memo(function SinglePatchDiff({
   patch,
   fileName,
   options,
   ...annotations
 }: { patch: string; fileName?: string; options: unknown } & DiffAnnotationProps) {
+  // TEMP debug: name the prop that changed identity between renders.
+  const prev = useRef<Record<string, unknown>>({});
+  const now: Record<string, unknown> = { patch, fileName, options, ...annotations };
+  const changed = Object.keys(now).filter((k) => prev.current[k] !== now[k]);
+  if (changed.length) console.log('[SinglePatchDiff] changed props:', changed);
+  prev.current = now;
   const fallback = <RawDiffView diff={patch} fileName={fileName} />;
   return (
     <DiffErrorBoundary fallback={fallback}>
@@ -201,7 +279,7 @@ export function SinglePatchDiff({
       </DiffRenderGuard>
     </DiffErrorBoundary>
   );
-}
+});
 
 function countDiffLines(fileDiff: FileDiffMetadata): number {
   let count = 0;

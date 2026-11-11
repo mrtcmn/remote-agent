@@ -19,7 +19,6 @@ import {
   WrapText,
   MessageSquare,
   GitCommit,
-  Layers,
   Pencil,
   Save,
 } from 'lucide-react';
@@ -128,7 +127,7 @@ export function GitChangesTab({
 
   const { data: diffData, isLoading: diffLoading } = useQuery({
     queryKey: ['session-file-diff', sessionId, selectedFile, projectId],
-    queryFn: () => api.getSessionFileDiff(sessionId, selectedFile!, projectId),
+    queryFn: () => api.getSessionFileDiff(sessionId, selectedFile!, projectId, gitStatus?.renamed?.[selectedFile!]),
     enabled: !!selectedFile,
   });
 
@@ -142,7 +141,7 @@ export function GitChangesTab({
   const { data: fullDiff, isLoading: fullDiffLoading } = useQuery({
     queryKey: ['session-git-diff', sessionId, projectId],
     queryFn: () => api.getSessionGitDiff(sessionId, false, projectId),
-    enabled: !selectedFile && hasChanges,
+    enabled: false, // ponytail: all-changes view removed, too heavy to render
   });
 
   const invalidateGit = () => {
@@ -184,10 +183,19 @@ export function GitChangesTab({
     return counts;
   }, [comments]);
 
-  const lineAnnotations = useMemo(
-    () => (selectedFile ? annotationsFor(selectedFile) : []),
-    [selectedFile, annotationsFor]
+  // Pierre resets a diff when a prop changes identity, so keep every prop below
+  // stable: annotations by content, the gutter per file, the edit handler forever.
+  const annotationsKey = JSON.stringify(selectedFile ? annotationsFor(selectedFile) : []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const lineAnnotations = useMemo(() => JSON.parse(annotationsKey), [annotationsKey]);
+  const selectedGutter = useMemo(
+    () => (selectedFile ? gutterFor(selectedFile) : undefined),
+    [selectedFile, gutterFor]
   );
+  const onEditChange = useCallback((event: { editor: { getText(): string } }) => {
+    editorRef.current = event.editor;
+    setDirty(true);
+  }, []);
 
   // ── Edit mode: the single-file diff becomes an editor of the new file ──
   const [editing, setEditing] = useState(false);
@@ -203,7 +211,7 @@ export function GitChangesTab({
 
   const { data: editContents } = useQuery({
     queryKey: ['session-file-diff-contents', sessionId, selectedFile, projectId],
-    queryFn: () => api.getSessionFileDiffContents(sessionId, selectedFile!, projectId),
+    queryFn: () => api.getSessionFileDiffContents(sessionId, selectedFile!, projectId, gitStatus?.renamed?.[selectedFile!]),
     enabled: editing && !!selectedFile,
     // Fetch fresh for every edit session; never swap the base under the editor.
     gcTime: 0,
@@ -241,8 +249,8 @@ export function GitChangesTab({
   );
 
   const stagedEntries: ChangeEntry[] = useMemo(
-    () => stagedFiles.filter(matchesFilter).map((path) => ({ path, status: 'staged' as const })),
-    [stagedFiles, matchesFilter]
+    () => stagedFiles.filter(matchesFilter).map((path) => ({ path, status: 'staged' as const, renamedFrom: gitStatus?.renamed?.[path] })),
+    [stagedFiles, matchesFilter, gitStatus?.renamed]
   );
 
   const changedEntries: ChangeEntry[] = useMemo(
@@ -266,6 +274,11 @@ export function GitChangesTab({
   }, [stats]);
 
   const fileCount = new Set([...stagedFiles, ...changedFiles]).size;
+  const firstFile = stagedFiles[0] ?? changedFiles[0] ?? null;
+  const selectedGone = !!selectedFile && !stagedFiles.includes(selectedFile) && !changedFiles.includes(selectedFile);
+  useEffect(() => {
+    if (!selectedFile || selectedGone) setSelectedFile(firstFile);
+  }, [selectedFile, selectedGone, firstFile]);
 
   return (
     <div className="flex flex-1 min-h-0">
@@ -366,20 +379,6 @@ export function GitChangesTab({
             </div>
           ) : (
             <>
-              <button
-                onClick={() => setSelectedFile(null)}
-                className={cn(
-                  'flex items-center gap-2 w-full px-2.5 py-1.5 text-left text-xs transition-colors border-b border-border/40',
-                  selectedFile === null
-                    ? 'bg-accent text-foreground'
-                    : 'text-muted-foreground hover:bg-accent/40'
-                )}
-              >
-                <Layers className="h-3.5 w-3.5 shrink-0" />
-                <span className="font-medium">All changes</span>
-                <span className="ml-auto tabular-nums">{fileCount}</span>
-              </button>
-
               {visibleCount === 0 && (
                 <p className="px-3 py-6 text-center text-[11px] text-muted-foreground">
                   No file matches “{filter}”
@@ -465,7 +464,6 @@ export function GitChangesTab({
           commentCount={selectedFile ? commentCounts.get(selectedFile) ?? 0 : comments.length}
           settings={settings}
           onSettings={setSettings}
-          onClear={() => setSelectedFile(null)}
           edit={
             selectedFile
               ? {
@@ -496,13 +494,10 @@ export function GitChangesTab({
                 fileDiff={editFileDiff}
                 options={diffOptions as never}
                 edit
-                onEditChange={(event) => {
-                  editorRef.current = event.editor;
-                  setDirty(true);
-                }}
+                onEditChange={onEditChange}
                 lineAnnotations={lineAnnotations}
                 renderAnnotation={renderAnnotation}
-                renderGutterUtility={gutterFor(selectedFile!)}
+                renderGutterUtility={selectedGutter}
               />
             ) : editContents ? (
               <p className="p-6 text-center text-xs text-muted-foreground">
@@ -524,7 +519,7 @@ export function GitChangesTab({
               options={diffOptions}
               lineAnnotations={lineAnnotations}
               renderAnnotation={renderAnnotation}
-              renderGutterUtility={gutterFor(selectedFile)}
+              renderGutterUtility={selectedGutter}
             />
           ) : !selectedFile && fullDiff?.diff ? (
             <MultiFileDiff
@@ -582,7 +577,6 @@ function DiffHeader({
   commentCount,
   settings,
   onSettings,
-  onClear,
   edit,
 }: {
   edit?: {
@@ -599,7 +593,6 @@ function DiffHeader({
   commentCount: number;
   settings: DiffViewSettings;
   onSettings: (s: DiffViewSettings) => void;
-  onClear: () => void;
 }) {
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-card/40 backdrop-blur-sm shrink-0 text-xs">
@@ -609,13 +602,6 @@ function DiffHeader({
           <span className="font-mono truncate text-foreground/90" title={selectedFile}>
             {selectedFile}
           </span>
-          <button
-            onClick={onClear}
-            className="text-muted-foreground hover:text-foreground shrink-0"
-            title="Back to all changes"
-          >
-            <X className="h-3 w-3" />
-          </button>
         </>
       ) : (
         <span className="font-mono text-muted-foreground">

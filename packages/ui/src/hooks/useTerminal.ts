@@ -223,6 +223,8 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
         letterSpacing: 0,
         scrollback: 5000,
         smoothScrollDuration: isMobile ? 100 : 0,
+        // xterm keeps a 14px column for its scrollbar by default. A thin one removes the wide empty strip on the right.
+        overviewRuler: { width: 6 },
         theme: resolvedTheme,
       });
 

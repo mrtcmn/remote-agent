@@ -8,10 +8,13 @@ const MODEL = 'stt-rt-v5';
 const KEEPALIVE_MS = 8000;
 /** Hands-free mode costs per minute of audio: end it when nobody talks. */
 const IDLE_STOP_MS = 60_000;
+/** Soniox can end a turn on a short pause; we send it only after this much silence. */
+const END_SILENCE_MS = 2000;
 
 /**
  * Hands-free conversation: one Soniox socket with semantic endpoint detection.
- * Every `<end>` hands a finished turn to `onUtterance`. While `paused` (the
+ * Each `<end>` turn is held until END_SILENCE_MS pass with no speech, then goes
+ * to `onUtterance`; speech inside that window joins the same turn. While `paused` (the
  * operator is thinking or talking) no audio is sent — so it never transcribes
  * its own voice — and a keepalive holds the socket and its context open.
  */
@@ -25,6 +28,8 @@ export function useVoiceConversation(onUtterance: (u: Utterance) => void, paused
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingRef = useRef<SonioxToken[]>([]);
+  const heldRef = useRef<Utterance | null>(null);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastHeardRef = useRef(0);
   const runIdRef = useRef(0);
   const pausedRef = useRef(paused);
@@ -37,8 +42,19 @@ export function useVoiceConversation(onUtterance: (u: Utterance) => void, paused
     if (!paused) lastHeardRef.current = Date.now();
   }, [paused]);
 
+  const flushHeld = useCallback(() => {
+    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = null;
+    const u = heldRef.current;
+    heldRef.current = null;
+    if (!u) return;
+    setPartial('');
+    onUtteranceRef.current(u);
+  }, []);
+
   const stop = useCallback(() => {
     runIdRef.current++;
+    flushHeld();
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
     ctxRef.current?.close().catch(() => {});
@@ -56,7 +72,7 @@ export function useVoiceConversation(onUtterance: (u: Utterance) => void, paused
     pendingRef.current = [];
     setPartial('');
     setActive(false);
-  }, []);
+  }, [flushHeld]);
 
   const start = useCallback(async () => {
     if (wsRef.current) return;
@@ -120,11 +136,23 @@ export function useVoiceConversation(onUtterance: (u: Utterance) => void, paused
           setError(frame.error_message);
           return stop();
         }
-        if (frame.tokens?.length) lastHeardRef.current = Date.now();
+        const speech = frame.tokens?.some((t) => t.text !== '<end>' && t.text !== '<fin>');
+        if (speech) lastHeardRef.current = Date.now();
         const { pending, utterances, partial: live } = foldUtterances(pendingRef.current, frame);
         pendingRef.current = pending;
-        setPartial((pending.map((t) => t.text).join('') + live).trim());
-        for (const u of utterances) onUtteranceRef.current(u);
+        for (const u of utterances) {
+          const held = heldRef.current;
+          heldRef.current = held ? { text: `${held.text} ${u.text}`, language: held.language ?? u.language } : u;
+        }
+        setPartial(((heldRef.current ? `${heldRef.current.text} ` : '') + pending.map((t) => t.text).join('') + live).trim());
+        // The silence clock runs from the last word, so a late `<end>` does not add its delay on top.
+        if (heldRef.current && (speech || utterances.length)) {
+          if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+          holdTimerRef.current = setTimeout(() => {
+            // Words not yet closed by an `<end>`: their `<end>` restarts this timer.
+            if (!pendingRef.current.length) flushHeld();
+          }, Math.max(0, END_SILENCE_MS - (Date.now() - lastHeardRef.current)));
+        }
         if (frame.finished) stop();
       };
       ws.onerror = () => {
@@ -140,7 +168,11 @@ export function useVoiceConversation(onUtterance: (u: Utterance) => void, paused
     }
   }, [stop]);
 
-  useEffect(() => stop, [stop]);
+  // Unmount drops a held turn; only a user stop sends it.
+  useEffect(() => () => {
+    heldRef.current = null;
+    stop();
+  }, [stop]);
 
   return { active, partial, error, start, stop };
 }

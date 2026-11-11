@@ -7,6 +7,8 @@ export type FileStatus = 'staged' | 'modified' | 'untracked';
 export interface ChangeEntry {
   path: string;
   status: FileStatus;
+  /** Old path when git moved or renamed the file. */
+  renamedFrom?: string;
 }
 
 export interface FileStat {
@@ -233,10 +235,10 @@ function FileRow({
         isSelected ? 'bg-accent text-foreground' : 'hover:bg-accent/50'
       )}
       style={{ paddingLeft: 6 + depth * 10 }}
-      title={entry.path}
+      title={entry.renamedFrom ? `${entry.renamedFrom} → ${entry.path}` : entry.path}
     >
-      <span className={cn('text-[10px] font-bold shrink-0 w-3 text-center', config.color)}>
-        {config.label}
+      <span className={cn('text-[10px] font-bold shrink-0 w-3 text-center', entry.renamedFrom ? 'text-violet-400' : config.color)}>
+        {entry.renamedFrom ? 'R' : config.label}
       </span>
       <span className="truncate flex-1">{name}</span>
 

@@ -81,7 +81,10 @@ export function CommandBar() {
 
   // Only active sessions — old/terminated sessions clutter the palette and belong in the sidebar's history.
   const sessions = useMemo(() => {
-    const rows: { machineId: string; machineName: string; id: string; label: string; branch: string }[] = [];
+    const rows: {
+      machineId: string; machineName: string; id: string; label: string; branch: string;
+      terminals: { id: string; title: string; type: string }[];
+    }[] = [];
     for (const machine of data?.machines ?? []) {
       const { active } = flattenSidebarSessions(machine.data);
       for (const s of active) {
@@ -91,6 +94,10 @@ export function CommandBar() {
           id: s.id,
           label: s.projectName || s.worktreeName || 'session',
           branch: s.branchName,
+          // Running terminals ride in `services`; keep their titles searchable.
+          terminals: s.services
+            .filter((x) => ['shell', 'claude', 'opencode', 'kimi', 'process'].includes(x.type))
+            .map((x) => ({ id: x.id, title: x.label, type: x.type })),
         });
       }
     }
@@ -153,9 +160,9 @@ export function CommandBar() {
   });
 
   const go = (path: string) => { closeAndReset(); navigate(path); };
-  const openSession = (r: (typeof sessions)[number]) => {
+  const openSession = (r: (typeof sessions)[number], terminalId?: string) => {
     setActiveMachine({ machineId: r.machineId, name: r.machineName });
-    go(sessionPath(r.machineId, r.id));
+    go(sessionPath(r.machineId, r.id, terminalId));
   };
 
   const confirmWorktree = () => {
@@ -202,6 +209,36 @@ export function CommandBar() {
         ) : (
           <>
             <Command.Empty>No results found.</Command.Empty>
+
+            {/* First: cmdk keeps this order on equal scores, so sessions beat Create rows. */}
+            {sessions.length > 0 && (
+              <Command.Group heading="Sessions">
+                {sessions.map((r) => (
+                  <Command.Item
+                    key={`${r.machineId}:${r.id}`}
+                    value={`${r.label} ${r.branch} ${r.machineName} ${r.id}`}
+                    onSelect={() => openSession(r)}
+                  >
+                    <GitBranch className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{r.label}</span>
+                    <span className="truncate text-muted-foreground">· {r.branch}</span>
+                  </Command.Item>
+                ))}
+                {sessions.flatMap((r) =>
+                  r.terminals.map((t) => (
+                    <Command.Item
+                      key={`${r.machineId}:${r.id}:${t.id}`}
+                      value={`${t.title} ${t.type} ${r.label} ${r.branch} ${r.machineName} ${t.id}`}
+                      onSelect={() => openSession(r, t.id)}
+                    >
+                      <TerminalSquare className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{t.title}</span>
+                      <span className="truncate text-muted-foreground">· {r.label}</span>
+                    </Command.Item>
+                  ))
+                )}
+              </Command.Group>
+            )}
 
             <Command.Group heading="Actions">
               <Command.Item value="new session create" onSelect={() => createSessionMutation.mutate({ machineId: 'self' })}>
@@ -250,22 +287,6 @@ export function CommandBar() {
                     <span>
                       Create worktree{multipleMachines && ` [${t.machineName}]`}: {t.projectName}
                     </span>
-                  </Command.Item>
-                ))}
-              </Command.Group>
-            )}
-
-            {sessions.length > 0 && (
-              <Command.Group heading="Sessions">
-                {sessions.map((r) => (
-                  <Command.Item
-                    key={`${r.machineId}:${r.id}`}
-                    value={`${r.label} ${r.branch} ${r.machineName} ${r.id}`}
-                    onSelect={() => openSession(r)}
-                  >
-                    <GitBranch className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{r.label}</span>
-                    <span className="truncate text-muted-foreground">· {r.branch}</span>
                   </Command.Item>
                 ))}
               </Command.Group>

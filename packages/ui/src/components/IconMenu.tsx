@@ -69,12 +69,14 @@ export function IconMenu({
   title,
   entries,
   align = 'start',
+  side = 'bottom',
   active,
 }: {
   icon: React.ReactNode;
   title: string;
   entries: MenuEntry[];
   align?: 'start' | 'end';
+  side?: 'bottom' | 'left';
   /** Highlights the trigger while one of its panels is open. */
   active?: boolean;
 }) {
@@ -92,7 +94,7 @@ export function IconMenu({
         {icon}
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content align={align} sideOffset={4} className={contentCls}>
+        <DropdownMenu.Content side={side} align={align} sideOffset={4} className={contentCls}>
           <Entries entries={entries} />
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

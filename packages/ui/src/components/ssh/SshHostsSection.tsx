@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, FolderPlus, ScrollText, Pencil, Trash2, X, Plus, Server, Loader2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { KeyRound, FolderPlus, ScrollText, Pencil, Trash2, X, Plus, Server, Loader2, ChevronDown } from 'lucide-react';
 import { api, type SshHost, type SshGroup, type SshCredential, type SshLogEvent, type SshHostInput } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -10,8 +11,8 @@ import { toast } from '@/components/ui/Toaster';
 import { cn } from '@/lib/utils';
 import { sessionPath } from '@/lib/session-route';
 
-// Sidebar section listing SSH hosts. Clicking a host reattaches to its live
-// session if one exists, otherwise dials a new one, then routes to /ssh/:sessionId.
+// Sidebar section: the live SSH connections, like sessions. Saved hosts are in
+// the "+" dialog; a host click reuses its live connection or dials a new one.
 export function SshHostsSection({ onNavigate }: { onNavigate: (path: string) => void }) {
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -19,6 +20,11 @@ export function SshHostsSection({ onNavigate }: { onNavigate: (path: string) => 
   const [credOpen, setCredOpen] = useState(false);
   const [logsFor, setLogsFor] = useState<SshHost | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // Folded or open, kept across reloads like a preference.
+  const [open, setOpenRaw] = useState(() => localStorage.getItem('sidebar.ssh.open') !== '0');
+  const setOpen = (f: (v: boolean) => boolean) =>
+    setOpenRaw((v) => { const n = f(v); localStorage.setItem('sidebar.ssh.open', n ? '1' : '0'); return n; });
 
   const { data: hosts = [] } = useQuery({ queryKey: ['ssh-hosts'], queryFn: api.getSshHosts });
   const { data: groups = [] } = useQuery({ queryKey: ['ssh-groups'], queryFn: api.getSshGroups });
@@ -52,70 +58,129 @@ export function SshHostsSection({ onNavigate }: { onNavigate: (path: string) => 
     }
   };
 
-  const sessionByHost = new Map(activeSessions.filter((s) => s.status !== 'exited').map((s) => [s.hostId, s]));
+  const live = activeSessions.filter((s) => s.status !== 'exited');
+  const sessionByHost = new Map(live.map((s) => [s.hostId, s]));
   const grouped = new Map<string | null, SshHost[]>();
   for (const h of hosts) {
     const key = h.groupId ?? null;
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key)!.push(h);
   }
+  const iconBtn = 'flex size-5 items-center justify-center rounded hover:bg-secondary hover:text-foreground';
 
   return (
-    <div className="px-1">
-      <div className="flex items-center px-2 pb-1">
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground/40 font-semibold">SSH</span>
-        <div className="ml-auto flex gap-0.5">
-          <button title="Credentials" onClick={() => setCredOpen(true)} className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors"><KeyRound className="size-3" /></button>
-          <button title="New group" onClick={async () => { const name = prompt('Group name'); if (name) { await api.createSshGroup({ name }); reload(); } }} className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors"><FolderPlus className="size-3" /></button>
-          <button title="New host" onClick={() => setEditingHost('new')} className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-secondary transition-colors"><Plus className="size-3.5" /></button>
+    <div>
+      {/* Same fold as a machine section; only live connections are listed. */}
+      <div className="flex items-center">
+        <button onClick={() => setOpen((v) => !v)} className="flex-1 min-w-0 flex items-center gap-1.5 pl-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
+          <motion.span animate={{ rotate: open ? 0 : -90 }} transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }} className="flex items-center">
+            <ChevronDown className="size-3" />
+          </motion.span>
+          <Server className="size-3" />
+          <span className="font-medium">SSH</span>
+          <span className="ml-auto font-mono text-[10px]">{live.length}</span>
+        </button>
+        <div className="flex items-center gap-0.5 pl-1.5 pr-2 text-muted-foreground">
+          <button title="Keys and passwords" onClick={() => setCredOpen(true)} className={iconBtn}><KeyRound className="size-3" /></button>
+          <button title="Connect to a host" onClick={() => setPickerOpen(true)} className={iconBtn}><Plus className="size-3" /></button>
         </div>
       </div>
 
-      {hosts.length === 0 && (
-        <p className="px-3 py-2 text-[11px] text-muted-foreground/40">No hosts — add one with +</p>
-      )}
-      {[...grouped.entries()].map(([groupId, groupHosts]) => (
-        <div key={groupId ?? 'ungrouped'}>
-          {groupId && (
-            <div className="px-3 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/50">
-              {groups.find((g) => g.id === groupId)?.name ?? 'Group'}
-            </div>
-          )}
-          {groupHosts.map((h) => {
-            const live = sessionByHost.get(h.id);
-            const isSelected = !!live && location.pathname === sessionPath('self', live.sessionId, live.terminalId);
-            return (
-              <div
-                key={h.id}
-                className={cn(
-                  'group/host flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-md cursor-pointer',
-                  isSelected ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-                )}
-                onClick={() => void connect(h)}
-              >
-                <div className="relative shrink-0">
-                  <Server className="size-3 text-muted-foreground/40" />
-                  <span className={cn(
-                    'absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full',
-                    connectingId === h.id ? 'bg-yellow-500 animate-pulse' : live ? 'bg-emerald-500' : 'bg-muted-foreground/30'
-                  )} />
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+            style={{ overflow: 'hidden' }}
+            className="px-2 pb-1"
+          >
+            {live.length === 0 ? (
+              <p className="px-1 py-2 text-[11px] text-muted-foreground/40">No connections</p>
+            ) : live.map((c) => {
+              const h = hosts.find((x) => x.id === c.hostId);
+              const path = sessionPath('self', c.sessionId, c.terminalId);
+              const selected = location.pathname === path;
+              return (
+                <div
+                  key={c.terminalId}
+                  onClick={() => onNavigate(path)}
+                  className={cn(
+                    'group/conn flex items-center gap-2 pl-2 pr-1.5 py-1.5 rounded-md cursor-pointer',
+                    selected ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
+                  )}
+                >
+                  <span
+                    title={c.status === 'running' ? 'Connected' : 'Connecting'}
+                    className={cn('size-1.5 rounded-full shrink-0', c.status === 'running' ? 'bg-emerald-500' : 'bg-yellow-500 animate-pulse')}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium truncate leading-snug">{h?.label ?? 'SSH'}</div>
+                    {h && <div className="text-[10px] text-muted-foreground/60 truncate">{h.username}@{h.host}{c.standalone ? '' : ' · tab in a session'}</div>}
+                  </div>
+                  <button
+                    title="Disconnect"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await api.stopSshTerminal(c.terminalId).catch(() => {});
+                      queryClient.invalidateQueries({ queryKey: ['ssh-sessions'] });
+                    }}
+                    className="hidden group-hover/conn:flex size-4 items-center justify-center rounded hover:bg-background shrink-0"
+                  >
+                    <X className="size-3" />
+                  </button>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium truncate leading-snug">{h.label}</div>
-                  <div className="text-[10px] text-muted-foreground/60 truncate">{h.username}@{h.host}:{h.port}</div>
-                </div>
-                {connectingId === h.id && <Loader2 className="size-3 animate-spin shrink-0" />}
-                <div className="hidden group-hover/host:flex gap-0.5 shrink-0">
-                  <button title="Logs" onClick={(e) => { e.stopPropagation(); setLogsFor(h); }} className="p-1 rounded hover:bg-background"><ScrollText className="size-3" /></button>
-                  <button title="Edit" onClick={(e) => { e.stopPropagation(); setEditingHost(h); }} className="p-1 rounded hover:bg-background"><Pencil className="size-3" /></button>
-                  <button title="Delete" onClick={async (e) => { e.stopPropagation(); if (confirm(`Delete ${h.label}?`)) { await api.deleteSshHost(h.id); reload(); } }} className="p-1 rounded hover:bg-background text-destructive"><Trash2 className="size-3" /></button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ))}
+              );
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
+      {pickerOpen && (
+        <Modal title="Connect to a host" onClose={() => setPickerOpen(false)}>
+          {hosts.length === 0 && <p className="py-2 text-xs text-muted-foreground">No hosts yet.</p>}
+          {[...grouped.entries()].map(([groupId, groupHosts]) => (
+            <div key={groupId ?? 'ungrouped'}>
+              {groupId && (
+                <div className="px-2 pt-2 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/50">
+                  {groups.find((g) => g.id === groupId)?.name ?? 'Group'}
+                </div>
+              )}
+              {groupHosts.map((h) => (
+                <div
+                  key={h.id}
+                  className="group/host flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  onClick={() => { setPickerOpen(false); void connect(h); }}
+                >
+                  <Server className="size-3.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium truncate leading-snug">{h.label}</div>
+                    <div className="text-[10px] text-muted-foreground/60 truncate">{h.username}@{h.host}:{h.port}</div>
+                  </div>
+                  {sessionByHost.has(h.id) && <span className="text-[10px] text-emerald-500 shrink-0">connected</span>}
+                  <div className="hidden group-hover/host:flex gap-0.5 shrink-0">
+                    <button title="Logs" onClick={(e) => { e.stopPropagation(); setLogsFor(h); }} className="p-1 rounded hover:bg-background"><ScrollText className="size-3" /></button>
+                    <button title="Edit" onClick={(e) => { e.stopPropagation(); setEditingHost(h); }} className="p-1 rounded hover:bg-background"><Pencil className="size-3" /></button>
+                    <button title="Delete" onClick={async (e) => { e.stopPropagation(); if (confirm(`Delete ${h.label}?`)) { await api.deleteSshHost(h.id); reload(); } }} className="p-1 rounded hover:bg-background text-destructive"><Trash2 className="size-3" /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+          <div className="flex gap-2 mt-4">
+            <Button size="sm" onClick={() => setEditingHost('new')}><Plus className="size-3.5 mr-1" />New host</Button>
+            <Button size="sm" variant="ghost" onClick={async () => { const name = prompt('Group name'); if (name) { await api.createSshGroup({ name }); reload(); } }}>
+              <FolderPlus className="size-3.5 mr-1" />New group
+            </Button>
+          </div>
+        </Modal>
+      )}
+      {connectingId && (
+        <p className="flex items-center gap-1.5 px-4 pb-1 text-[11px] text-muted-foreground">
+          <Loader2 className="size-3 animate-spin" />Connecting…
+        </p>
+      )}
       {editingHost && (
         <HostEditor host={editingHost === 'new' ? null : editingHost} groups={groups} creds={creds}
           onClose={() => setEditingHost(null)} onSaved={() => { setEditingHost(null); reload(); }} />

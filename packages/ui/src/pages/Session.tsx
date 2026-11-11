@@ -195,6 +195,30 @@ export function SessionPage() {
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   };
+  // Tool panels (git, files, ...) open beside the terminal at 2/5 of the window; width saved per panel.
+  const [toolWidths, setToolWidths] = useState<Record<string, number>>(() => {
+    try { return JSON.parse(localStorage.getItem('toolPanelWidths') || '{}'); } catch { return {}; }
+  });
+  const toolWidth = toolWidths[viewMode] ?? Math.round(window.innerWidth * 0.4);
+  const startToolResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const mode = viewMode, startX = e.clientX, startWidth = toolWidth;
+    let latest = startWidth;
+    const move = (ev: PointerEvent) => {
+      latest = Math.round(Math.min(Math.max(startWidth + startX - ev.clientX, 320), window.innerWidth * 0.8));
+      setToolWidths((w) => ({ ...w, [mode]: latest }));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setToolWidths((w) => {
+        try { localStorage.setItem('toolPanelWidths', JSON.stringify(w)); } catch {}
+        return w;
+      });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('http://localhost:3000');
   // The tools toolbar renders into the app-wide top bar (Layout's #app-toolbar).
@@ -575,9 +599,7 @@ export function SessionPage() {
       a.sessionId === b.sessionId && a.terminalId === b.terminalId && a.tool === b.tool;
     // What the content shows now; if that is the dragged tab, the next tab.
     let current: Omit<ViewPanelInput, 'id'> | null =
-      viewMode === 'terminal'
-        ? activeTerminal ? tabPanel(activeTerminal.id) : null
-        : { machineId: ownerMachine, sessionId: id!, kind: 'tool', tool: viewMode };
+      activeTerminal ? tabPanel(activeTerminal.id) : null;
     if (!current || same(current, dropped)) {
       const other = orderedTabs.find((t) => !same(tabPanel(t.id), dropped));
       current = other ? tabPanel(other.id) : null;
@@ -715,13 +737,15 @@ export function SessionPage() {
 
   const needsProject = !!session?.project?.isMultiProject && !activeProject;
   const togglePanel = (mode: ViewMode) => setViewMode(viewMode === mode ? 'terminal' : mode);
-  const toolEntries: MenuEntry[] = [
+  // Tool windows: icons in the right strip, like the WebStorm tool window bar.
+  const panelEntries: MenuEntry[] = [
     ...(session?.project
       ? [
           { icon: <Play />, label: 'Run', active: viewMode === 'run', disabled: needsProject, onSelect: () => togglePanel('run') },
           ...(activeProject
             ? [{ icon: <PanelRight />, label: 'Runs panel', active: runnerOpen, onSelect: () => setRunnerOpen((v) => !v) }]
             : []),
+          { icon: <GitBranch />, label: 'Git', active: viewMode === 'git', disabled: needsProject, onSelect: () => { setGitOpenFile(null); togglePanel('git'); } },
           { icon: <Workflow />, label: 'Flow', active: viewMode === 'flow', onSelect: () => togglePanel('flow') },
           { icon: <FolderOpen />, label: 'Files', active: viewMode === 'files', disabled: needsProject, onSelect: () => togglePanel('files') },
           { icon: <KeyRound />, label: 'Env', active: viewMode === 'env', disabled: needsProject, onSelect: () => togglePanel('env') },
@@ -735,8 +759,11 @@ export function SessionPage() {
       disabled: needsProject,
       onSelect: () => (hasBrowser ? setBrowserOpen((v) => !v) : setShowPreviewDialog(true)),
     },
+  ];
+  // Actions that are not panels stay behind "⋯" at the top of the strip.
+  const moreEntries: MenuEntry[] = [
     ...(canOpenLocalEditor
-      ? ['divider' as const, {
+      ? [{
           icon: <Code2 />,
           label: 'Open in editor',
           sub: EDITORS.map((e) => ({
@@ -747,7 +774,7 @@ export function SessionPage() {
           })),
         }]
       : canOpenEditor
-        ? ['divider' as const, {
+        ? [{
             icon: <Code2 />,
             label: 'VS Code',
             disabled: openEditorMutation.isPending,
@@ -756,7 +783,7 @@ export function SessionPage() {
         : []),
     ...(session?.project?.repoUrl
       ? [
-          'divider' as const,
+          ...(canOpenLocalEditor || canOpenEditor ? ['divider' as const] : []),
           { icon: <Send />, label: 'Hand off', disabled: handoffMutation.isPending, onSelect: () => setHandoffOpen(true) },
           ...(ownerMachine !== 'self'
             ? [{ icon: <Download />, label: 'Continue here', disabled: handoffMutation.isPending, onSelect: () => handoffMutation.mutate({ machineId: 'self' }) }]
@@ -810,7 +837,7 @@ export function SessionPage() {
                     isActive={
                       tab.id === '__project__'
                         ? viewMode !== 'terminal'
-                        : tab.id === activeTerminalId && viewMode === 'terminal'
+                        : tab.id === activeTerminalId
                     }
                     onActivate={() => {
                       if (tab.id === '__project__') {
@@ -829,13 +856,16 @@ export function SessionPage() {
 
           {/* Empty space stays a window drag region */}
           <div className="flex-1 self-stretch" />
-          <IconMenu
-            icon={<MoreHorizontal className="size-4" />}
-            title="Session tools"
-            align="end"
-            entries={toolEntries}
-            active={runnerOpen || (browserOpen && hasBrowser) || ['run', 'flow', 'files', 'env', 'docker'].includes(viewMode)}
-          />
+          {/* Mobile has no right strip, so all tools stay in one menu there. */}
+          <div className="md:hidden">
+            <IconMenu
+              icon={<MoreHorizontal className="size-4" />}
+              title="Session tools"
+              align="end"
+              entries={[...panelEntries, 'divider', ...moreEntries]}
+              active={runnerOpen || (browserOpen && hasBrowser) || ['git', 'run', 'flow', 'files', 'env', 'docker'].includes(viewMode)}
+            />
+          </div>
         </div>,
       toolbarSlot)}
 
@@ -932,8 +962,8 @@ export function SessionPage() {
         onDragOverCapture={splitDragOver}
         onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) showZone(null); }}
         onDropCapture={splitDrop}
-        className={cn('relative flex-1 min-w-0 island shadow-[0_0_9px_-2px_rgb(0_0_0/0.2),0_0_0_1px_hsl(var(--border)/0.2)]', viewMode === 'terminal' && 'terminal-surface')}
-        style={viewMode === 'terminal' ? { background: 'var(--code-bg, hsl(var(--island)))' } : undefined}
+        className={cn('relative flex-1 min-w-0 island shadow-[0_0_9px_-2px_rgb(0_0_0/0.2),0_0_0_1px_hsl(var(--border)/0.2)]', 'terminal-surface')}
+        style={{ background: 'var(--code-bg, hsl(var(--island)))' }}
       >
         {splitZone && (
           <div
@@ -946,7 +976,7 @@ export function SessionPage() {
             }}
           />
         )}
-        {viewMode === 'terminal' ? (
+        {
           activeTerminal?.type === 'ssh' ? (
             <div className="h-full min-h-0 px-2 pt-1.5">
               <SshTerminal
@@ -970,7 +1000,16 @@ export function SessionPage() {
           ) : (
             <EmptyState isLoading={isLoading} onCreateClaude={() => createMutation.mutate({ type: 'claude' })} />
           )
-        ) : viewMode === 'git' ? (
+        }
+      </div>
+
+      {viewMode !== 'terminal' && (
+        <div className="flex shrink-0 -ml-1.5" style={{ width: toolWidth }}>
+          <div onPointerDown={startToolResize} className="group w-1.5 shrink-0 cursor-col-resize flex justify-center">
+            <div className="w-px h-full bg-primary/50 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+          <div className="min-w-0 flex-1 island">
+            {viewMode === 'git' ? (
           <GitPanel
             sessionId={id!}
             project={activeProject ?? undefined}
@@ -1014,8 +1053,10 @@ export function SessionPage() {
           </div>
         ) : (
           <FileExplorer sessionId={id!} project={session?.project} selectedProjectId={selectedProjectId} openFile={searchParams.get('file') ?? undefined} className="h-full" currentTargetLabel={reviewTargetTerminal?.name} onProceed={sendReview} />
-        )}
-      </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {runnerOpen && activeProject && (
         <ScriptRunnerPanel
@@ -1071,11 +1112,13 @@ export function SessionPage() {
           </div>
         </div>
       )}
+
+      <ToolStrip panels={panelEntries} more={moreEntries} />
       </div>
 
       {/* ── Bottom: recent files + status bar sit on the frame, outside the islands ── */}
       <div className="shrink-0">
-      {viewMode === 'terminal' && activeTerminal && (
+      {activeTerminal && (
         dictation.active ? (
           <DictationBar transcript={dictation.transcript} />
         ) : (
@@ -1352,6 +1395,42 @@ function HandoffDialog({
           <Button type="submit" size="sm" disabled={!machineId || pending}>{pending ? 'Handing off…' : 'Hand off'}</Button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/** The right tool window bar: icon only, the name shows on hover. */
+function ToolStrip({ panels, more }: { panels: MenuEntry[]; more: MenuEntry[] }) {
+  return (
+    <div className="hidden md:flex flex-col items-center gap-1 shrink-0 w-8 -ml-0.5">
+      {more.length > 0 && (
+        <>
+          <IconMenu icon={<MoreHorizontal className="size-4" />} title="More" align="start" side="left" entries={more} />
+          <div className="h-px w-5 bg-border/60 my-0.5" />
+        </>
+      )}
+      {panels.map((e) =>
+        e === 'divider' ? null : (
+          <button
+            key={e.label}
+            type="button"
+            aria-label={e.label}
+            disabled={e.disabled}
+            onClick={e.onSelect}
+            className={cn(
+              'group relative flex items-center justify-center size-7 rounded-md transition-colors [&>svg]:size-4',
+              'text-muted-foreground hover:text-foreground hover:bg-secondary/60 disabled:opacity-40 disabled:pointer-events-none',
+              e.active && 'text-primary bg-primary/10 hover:text-primary hover:bg-primary/15',
+            )}
+          >
+            {e.icon}
+            {/* ponytail: CSS tooltip; the native browser view covers it while that panel is open. */}
+            <span className="pointer-events-none absolute right-full mr-2 top-1/2 -translate-y-1/2 z-50 whitespace-nowrap rounded-md border border-border bg-card px-2 py-1 text-xs font-medium text-foreground shadow-lg opacity-0 group-hover:opacity-100 transition-opacity delay-300 group-hover:delay-300">
+              {e.label}
+            </span>
+          </button>
+        ),
+      )}
     </div>
   );
 }

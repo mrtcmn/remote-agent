@@ -54,6 +54,8 @@ export interface GitStatus {
   staged: string[];
   modified: string[];
   untracked: string[];
+  // Renamed/moved paths: new path -> old path.
+  renamed?: Record<string, string>;
   // Added/deleted line counts per tracked path (worktree vs HEAD). Untracked
   // files are absent — `git diff` does not see them.
   stats?: Record<string, { added: number; deleted: number }>;
@@ -423,18 +425,25 @@ export class GitService {
 
     // Get status
     const statusResult = await $`git status --porcelain`.cwd(projectPath).quiet();
-    const lines = statusResult.stdout.toString().trim().split('\n').filter(Boolean);
+    // trimEnd only: trim() would eat the leading space of the first " M path" line.
+    const lines = statusResult.stdout.toString().trimEnd().split('\n').filter(Boolean);
 
     const staged: string[] = [];
     const modified: string[] = [];
     const untracked: string[] = [];
+    const renamed: Record<string, string> = {};
 
     for (const line of lines) {
       const index = line[0];
       const working = line[1];
       // --porcelain format is "XY PATH" (XY = 2 status chars, space, then path)
       // but handle edge cases where the separator might be off
-      const file = line.charAt(2) === ' ' ? line.slice(3) : line.slice(2).trimStart();
+      let file = line.charAt(2) === ' ' ? line.slice(3) : line.slice(2).trimStart();
+      // Renames and copies print "old -> new"; the new path is the file.
+      if (index === 'R' || index === 'C' || working === 'R' || working === 'C') {
+        const [from, to] = file.split(' -> ');
+        if (to) { renamed[to] = from; file = to; }
+      }
 
       if (index === '?' && working === '?') {
         untracked.push(file);
@@ -451,7 +460,7 @@ export class GitService {
     const stats = await this.perFileDiffStats(projectPath);
 
     if (!opts.recent) {
-      return { branch, ahead, behind, staged, modified, untracked, stats };
+      return { branch, ahead, behind, staged, modified, untracked, renamed, stats };
     }
 
     // Opt-in: stat each changed file for its mtime, sort newest-first.
@@ -474,7 +483,7 @@ export class GitService {
       .filter((r): r is RecentChange => r !== null)
       .sort((a, b) => b.mtimeMs - a.mtimeMs);
 
-    return { branch, ahead, behind, staged, modified, untracked, stats, recent };
+    return { branch, ahead, behind, staged, modified, untracked, renamed, stats, recent };
   }
 
   /**

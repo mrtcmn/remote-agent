@@ -220,34 +220,19 @@ html.glass .terminal-surface .xterm .xterm-viewport {
   background: hsl(var(--background));
 }
 
-/* xterm scrollbar: flush right, theme-responsive */
+/* xterm 6 scrolls with its own .scrollbar element. The old .xterm-viewport stays empty, but
+   xterm.css still gives it overflow-y: scroll. With "always show scroll bars" on macOS,
+   WebKit then paints a native white scrollbar on the right of every terminal. */
 .xterm .xterm-viewport {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  scrollbar-width: none;
 }
 .xterm .xterm-viewport::-webkit-scrollbar {
-  width: 8px;
+  display: none;
 }
-.xterm .xterm-viewport::-webkit-scrollbar-track {
-  background: transparent;
-}
-.xterm .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.18);
-  border-radius: 4px;
-}
-.xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.32);
-}
-
-/* Light terminal theme scrollbar */
-.xterm-light-theme .xterm-viewport {
-  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
-}
-.xterm-light-theme .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
-}
-.xterm-light-theme .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.35);
+/* overviewRuler.width only thins the scrollbar column. We draw no decorations, and WebKit
+   paints the empty ruler's border as a white line, so the ruler stays hidden. */
+.xterm .xterm-decoration-overview-ruler {
+  display: none !important;
 }
 
 /* Improve xterm touch scrolling on mobile */

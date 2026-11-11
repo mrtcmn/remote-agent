@@ -64,6 +64,8 @@ const LOCAL_ONLY_PREFIXES = [
   '/paired-masters',
   // Split views live on the machine the UI runs on; their panels name their own machines.
   '/views',
+  // SSH hosts, keys and connections are kept on this machine only.
+  '/ssh',
   // Aggregate endpoints run on THIS machine and fan out to the others, so they
   // must never themselves be proxied to a single machine.
   '/sessions/sidebar/aggregate',

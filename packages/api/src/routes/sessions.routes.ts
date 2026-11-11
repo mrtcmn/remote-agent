@@ -367,10 +367,15 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
 
     try {
       const { $ } = await import('bun');
-      const filePath = query.file;
+      // A moved file: `from` is the old path. Pass both so git pairs them as a rename.
+      // Also accept a raw "old -> new" name, which older clients sent.
+      const [rawFrom, rawTo] = query.file.split(' -> ');
+      const filePath = rawTo ?? rawFrom;
+      const from = query.from ?? (rawTo ? rawFrom : undefined);
+      const paths = from && from !== filePath ? [from, filePath] : [filePath];
 
       // Check git status to determine the right diff command
-      const statusResult = await $`git status --porcelain -- ${filePath}`.cwd(targetPath).nothrow().quiet();
+      const statusResult = await $`git status --porcelain -- ${paths}`.cwd(targetPath).nothrow().quiet();
       const statusLine = statusResult.stdout.toString().trimEnd();
 
       let diff = '';
@@ -385,18 +390,18 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
           diff = result.stdout.toString();
         } else {
           // 1. Working tree vs HEAD (covers staged + unstaged combined)
-          const headResult = await $`git diff HEAD -- ${filePath}`.cwd(targetPath).nothrow().quiet();
+          const headResult = await $`git diff HEAD -M -- ${paths}`.cwd(targetPath).nothrow().quiet();
           diff = headResult.stdout.toString();
 
           // 2. Staged diff (index vs HEAD) — covers staged-only or when HEAD fails
           if (!diff) {
-            const cachedResult = await $`git diff --cached -- ${filePath}`.cwd(targetPath).nothrow().quiet();
+            const cachedResult = await $`git diff --cached -M -- ${paths}`.cwd(targetPath).nothrow().quiet();
             diff = cachedResult.stdout.toString();
           }
 
           // 3. Unstaged diff (working tree vs index) — last resort
           if (!diff) {
-            const unstagedResult = await $`git diff -- ${filePath}`.cwd(targetPath).nothrow().quiet();
+            const unstagedResult = await $`git diff -M -- ${paths}`.cwd(targetPath).nothrow().quiet();
             diff = unstagedResult.stdout.toString();
           }
         }
@@ -404,7 +409,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
 
       // The editable diff needs both whole files, not just the hunks.
       if (query.contents) {
-        const old = await $`git show HEAD:./${filePath}`.cwd(targetPath).nothrow().quiet();
+        const old = await $`git show HEAD:./${from ?? filePath}`.cwd(targetPath).nothrow().quiet();
         const fullPath = await validatePath(targetPath, filePath);
         const file = fullPath ? Bun.file(fullPath) : null;
         return {
@@ -426,6 +431,7 @@ export const sessionRoutes = new Elysia({ prefix: '/sessions' })
     }),
     query: t.Object({
       file: t.String(),
+      from: t.Optional(t.String()),
       projectId: t.Optional(t.String()),
       contents: t.Optional(t.String()),
     }),

@@ -82,14 +82,16 @@ export const api = {
     const query = params.toString();
     return request<{ diff: string }>(`/sessions/${sessionId}/git/diff${query ? `?${query}` : ''}`);
   },
-  getSessionFileDiff: (sessionId: string, file: string, projectId?: string) => {
+  getSessionFileDiff: (sessionId: string, file: string, projectId?: string, from?: string) => {
     const params = new URLSearchParams({ file });
+    if (from) params.set('from', from);
     if (projectId) params.set('projectId', projectId);
     return request<{ diff: string; file: string }>(`/sessions/${sessionId}/git/file-diff?${params.toString()}`);
   },
   // Whole old (HEAD) and new (working tree) files, for the editable diff.
-  getSessionFileDiffContents: (sessionId: string, file: string, projectId?: string) => {
+  getSessionFileDiffContents: (sessionId: string, file: string, projectId?: string, from?: string) => {
     const params = new URLSearchParams({ file, contents: '1' });
+    if (from) params.set('from', from);
     if (projectId) params.set('projectId', projectId);
     return request<{ diff: string; file: string; oldContent: string; newContent: string | null }>(
       `/sessions/${sessionId}/git/file-diff?${params.toString()}`
@@ -939,6 +941,7 @@ export interface GitStatus {
   staged: string[];
   modified: string[];
   untracked: string[];
+  renamed?: Record<string, string>;
   /** Added/deleted line counts per tracked path. Untracked files are absent. */
   stats?: Record<string, { added: number; deleted: number }>;
   recent?: RecentChange[];
