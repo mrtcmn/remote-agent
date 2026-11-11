@@ -600,7 +600,7 @@ export const api = {
   // ─── Code Editor ──────────────────────────────────────────────────────────
 
   openEditor: (folder: string) =>
-    request<{ url: string; status: string }>('/editor/open', {
+    request<{ path: string; status: string }>('/editor/open', {
       method: 'POST',
       body: JSON.stringify({ folder }),
     }),

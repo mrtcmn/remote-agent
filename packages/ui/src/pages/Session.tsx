@@ -56,6 +56,8 @@ import { ScriptRunnerPanel } from '@/components/ScriptRunnerPanel';
 import { RunFlowView } from '@/components/run-flow/RunFlowView';
 import { BrowserPreview } from '@/components/BrowserPreview';
 import { NativeBrowser } from '@/components/NativeBrowser';
+import { CodePanel } from '@/components/CodePanel';
+import { getApiBase } from '@/lib/api-config';
 import { isElectron } from '@/lib/electron';
 import { DockerPanel } from '@/components/DockerPanel';
 import { EnvEditor } from '@/components/EnvEditor';
@@ -389,16 +391,21 @@ export function SessionPage() {
   });
   const isLocalMode = versionInfo?.mode === 'local';
 
+  const [codeSrc, setCodeSrc] = useState<string | null>(null);
   const openEditorMutation = useMutation({
     mutationFn: (folder: string) => api.openEditor(folder),
-    onSuccess: (data) => { window.open(data.url, '_blank'); },
+    // The API serves code-server at /code; another machine's sits under /code/m/<id>.
+    onSuccess: (data) => setCodeSrc(
+      getApiBase() + (ownerMachine === 'self' ? data.path : data.path.replace(/^\/code/, `/code/m/${ownerMachine}`)),
+    ),
     onError: (error) => {
       toast({ title: 'Failed to open editor', description: (error as Error).message, variant: 'destructive' });
     },
   });
 
   const canOpenEditor = !!editorStatus?.configured && !!activeProject?.localPath;
-  const canOpenLocalEditor = isLocalMode && !!activeProject?.localPath;
+  // A local editor cannot open a path that lives on another machine.
+  const canOpenLocalEditor = isLocalMode && ownerMachine === 'self' && !!activeProject?.localPath;
   const activeTerminals = useMemo(
     // An SSH tab that dropped stays, to offer Reconnect; closing it removes it.
     () => terminals.filter((t) => t.type === 'ssh' || (t.liveStatus || t.status) === 'running'),
@@ -759,6 +766,16 @@ export function SessionPage() {
       disabled: needsProject,
       onSelect: () => (hasBrowser ? setBrowserOpen((v) => !v) : setShowPreviewDialog(true)),
     },
+    // Only where code-server is installed: a Docker or host machine, not the desktop app.
+    ...(canOpenEditor
+      ? [{
+          icon: <Code2 />,
+          label: 'VS Code',
+          active: !!codeSrc,
+          disabled: openEditorMutation.isPending,
+          onSelect: () => (codeSrc ? setCodeSrc(null) : openEditorMutation.mutate(activeProject!.localPath)),
+        }]
+      : []),
   ];
   // Actions that are not panels stay behind "⋯" at the top of the strip.
   const moreEntries: MenuEntry[] = [
@@ -773,17 +790,10 @@ export function SessionPage() {
             onSelect: () => openInEditor(e.id, activeProject!.localPath),
           })),
         }]
-      : canOpenEditor
-        ? [{
-            icon: <Code2 />,
-            label: 'VS Code',
-            disabled: openEditorMutation.isPending,
-            onSelect: () => openEditorMutation.mutate(activeProject!.localPath),
-          }]
-        : []),
+      : []),
     ...(session?.project?.repoUrl
       ? [
-          ...(canOpenLocalEditor || canOpenEditor ? ['divider' as const] : []),
+          ...(canOpenLocalEditor ? ['divider' as const] : []),
           { icon: <Send />, label: 'Hand off', disabled: handoffMutation.isPending, onSelect: () => setHandoffOpen(true) },
           ...(ownerMachine !== 'self'
             ? [{ icon: <Download />, label: 'Continue here', disabled: handoffMutation.isPending, onSelect: () => handoffMutation.mutate({ machineId: 'self' }) }]
@@ -863,7 +873,7 @@ export function SessionPage() {
               title="Session tools"
               align="end"
               entries={[...panelEntries, 'divider', ...moreEntries]}
-              active={runnerOpen || (browserOpen && hasBrowser) || ['git', 'run', 'flow', 'files', 'env', 'docker'].includes(viewMode)}
+              active={runnerOpen || (browserOpen && hasBrowser) || !!codeSrc || ['git', 'run', 'flow', 'files', 'env', 'docker'].includes(viewMode)}
             />
           </div>
         </div>,
@@ -1109,6 +1119,21 @@ export function SessionPage() {
                 className="h-full"
               />
             ) : null}
+          </div>
+        </div>
+      )}
+
+      {codeSrc && (
+        // Same shell as the browser panel: a grab strip in the gap, then the island.
+        <div className="flex shrink-0 -ml-1.5" style={{ width: browserWidth }}>
+          <div
+            onPointerDown={startBrowserResize}
+            className="group w-1.5 shrink-0 cursor-col-resize flex justify-center"
+          >
+            <div className="w-px h-full bg-primary/50 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+          <div className="min-w-0 flex-1 island">
+            <CodePanel src={codeSrc} resizing={resizingBrowser} onClose={() => setCodeSrc(null)} />
           </div>
         </div>
       )}
