@@ -14,7 +14,7 @@ The update check (`packages/api/src/routes/version.routes.ts`) and `scripts/upgr
 - `.github/workflows/docker-publish.yml` runs on the `release: published` event.
 - The app version is the root `package.json` `version`, and only that. The desktop client, the Docker image, and the host install all read it (`packages/api/src/config/version.ts`, `packages/desktop/electrobun.config.ts`). No env var or image tag changes it.
 - The workflow fails the release if the tag is not `v` + the `package.json` version.
-- It pushes `ghcr.io/mrtcmn/remote-agent:vX.Y.Z`, `:X.Y`, and `:X`. It does not move `:latest`. Only a push to main moves `:latest`.
+- It pushes `ghcr.io/mrtcmn/remote-agent:vX.Y.Z`, `:X.Y`, and `:X`. It does not move `:latest` (`flavor: latest=false` in the workflow; v1.3.0 and v1.3.1 were built before that and did move it). Only a push to main, or a manual run with no tag, moves `:latest`.
 - `isNewerVersion` compares only numeric tags. Use `vX.Y.Z` exactly. A tag like `v1.3.0-rc1` never counts as an update.
 
 ## Steps

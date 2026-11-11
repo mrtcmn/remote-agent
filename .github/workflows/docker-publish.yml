@@ -134,6 +134,10 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Only the raw rule below moves :latest. The default (auto) also adds it for
+          # every version tag, so re-publishing an old tag would roll :latest back.
+          flavor: |
+            latest=false
           tags: |
             type=raw,value=latest,enable=${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && !inputs.tag) }}
             type=semver,pattern=v{{version}},value=${{ env.RELEASE_TAG }},enable=${{ env.RELEASE_TAG != '' }}
