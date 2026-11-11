@@ -395,9 +395,11 @@ export function SessionPage() {
   const openEditorMutation = useMutation({
     mutationFn: (folder: string) => api.openEditor(folder),
     // The API serves code-server at /code; another machine's sits under /code/m/<id>.
-    onSuccess: (data) => setCodeSrc(
-      getApiBase() + (ownerMachine === 'self' ? data.path : data.path.replace(/^\/code/, `/code/m/${ownerMachine}`)),
-    ),
+    // A machine older than 1.3.1 has no proxy and answers with its direct URL: show that.
+    onSuccess: (data) => {
+      if (!data.path) return setCodeSrc(data.url ?? null);
+      setCodeSrc(getApiBase() + (ownerMachine === 'self' ? data.path : data.path.replace(/^\/code/, `/code/m/${ownerMachine}`)));
+    },
     onError: (error) => {
       toast({ title: 'Failed to open editor', description: (error as Error).message, variant: 'destructive' });
     },

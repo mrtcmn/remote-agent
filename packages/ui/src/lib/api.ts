@@ -600,7 +600,8 @@ export const api = {
   // ─── Code Editor ──────────────────────────────────────────────────────────
 
   openEditor: (folder: string) =>
-    request<{ path: string; status: string }>('/editor/open', {
+    // `path` from 1.3.1 on (the /code proxy); `url` from an older machine (its own port).
+    request<{ path?: string; url?: string; status: string }>('/editor/open', {
       method: 'POST',
       body: JSON.stringify({ folder }),
     }),
