@@ -395,9 +395,14 @@ export function SessionPage() {
   const openEditorMutation = useMutation({
     mutationFn: (folder: string) => api.openEditor(folder),
     // The API serves code-server at /code; another machine's sits under /code/m/<id>.
-    // A machine older than 1.3.1 has no proxy and answers with its direct URL: show that.
+    // A machine older than 1.3.1 has no proxy and answers with its direct URL. That is
+    // plain http on another host, which the desktop app's webview refuses to frame (App
+    // Transport Security), so it opens outside, as it did before the panel existed.
     onSuccess: (data) => {
-      if (!data.path) return setCodeSrc(data.url ?? null);
+      if (!data.path) {
+        if (data.url) window.open(data.url, '_blank');
+        return;
+      }
       setCodeSrc(getApiBase() + (ownerMachine === 'self' ? data.path : data.path.replace(/^\/code/, `/code/m/${ownerMachine}`)));
     },
     onError: (error) => {
