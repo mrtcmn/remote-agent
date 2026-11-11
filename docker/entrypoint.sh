@@ -19,6 +19,19 @@ fi
 chown -R agent:agent /app/workspaces /app/ssh-keys /app/data 2>/dev/null || true
 chown -R agent:agent /app/config 2>/dev/null || true
 
+# Claude Code keeps its login state in .claude.json. CLAUDE_CONFIG_DIR (set in the
+# image) puts that file inside the mounted volume, so it survives an upgrade.
+# An older image kept it in the container's home, where an upgrade deleted it.
+# Claude's own backups are in the volume, so bring the newest one back once.
+CLAUDE_STATE="${CLAUDE_CONFIG_DIR:-/home/agent/.claude}/.claude.json"
+if [ ! -s "$CLAUDE_STATE" ]; then
+  LATEST_BACKUP=$(ls -t "$(dirname "$CLAUDE_STATE")"/backups/.claude.json.backup.* 2>/dev/null | head -1)
+  if [ -n "$LATEST_BACKUP" ]; then
+    cp "$LATEST_BACKUP" "$CLAUDE_STATE"
+    echo "Restored Claude Code state from $(basename "$LATEST_BACKUP")"
+  fi
+fi
+
 # Fix ownership of Claude credentials so the agent user can read/write them
 chown -R agent:agent /home/agent/.claude 2>/dev/null || true
 

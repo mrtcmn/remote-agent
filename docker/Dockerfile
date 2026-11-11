@@ -180,6 +180,9 @@ ENV WORKSPACES_ROOT=/app/workspaces
 ENV SSH_KEYS_ROOT=/app/ssh-keys
 ENV CONFIG_ROOT=/app/config
 ENV TEMPLATES_ROOT=/app/templates
+# Claude Code's state file (.claude.json) goes inside the mounted .claude volume;
+# in the home directory an upgrade would replace it and drop the login.
+ENV CLAUDE_CONFIG_DIR=/home/agent/.claude
 ENV NVM_DIR=/home/agent/.nvm
 ENV PATH="/home/agent/.local/bin:/home/agent/.nvm/default_bin:/usr/local/bin:${PATH}"
 
