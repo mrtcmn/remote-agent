@@ -32,6 +32,17 @@ if [ ! -s "$CLAUDE_STATE" ]; then
   fi
 fi
 
+# ~/.config (the gh login, code-server's config, other CLIs) is in the container's
+# home, which an upgrade replaces. Link it into the one home volume every install
+# already mounts, so no compose file has to change. A ~/.config that already
+# exists is left alone: it may be a mount the user set up.
+PERSIST_CONFIG=/home/agent/.claude/remote-agent-home/config
+if [ ! -e /home/agent/.config ] && [ ! -L /home/agent/.config ]; then
+  mkdir -p "$PERSIST_CONFIG"
+  ln -s "$PERSIST_CONFIG" /home/agent/.config
+  chown -h agent:agent /home/agent/.config
+fi
+
 # Fix ownership of Claude credentials so the agent user can read/write them
 chown -R agent:agent /home/agent/.claude 2>/dev/null || true
 
