@@ -79,7 +79,7 @@ class MachineRegistryService {
 
   async recordHeartbeat(
     machineId: string,
-    payload: { sessionCount: number; version?: string },
+    payload: { sessionCount: number; version?: string; directUrl?: string | null },
   ): Promise<void> {
     await db
       .update(machines)
@@ -87,6 +87,8 @@ class MachineRegistryService {
         lastSeenAt: new Date(),
         sessionCount: payload.sessionCount,
         version: payload.version ?? null,
+        // An older secondary sends no field: keep what we have.
+        ...(payload.directUrl !== undefined ? { directUrl: payload.directUrl } : {}),
       })
       .where(eq(machines.id, machineId));
   }
@@ -109,6 +111,10 @@ class MachineRegistryService {
         online: tunnelled || (m.lastSeenAt != null && m.lastSeenAt.getTime() > cutoff),
       };
     });
+  }
+
+  async get(id: string): Promise<Machine | null> {
+    return (await db.query.machines.findFirst({ where: eq(machines.id, id) })) ?? null;
   }
 
   async revoke(id: string, userId: string): Promise<boolean> {

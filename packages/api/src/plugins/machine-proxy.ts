@@ -8,6 +8,8 @@ import { TUNNEL_AUTH_HEADER, TUNNEL_INTERNAL_SECRET, TUNNEL_MACHINE_HEADER } fro
 import { db } from '../db';
 import { pairedMasters } from '../db/schema';
 import { eq } from 'drizzle-orm';
+import { ticketIdentity } from '../services/machines/ticket-auth';
+import { authHeader as targetAuth, directPaths } from '../services/machines/direct-path';
 
 const HEADER_NAME = 'x-machine-id';
 const QUERY_NAME = 'machineId';
@@ -42,6 +44,8 @@ export async function resolveCallerUserId(request: Request, address: string | un
       : null;
     return master?.ownerUserId ?? null;
   }
+  const ticket = await ticketIdentity(headers);
+  if (ticket) return ticket.ownerUserId;
   // The desktop app on this machine has no login cookie (local mode).
   const local = await localOwnerId(request, address);
   if (local) return local;
@@ -300,7 +304,7 @@ export function openSocketUpstream(
     : `${base}${path}`;
 
   const socket = new WebSocket(url, {
-    headers: { authorization: `Bearer ${target.token}` },
+    headers: { authorization: targetAuth(target) },
     ...(protocols?.length ? { protocols } : {}),
   } as unknown as string[]);
   socket.binaryType = 'arraybuffer';
@@ -316,7 +320,11 @@ export function openSocketUpstream(
     toClient.message(typeof data === 'string' ? data : new Uint8Array(data as ArrayBuffer));
   });
   socket.addEventListener('close', (event) => toClient.close(event.code, event.reason));
-  socket.addEventListener('error', () => toClient.close(1011, 'Upstream error'));
+  socket.addEventListener('error', () => {
+    // The next call goes through the tunnel or the relay again.
+    if (target.kind === 'direct' && target.fallback) directPaths.fail(target.machineId);
+    toClient.close(1011, 'Upstream error');
+  });
 
   return {
     send: (d) => {

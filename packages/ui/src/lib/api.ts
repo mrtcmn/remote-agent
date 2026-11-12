@@ -794,6 +794,10 @@ export const api = {
   },
 
   // ── Machines (pairing tokens + paired secondaries) ─────────────────────────
+  getDirectAddress: () => request<DirectAddressInfo>('/settings/direct-address'),
+  setDirectAddress: (url: string | null) =>
+    request<DirectAddressInfo>('/settings/direct-address', { method: 'PUT', body: JSON.stringify({ url }) }),
+  getNetworkMap: () => request<NetworkMapData>('/machines/network'),
   createPairingToken: () =>
     request<{ token: string; expiresAt: string; masterUrl: string }>('/machines/pairing-token', {
       method: 'POST',
@@ -1808,6 +1812,30 @@ export interface PresentationSlide {
 }
 
 // ── Machines types ─────────────────────────────────────────────────────────
+
+export interface DirectAddressInfo {
+  url: string | null;
+  source: 'auto' | 'user';
+  detected: string | null;
+}
+
+export type NetworkPath = 'address' | 'url' | 'tunnel' | 'relay';
+export interface NetworkNode {
+  id: string;
+  name: string;
+  path: NetworkPath;
+  fallback: NetworkPath | null;
+  via: string | null;
+  host: string | null;
+  online: boolean;
+  ms: number | null;
+  version: string | null;
+  directUrl: string | null;
+}
+export interface NetworkMapData {
+  self: { name: string; version: string; directUrl: string | null };
+  nodes: NetworkNode[];
+}
 
 export interface MachineSummary {
   id: string;

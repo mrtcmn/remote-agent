@@ -2,6 +2,9 @@ import { Elysia, t } from 'elysia';
 import { requireAuth } from '../auth/middleware';
 import { machineRegistry } from '../services/machine-registry';
 import { machineTunnel } from '../services/machine-tunnel/server';
+import { directAddress } from '../services/direct-address';
+import { networkMap } from '../services/machines/network';
+import { signTicket, TICKET_TTL_MS } from '../services/machines/ticket';
 
 export const machineRoutes = new Elysia({ prefix: '/machines' })
   // ─── Public: pair with a pairing token ────────────────────────────────
@@ -37,12 +40,14 @@ export const machineRoutes = new Elysia({ prefix: '/machines' })
     await machineRegistry.recordHeartbeat(session.machineId, {
       sessionCount: body.sessionCount,
       version: body.version,
+      directUrl: body.directUrl,
     });
     return { ok: true };
   }, {
     body: t.Object({
       sessionCount: t.Integer({ minimum: 0 }),
       version: t.Optional(t.String()),
+      directUrl: t.Optional(t.Nullable(t.String())),
     }),
   })
 
@@ -55,6 +60,8 @@ export const machineRoutes = new Elysia({ prefix: '/machines' })
 
     const peers = await machineRegistry.listForUser(user!.id);
     return {
+      // Our own direct address: the caller tries it before our public URL.
+      hub: { directUrl: directAddress.get() },
       peers: peers
         .filter((p) => p.id !== session.machineId)
         // `online` here means "reachable by relay through us", which requires a
@@ -62,6 +69,25 @@ export const machineRoutes = new Elysia({ prefix: '/machines' })
         // out to it and get a 502 from our relay.
         .map(({ tokenHash, ...rest }) => ({ ...rest, online: machineTunnel.isOnline(rest.id) })),
     };
+  })
+
+  // Proves who answered on a direct address: the caller compares the id.
+  .get('/whoami', ({ session }) => ({ machineId: session?.machineId ?? null }))
+
+  // A secondary asks for a pass to call one of its peers directly. The key is
+  // the target's token hash, so only the hub and the target can make or check it.
+  .post('/:id/ticket', async ({ user, session, params, set }) => {
+    if (!session?.machineId) {
+      set.status = 403;
+      return { error: 'Machine token required' };
+    }
+    const target = await machineRegistry.get(params.id);
+    if (!target || target.ownerUserId !== user!.id) {
+      set.status = 404;
+      return { error: 'Machine not found' };
+    }
+    const exp = Date.now() + TICKET_TTL_MS;
+    return { ticket: signTicket({ from: session.machineId, to: target.id, exp }, target.tokenHash), exp };
   })
 
   // User-session-only endpoints below (reject machineToken callers).
@@ -78,6 +104,9 @@ export const machineRoutes = new Elysia({ prefix: '/machines' })
       masterUrl: process.env.APP_URL || '',
     };
   })
+
+  // Every machine we know, the path we use to reach it, and how fast it answers.
+  .get('/network', ({ user }) => networkMap(user!.id))
 
   .get('/', async ({ user }) => {
     const machines = await machineRegistry.listForUser(user!.id);

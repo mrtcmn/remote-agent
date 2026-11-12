@@ -14,6 +14,8 @@ import { browserPreviewService } from './services/browser-preview';
 import { codeServerManager, CODE_SERVER_PORT } from './services/code-server/code-server.service';
 import { originsService } from './services/origins';
 import { machineIdentity } from './services/machine-identity';
+import { directAddress } from './services/direct-address';
+import { APP_VERSION } from './config/version';
 import { llmSettings } from './services/llm-engine';
 import { sonioxSettings } from './services/soniox';
 import { masterSyncService } from './services/master-sync';
@@ -63,6 +65,7 @@ await originsService.initialize();
 await llmSettings.initialize();
 await sonioxSettings.initialize();
 await machineIdentity.initialize();
+await directAddress.initialize();
 await notificationService.initialize();
 await terminalService.initialize();
 await taskLoopService.initialize();
@@ -171,7 +174,7 @@ const app = new Elysia()
 machineTunnelClient.configure({
   dispatch: (request) => fetch(request),
   sessionCount: () => terminalService.getActiveCount(),
-  version: process.env.npm_package_version || '1.0.0',
+  version: APP_VERSION,
 });
 await masterSyncService.initialize();
 

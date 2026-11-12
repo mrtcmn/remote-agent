@@ -18,10 +18,12 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { SettingsRow, SettingsSection } from '@/components/ui/SettingsSection';
 import { toast } from '@/components/ui/Toaster';
+import { NetworkMap } from '@/components/NetworkMap';
 
 export function MachinesSection() {
   return (
     <>
+      <NetworkMap />
       <ThisMachineCard />
       <PairingTokensCard />
       <PairedMastersCard />
@@ -73,7 +75,49 @@ function ThisMachineCard() {
             Save
           </Button>
         </SettingsRow>
+        <DirectAddressRow />
       </SettingsSection>
+  );
+}
+
+/** The address other machines try first. Empty = the detected one. */
+function DirectAddressRow() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({ queryKey: ['direct-address'], queryFn: api.getDirectAddress });
+  const [draft, setDraft] = useState<string | null>(null);
+  const mutation = useMutation({
+    mutationFn: (url: string | null) => api.setDirectAddress(url),
+    onSuccess: (next) => {
+      queryClient.setQueryData(['direct-address'], next);
+      queryClient.invalidateQueries({ queryKey: ['network-map'] });
+      setDraft(null);
+    },
+    onError: (err) => toast({ title: 'Error', description: (err as Error).message, variant: 'destructive' }),
+  });
+  const saved = data?.source === 'user' ? data.url ?? '' : '';
+  const value = draft ?? saved;
+  const save = () => {
+    if (draft !== null && draft.trim() !== saved) mutation.mutate(draft.trim() || null);
+    else setDraft(null);
+  };
+
+  return (
+    <SettingsRow
+      label="Direct address"
+      description="Other machines try this address first, for example a Tailscale address. Leave it empty to detect it. A plain http address on a network that is not private is not encrypted."
+    >
+      <Input
+        value={value}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => e.key === 'Enter' && save()}
+        placeholder={data?.detected ?? 'No address detected'}
+        className="w-56 font-mono text-xs"
+      />
+      <span className="text-xs text-muted-foreground w-20">
+        {data?.source === 'user' ? 'set by you' : data?.detected ? 'detected' : 'none'}
+      </span>
+    </SettingsRow>
   );
 }
 

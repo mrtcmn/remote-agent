@@ -916,6 +916,8 @@ export const machines = pgTable('machines', {
   lastSeenAt: timestamp('last_seen_at'),
   sessionCount: integer('session_count').notNull().default(0),
   version: text('version'),
+  // Address other machines try before the tunnel or the relay (heartbeat fills it).
+  directUrl: text('direct_url'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 

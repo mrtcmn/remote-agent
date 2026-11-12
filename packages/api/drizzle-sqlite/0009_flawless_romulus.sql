@@ -1,0 +1,1 @@
+ALTER TABLE `machines` ADD `direct_url` text;

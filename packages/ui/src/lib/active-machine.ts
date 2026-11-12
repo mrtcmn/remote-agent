@@ -65,6 +65,7 @@ const LOCAL_ONLY_PREFIXES = [
   // Settings → Machines describes the machine the UI runs on, never the one being viewed.
   '/machines',
   '/settings/machine-name',
+  '/settings/direct-address',
   // Split views live on the machine the UI runs on; their panels name their own machines.
   '/views',
   // SSH hosts, keys and connections are kept on this machine only.

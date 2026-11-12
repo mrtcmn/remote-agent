@@ -3,6 +3,7 @@ import { terminalService } from '../terminal';
 import { machineTunnelClient } from '../machine-tunnel/client';
 import type { PairedMaster } from '../../db/schema';
 import { APP_VERSION } from '../../config/version';
+import { directAddress } from '../direct-address';
 
 const HEARTBEAT_INTERVAL_MS = 30 * 1000;
 const HEARTBEAT_TIMEOUT_MS = 10 * 1000;
@@ -16,11 +17,13 @@ export interface PeerSummary {
   sessionCount: number;
   lastSeenAt: string | null;
   version: string | null;
+  directUrl: string | null;
 }
 
 class MasterSyncService {
   private timer: ReturnType<typeof setInterval> | null = null;
   private peersByMaster = new Map<string, PeerSummary[]>();
+  private hubDirectUrl = new Map<string, string | null>();
   private inflight = false;
 
   async initialize(): Promise<void> {
@@ -43,6 +46,11 @@ class MasterSyncService {
   /** Peers last reported by the given master, or an empty list. */
   getPeers(masterId: string): PeerSummary[] {
     return this.peersByMaster.get(masterId) ?? [];
+  }
+
+  /** The master's own direct address, as it last reported it. */
+  getHubDirectUrl(masterId: string): string | null {
+    return this.hubDirectUrl.get(masterId) ?? null;
   }
 
   /**
@@ -99,6 +107,7 @@ class MasterSyncService {
       body: JSON.stringify({
         sessionCount: terminalService.getActiveCount(),
         version: APP_VERSION,
+        directUrl: directAddress.get(),
       }),
     });
     if (!res.ok) throw new Error(`Heartbeat failed: HTTP ${res.status}`);
@@ -107,7 +116,8 @@ class MasterSyncService {
   private async fetchPeers(master: PairedMaster): Promise<PeerSummary[]> {
     const res = await this.call(master, '/api/machines/me/peers', { method: 'GET' });
     if (!res.ok) throw new Error(`Peers fetch failed: HTTP ${res.status}`);
-    const body = await res.json() as { peers: Array<Record<string, unknown>> };
+    const body = await res.json() as { peers: Array<Record<string, unknown>>; hub?: { directUrl?: string | null } };
+    this.hubDirectUrl.set(master.id, body.hub?.directUrl ?? null);
     return body.peers.map((p) => ({
       id: String(p.id),
       name: String(p.name),
@@ -116,10 +126,11 @@ class MasterSyncService {
       sessionCount: Number(p.sessionCount ?? 0),
       lastSeenAt: p.lastSeenAt ? String(p.lastSeenAt) : null,
       version: p.version ? String(p.version) : null,
+      directUrl: p.directUrl ? String(p.directUrl) : null,
     }));
   }
 
-  private async call(
+  async call(
     master: PairedMaster,
     path: string,
     init: { method: string; body?: string },

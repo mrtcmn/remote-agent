@@ -4,6 +4,7 @@ import { llmSettings } from '../services/llm-engine';
 import { sonioxSettings } from '../services/soniox';
 import { originsService } from '../services/origins';
 import { machineIdentity } from '../services/machine-identity';
+import { directAddress } from '../services/direct-address';
 import { pairedMastersService } from '../services/paired-masters';
 import { masterSyncService } from '../services/master-sync';
 
@@ -83,6 +84,24 @@ export const settingsRoutes = new Elysia({ prefix: '/settings' })
 
   // GET /settings/machine-name - this machine's own name (sent when pairing)
   .get('/machine-name', () => ({ name: machineIdentity.get() }))
+
+  // The address other machines try before the tunnel or the relay.
+  .get('/direct-address', () => directAddress.describe())
+
+  // A URL is the user's override; null or empty returns to the detected value.
+  .put('/direct-address', async ({ body, set }) => {
+    try {
+      await directAddress.set(body.url?.trim() || null);
+    } catch (err) {
+      set.status = 400;
+      return { error: (err as Error).message };
+    }
+    // Tell the masters now, not at the next heartbeat.
+    masterSyncService.syncNow().catch(() => {});
+    return directAddress.describe();
+  }, {
+    body: t.Object({ url: t.Optional(t.Nullable(t.String())) }),
+  })
 
   // PUT /settings/machine-name - rename this machine
   .put('/machine-name', async ({ body }) => {

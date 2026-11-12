@@ -8,6 +8,7 @@ import { verifyPin, hasPin } from './pin';
 import { db } from '../db';
 import { user as userTable, pairedMasters } from '../db/schema';
 import { machineRegistry } from '../services/machine-registry';
+import { ticketIdentity } from '../services/machines/ticket-auth';
 import {
   TUNNEL_INTERNAL_SECRET,
   TUNNEL_AUTH_HEADER,
@@ -87,6 +88,23 @@ export const authMiddleware = new Elysia({ name: 'auth' })
       }
     }
 
+    // A call on our direct address, with a short-lived pass in place of the token.
+    const ticket = await ticketIdentity(request.headers);
+    if (ticket) {
+      const owner = await db.query.user.findFirst({ where: eq(userTable.id, ticket.ownerUserId) });
+      if (owner) {
+        return {
+          user: { id: owner.id, email: owner.email, name: owner.name, image: owner.image ?? undefined },
+          session: {
+            id: `ticket:${ticket.machineId}`,
+            userId: owner.id,
+            expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+            machineId: ticket.machineId as string | undefined,
+          },
+        };
+      }
+    }
+
     // Fall back to machineToken bearer auth — a paired secondary
     // acting on behalf of the owner user.
     const authHeader = request.headers.get('authorization');
@@ -144,6 +162,8 @@ export const authMiddleware = new Elysia({ name: 'auth' })
 export async function localOwnerId(request: Request, address: string | undefined): Promise<string | null> {
   const loopback = address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
   if (!isLocalMode() || request.headers.has(TUNNEL_AUTH_HEADER) || !loopback) return null;
+  // A ticket names its own caller; never upgrade it to the local owner.
+  if (request.headers.get('authorization')?.startsWith('Ticket ')) return null;
   return getLocalUserId();
 }
 
@@ -159,7 +179,10 @@ export function requestAddress(server: Server<unknown> | null, request: Request)
 // Require authentication
 export const requireAuth = new Elysia({ name: 'requireAuth' })
   .use(authMiddleware)
-  .onBeforeHandle(({ user, set }) => {
+  // 'scoped': the guard must reach the routes of the instance that uses this
+  // plugin. With the default (local) scope it guarded nothing, and every route
+  // that did not read `user` answered without a login.
+  .onBeforeHandle({ as: 'scoped' }, ({ user, set }) => {
     if (!user) {
       set.status = 401;
       return { error: 'Unauthorized' };
@@ -169,7 +192,7 @@ export const requireAuth = new Elysia({ name: 'requireAuth' })
 // Require PIN for sensitive operations
 export const requirePin = new Elysia({ name: 'requirePin' })
   .use(requireAuth)
-  .onBeforeHandle(async ({ user, headers, set }) => {
+  .onBeforeHandle({ as: 'scoped' }, async ({ user, headers, set }) => {
     if (!user) {
       set.status = 401;
       return { error: 'Unauthorized' };

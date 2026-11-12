@@ -498,6 +498,7 @@ export const machines = sqliteTable('machines', {
   lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
   sessionCount: integer('session_count').notNull().default(0),
   version: text('version'),
+  directUrl: text('direct_url'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
