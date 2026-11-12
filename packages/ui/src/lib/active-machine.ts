@@ -62,6 +62,9 @@ export function getActiveMachineId(): string {
 const LOCAL_ONLY_PREFIXES = [
   '/auth',
   '/paired-masters',
+  // Settings → Machines describes the machine the UI runs on, never the one being viewed.
+  '/machines',
+  '/settings/machine-name',
   // Split views live on the machine the UI runs on; their panels name their own machines.
   '/views',
   // SSH hosts, keys and connections are kept on this machine only.
