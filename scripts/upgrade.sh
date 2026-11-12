@@ -76,7 +76,8 @@ log_error() {
 get_current_version() {
     local version
     version=$(docker exec remote-agent bun -e 'console.log(require("/app/package.json").version)' 2>/dev/null || echo "unknown")
-    echo "$version"
+    # Image tags and release tags carry the v prefix.
+    [ "$version" = "unknown" ] && echo "$version" || echo "v${version#v}"
 }
 
 # Get latest version from GitHub Releases API

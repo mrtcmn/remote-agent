@@ -796,6 +796,9 @@ export const api = {
   },
 
   // ── Machines (pairing tokens + paired secondaries) ─────────────────────────
+  /** Update state of one machine; omit the id for the machine the UI runs on. */
+  getUpdateStatus: (machineId = 'self') => request<UpdateStatus>('/update', { machineId }),
+  startUpdate: (machineId = 'self') => request<{ ok: true; target: string }>('/update', { method: 'POST', machineId }),
   getDirectAddress: () => request<DirectAddressInfo>('/settings/direct-address'),
   setDirectAddress: (url: string | null) =>
     request<DirectAddressInfo>('/settings/direct-address', { method: 'PUT', body: JSON.stringify({ url }) }),
@@ -1814,6 +1817,17 @@ export interface PresentationSlide {
 }
 
 // ── Machines types ─────────────────────────────────────────────────────────
+
+export interface UpdateStatus {
+  /** none: the desktop app or a dev checkout, which cannot replace itself. */
+  kind: 'docker' | 'host' | 'none';
+  current: string;
+  latest: string | null;
+  updateAvailable: boolean;
+  state: 'idle' | 'running' | 'ok' | 'failed' | 'rolled-back';
+  detail: string | null;
+  log: string[];
+}
 
 export interface DirectAddressInfo {
   url: string | null;

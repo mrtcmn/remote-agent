@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, ExternalLink, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useVersion } from '@/hooks/useVersion';
+import { UpdateControl } from '@/components/UpdateControl';
 
 const DISMISSED_KEY = 'update-banner-dismissed';
 
@@ -38,12 +39,14 @@ export function UpdateBanner() {
           <span>
             <strong>Update available:</strong> {version.latest}
           </span>
-          <span className="text-muted-foreground hidden sm:inline">
-            Run <code className="bg-muted px-1 py-0.5 rounded text-xs">./upgrade.sh</code> to update
-          </span>
+          {version.mode === 'local' && (
+            <span className="text-muted-foreground hidden sm:inline">Update the desktop app.</span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Shows a button only when this install can replace itself. */}
+          {version.mode !== 'local' && <UpdateControl machineId="self" />}
           {version.releaseUrl && (
             <Button
               variant="ghost"

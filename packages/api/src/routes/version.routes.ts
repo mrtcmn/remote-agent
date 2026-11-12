@@ -51,7 +51,7 @@ async function fetchLatestVersion(): Promise<VersionCache | null> {
 }
 
 // Get cached or fresh version info
-async function getLatestVersion(force: boolean = false): Promise<VersionCache | null> {
+export async function getLatestVersion(force: boolean = false): Promise<VersionCache | null> {
   const now = Date.now();
 
   // Return cached version if still valid and not forced

@@ -44,6 +44,9 @@ services:
     environment:
       # Database
       - DATABASE_URL=postgres://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-remote_agent}
+      # The host's Tailscale address. A container cannot see it, so this seeds the
+      # machine's direct address (Settings → Machines can override it).
+      - TAILSCALE_IP=${TAILSCALE_IP:-}
 
 
       # GitHub OAuth

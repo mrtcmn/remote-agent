@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/Input';
 import { SettingsRow, SettingsSection } from '@/components/ui/SettingsSection';
 import { toast } from '@/components/ui/Toaster';
 import { NetworkMap } from '@/components/NetworkMap';
+import { UpdateControl } from '@/components/UpdateControl';
 
 export function MachinesSection() {
   return (
@@ -76,6 +77,9 @@ function ThisMachineCard() {
           </Button>
         </SettingsRow>
         <DirectAddressRow />
+        <SettingsRow label="Version" description="An update keeps the database, the workspaces and the logins. It makes a database backup first.">
+          <UpdateControl machineId="self" showVersion />
+        </SettingsRow>
       </SettingsSection>
   );
 }
@@ -333,6 +337,7 @@ function MachineRow({
           {lastSeen ? ` · last seen ${lastSeen}` : ''}
         </div>
       </div>
+      {machine.online && <UpdateControl machineId={machine.id} />}
       <Button
         variant="ghost"
         size="sm"
@@ -504,6 +509,7 @@ function PairedMasterRow({
           )}
         </div>
       </div>
+      {healthy && <UpdateControl machineId={master.id} showVersion />}
       <Button
         variant="ghost"
         size="sm"
@@ -533,6 +539,7 @@ function PairedMasterRow({
               {p.sessionCount} {p.sessionCount === 1 ? 'session' : 'sessions'}
               {p.version ? ` · v${p.version}` : ''}
             </span>
+            {p.online && <UpdateControl machineId={p.id} />}
           </div>
         ))}
       </div>
