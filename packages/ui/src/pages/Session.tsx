@@ -157,8 +157,9 @@ export function SessionPage() {
   const [desktop] = useState(isElectron);
   const [browserOpen, setBrowserOpen] = useState(false);
   const { data: browsersData } = useQuery({
-    queryKey: ['browsers'],
-    queryFn: api.getOpenBrowsers,
+    queryKey: ['browsers', id],
+    // Naming the session tells its machine that this desktop can show the panel.
+    queryFn: () => api.getOpenBrowsers(id),
     // Faster while the panel is up: it also carries when the agent is browsing.
     refetchInterval: browserOpen ? 1000 : 3000,
     enabled: desktop,
@@ -1107,6 +1108,7 @@ export function SessionPage() {
                 url={nativeBrowser.url}
                 openedAt={nativeBrowser.at}
                 agentUntil={nativeBrowser.agentUntil}
+                viewer={nativeBrowser.viewer}
                 resizing={resizingBrowser}
                 onClose={async () => {
                   try { await api.closeBrowser(id!); } catch {}

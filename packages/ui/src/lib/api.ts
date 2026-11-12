@@ -590,8 +590,10 @@ export const api = {
   // The agent's browser panel (desktop app): a URL per session, drawn as a CEF webview.
   openBrowser: (sessionId: string, url: string) =>
     request<{ url: string; cdpPort: number }>('/preview/open', { method: 'POST', body: JSON.stringify({ sessionId, url }) }),
-  getOpenBrowsers: () =>
-    request<{ browsers: { sessionId: string; url: string; at: number; agentUntil?: number }[] }>('/preview/open'),
+  /** `viewing`: the session whose panel this desktop shows now, so its machine can reach the panel. */
+  getOpenBrowsers: (viewing?: string) =>
+    request<{ browsers: { sessionId: string; url: string; at: number; agentUntil?: number; viewer?: 'local' | 'remote' | 'none' }[] }>(
+      `/preview/open${viewing ? `?viewing=${encodeURIComponent(viewing)}` : ''}`),
   closeBrowser: (sessionId: string) =>
     request<{ closed: boolean }>(`/preview/open/${sessionId}`, { method: 'DELETE' }),
   getInspectorUrl: (pageUrl: string) =>

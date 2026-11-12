@@ -387,7 +387,7 @@ const TOOLS: Tool[] = [
         if (page) return { url: page.url, cdpPort, drive: `agent-browser --cdp ${cdpPort} snapshot -i` };
         await new Promise((r) => setTimeout(r, 500));
       }
-      throw new Error(`No browser panel on CDP port ${cdpPort} after 15s. Ask the user to open this session in the Remote Agent desktop app.`);
+      throw new Error(`No browser panel is reachable on CDP port ${cdpPort} after 15s. Ask the user to open this session in the Remote Agent desktop app and keep the Browser panel open.`);
     },
   },
   {

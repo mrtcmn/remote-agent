@@ -83,6 +83,7 @@ export function NativeBrowser({
   url,
   openedAt,
   agentUntil = 0,
+  viewer,
   resizing,
   onClose,
 }: {
@@ -91,6 +92,8 @@ export function NativeBrowser({
   openedAt: number;
   /** Until when the agent is driving (server clock, same machine); the cursor shows only then. */
   agentUntil?: number;
+  /** Can the agent reach this panel? `none`: its machine has no path back to this desktop. */
+  viewer?: 'local' | 'remote' | 'none';
   /** While the panel edge is dragged, the native view lets the mouse through. */
   resizing: boolean;
   onClose: () => void;
@@ -182,6 +185,14 @@ export function NativeBrowser({
           spellCheck={false}
           className="mx-1 h-6 min-w-0 flex-1 rounded-md border border-border/60 bg-background px-2 font-mono text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
+        {viewer && (
+          <span
+            title={viewer === 'none' ? 'The machine of this session has no path back to this desktop app.' : 'The agent can drive this panel.'}
+            className={`mr-1 shrink-0 text-[10px] ${viewer === 'none' ? 'text-destructive' : 'text-muted-foreground'}`}
+          >
+            {viewer === 'none' ? 'Agent cannot reach this panel' : 'Agent connected'}
+          </span>
+        )}
         <IconButton label="Inspector" onClick={toggleInspector}><SquareCode className="size-3.5" /></IconButton>
         <IconButton label="Close browser" onClick={onClose}><X className="size-3.5" /></IconButton>
       </div>

@@ -3,6 +3,8 @@ import { browserPreviewService } from '../services/browser-preview';
 import type { ViewportPreset } from '../services/browser-preview';
 import { requireAuth } from '../auth/middleware';
 import { getDefaultPort } from '../config/paths';
+import { isLocalMode } from '../config/mode';
+import { CALLER_MACHINE_HEADER } from '../plugins/machine-proxy';
 
 /** The desktop app's browser panel (a CEF webview) listens here for CDP; its
  *  chromiumFlags in packages/desktop/electrobun.config.ts must match. */
@@ -16,6 +18,28 @@ export function markAgentBrowsing(sessionId: string) {
   const browser = opened.get(sessionId);
   if (browser) browser.agentUntil = Date.now() + 15_000;
 }
+
+// Which desktop app shows a session's browser panel. A panel on another machine
+// polls GET /open through that machine's API, which names itself in a header.
+// ponytail: one viewer per session, last poll wins. Add a picker if two desktops fight over a session.
+const VIEWER_TTL_MS = 10_000;
+interface Viewer { machineId: string; userId: string; at: number }
+const seenAt = new Map<string, Viewer>();
+export const viewers = {
+  seen(sessionId: string, machineId: string, userId: string, now = Date.now()) {
+    seenAt.set(sessionId, { machineId, userId, at: now });
+  },
+  of(sessionId: string, now = Date.now()): Viewer | null {
+    const v = seenAt.get(sessionId);
+    return v && now - v.at < VIEWER_TTL_MS ? v : null;
+  },
+  /** The most recent viewer of any session — the CDP bridge has no session to ask for. */
+  latest(now = Date.now()): Viewer | null {
+    let best: Viewer | null = null;
+    for (const v of seenAt.values()) if (now - v.at < VIEWER_TTL_MS && (!best || v.at > best.at)) best = v;
+    return best;
+  },
+};
 
 export const previewRoutes = new Elysia({ prefix: '/preview' })
   .use(requireAuth)
@@ -69,9 +93,20 @@ export const previewRoutes = new Elysia({ prefix: '/preview' })
   }, {
     body: t.Object({ sessionId: t.String(), url: t.String() }),
   })
-  .get('/open', () => ({
-    browsers: [...opened].map(([sessionId, b]) => ({ sessionId, ...b })),
-  }))
+  .get('/open', ({ query, request, user }) => {
+    const caller = request.headers.get(CALLER_MACHINE_HEADER);
+    if (query.viewing && caller) viewers.seen(query.viewing, caller, user!.id);
+    return {
+      browsers: [...opened].map(([sessionId, b]) => ({
+        sessionId,
+        ...b,
+        // Can the agent reach the panel? local: it is on this machine.
+        viewer: isLocalMode() ? 'local' as const : viewers.of(sessionId) ? 'remote' as const : 'none' as const,
+      })),
+    };
+  }, {
+    query: t.Object({ viewing: t.Optional(t.String()) }),
+  })
   .delete('/open/:sessionId', ({ params }) => ({ closed: opened.delete(params.sessionId) }))
 
   // DevTools for the panel's page. The UI cannot read /json/list itself: CDP

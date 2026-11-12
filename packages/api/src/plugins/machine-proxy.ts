@@ -12,6 +12,16 @@ import { ticketIdentity } from '../services/machines/ticket-auth';
 import { authHeader as targetAuth, directPaths } from '../services/machines/direct-path';
 
 const HEADER_NAME = 'x-machine-id';
+/** Tells the target which of its machines we are, so it can call us back (browser panel CDP). */
+export const CALLER_MACHINE_HEADER = 'x-caller-machine-id';
+
+/** Our own id, as the target can resolve it. */
+function callerIdFor(target: MachineTarget): string {
+  const route = target.kind === 'direct' && target.fallback ? target.fallback : target;
+  // A master knows us by the id it gave us (the paired-master row id). A peer
+  // knows us by our id at the shared hub. A secondary knows us as its master.
+  return route.kind === 'relay' ? route.via : route.machineId;
+}
 const QUERY_NAME = 'machineId';
 
 /** Transport-agnostic far end of a bridged WebSocket. */
@@ -145,9 +155,11 @@ export const machineProxyPlugin = new Elysia({ name: 'machine-proxy' })
         ? null
         : new Uint8Array(await request.arrayBuffer());
 
+      const forward = buildForwardHeaders(request.headers);
+      forward.set(CALLER_MACHINE_HEADER, callerIdFor(target));
       const upstream = await machineFetch(target, `${url.pathname}${url.search}`, {
         method: request.method,
-        headers: buildForwardHeaders(request.headers),
+        headers: forward,
         body,
       });
 

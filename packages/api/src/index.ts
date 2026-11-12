@@ -19,7 +19,11 @@ import { APP_VERSION } from './config/version';
 import { llmSettings } from './services/llm-engine';
 import { sonioxSettings } from './services/soniox';
 import { masterSyncService } from './services/master-sync';
-import { machineProxyPlugin, resolveCallerUserId } from './plugins/machine-proxy';
+import { machineProxyPlugin, resolveCallerUserId, openSocketUpstream, openTunnelUpstream } from './plugins/machine-proxy';
+import { startCdpBridge, PANEL_CDP_PREFIX } from './services/browser-preview/cdp-bridge';
+import { CDP_PORT, viewers } from './routes/preview.routes';
+import { machineFetch } from './services/machines/resolve';
+import { isLocalMode as localMode } from './config/mode';
 import { codeProxy } from './plugins/code-proxy';
 import { resolveMachine } from './services/machines/resolve';
 import { machineRelayPlugin } from './plugins/machine-relay';
@@ -101,6 +105,12 @@ const app = new Elysia()
     onActivity: () => codeServerManager.resetIdleTimer(),
     resolve: resolveMachine,
   }))
+
+  // The desktop app's browser panel, for an agent on another machine: its
+  // /panel-cdp/* is the CEF view's CDP port. Only a desktop has a panel.
+  .use(localMode()
+    ? codeProxy({ prefix: PANEL_CDP_PREFIX, port: CDP_PORT, authorize: resolveCallerUserId })
+    : new Elysia())
 
   // Tunnel endpoint — paired secondaries connect here and hold it open.
   .use(machineTunnelRoute)
@@ -210,3 +220,29 @@ process.on('SIGINT', async () => {
 });
 
 export type App = typeof app;
+
+// A server has no browser panel of its own. Its agents reach the panel of the
+// desktop app that views the session, through this loopback CDP endpoint.
+if (!localMode()) {
+  const reach = async (v: { machineId: string; userId: string }) => {
+    const target = await resolveMachine(v.machineId, v.userId);
+    if (!target) throw new Error('The desktop app is not reachable');
+    return target;
+  };
+  try {
+    startCdpBridge({
+      port: CDP_PORT,
+      viewer: () => viewers.latest(),
+      fetch: async (v, path) => machineFetch(await reach(v), path),
+      openWs: async (v, path, handlers) => {
+        const target = await reach(v);
+        return target.kind === 'tunnel'
+          ? openTunnelUpstream(target.machineId, path, handlers)
+          : openSocketUpstream(target, path, { upstream: null, buffered: [], closed: false }, handlers);
+      },
+    });
+    console.log(`  - CDP bridge: 127.0.0.1:${CDP_PORT} → the viewing desktop app`);
+  } catch (err) {
+    console.warn('[cdp-bridge] not started:', (err as Error).message);
+  }
+}

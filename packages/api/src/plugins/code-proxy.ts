@@ -10,7 +10,9 @@ const HOP_BY_HOP = new Set([
 ]);
 
 interface Opts {
-  /** code-server's loopback port. */
+  /** Path the proxy answers on. Default: /code. */
+  prefix?: string;
+  /** The loopback port behind it (code-server, or the browser panel's CDP). */
   port: number;
   /** Returns the user id, or null to refuse. */
   authorize: (request: Request, address?: string) => Promise<string | null>;
@@ -20,8 +22,6 @@ interface Opts {
   resolve?: (machineId: string, userId: string) => Promise<MachineTarget | null>;
 }
 
-/** /code/m/<machineId>/<rest> → the same /code/<rest> on that machine. */
-const REMOTE = /^\/code\/m\/([^/]+)(\/.*)?$/;
 const protocolsOf = (request: Request) =>
   request.headers.get('sec-websocket-protocol')?.split(',').map((p) => p.trim()).filter(Boolean) ?? [];
 
@@ -33,11 +33,15 @@ interface Bridge { up: WebSocket; queue: (string | Uint8Array)[] }
 const bridges = new Map<object, Bridge>();
 const key = (ws: { raw?: object }) => (ws.raw as object) ?? (ws as object);
 
+/** Reverse proxy for one loopback port, HTTP and WebSocket, behind our login. */
 export function codeProxy(opts: Opts) {
+  const CODE_PREFIX = opts.prefix ?? '/code';
+  /** <prefix>/m/<machineId>/<rest> → the same <prefix>/<rest> on that machine. */
+  const REMOTE = new RegExp(`^${CODE_PREFIX}/m/([^/]+)(/.*)?$`);
   const target = `127.0.0.1:${opts.port}`;
   const strip = (pathname: string) => pathname.slice(CODE_PREFIX.length) || '/';
 
-  return new Elysia({ name: 'code-proxy' })
+  return new Elysia({ name: `port-proxy:${CODE_PREFIX}` })
     // HTTP is handled before routing, so the SPA catch-all never sees it.
     .onRequest(async ({ request, server }) => {
       const url = new URL(request.url);
